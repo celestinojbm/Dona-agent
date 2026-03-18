@@ -8,6 +8,7 @@ Funciona con cualquier proveedor (Whapi, Meta, Twilio) gracias a la capa de prov
 
 import os
 import logging
+import httpx
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
@@ -51,6 +52,34 @@ app = FastAPI(
 async def health_check():
     """Endpoint de salud para Railway/monitoreo."""
     return {"status": "ok", "service": "dona"}
+
+
+@app.get("/diagnostico")
+async def diagnostico():
+    """Prueba la conectividad con Whapi desde Railway."""
+    token = os.getenv("WHAPI_TOKEN", "")
+    resultados = {}
+
+    # Test 1: DNS y TCP a gate.whapi.cloud
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://gate.whapi.cloud/health",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            resultados["whapi_health"] = {"status": r.status_code, "body": r.json()}
+    except Exception as e:
+        resultados["whapi_health"] = {"error": type(e).__name__, "detail": str(e)}
+
+    # Test 2: Conectividad general de Railway
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get("https://httpbin.org/ip")
+            resultados["railway_ip"] = r.json()
+    except Exception as e:
+        resultados["railway_ip"] = {"error": type(e).__name__, "detail": str(e)}
+
+    return resultados
 
 
 @app.get("/webhook")
