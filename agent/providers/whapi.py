@@ -40,7 +40,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
             "Content-Type": "application/json",
         }
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 r = await client.post(
                     self.url_envio,
                     json={"to": telefono, "body": mensaje},
