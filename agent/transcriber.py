@@ -28,7 +28,7 @@ async def descargar_audio_whapi(audio_id: str, token: str) -> bytes | None:
     Returns:
         Bytes del audio, o None si falló
     """
-    url = f"https://gate.whapi.cloud/files/{audio_id}"
+    url = f"https://gate.whapi.cloud/media/{audio_id}"
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
