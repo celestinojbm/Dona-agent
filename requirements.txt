@@ -9,3 +9,4 @@ aiosqlite>=0.19.0
 python-multipart>=0.0.6
 APScheduler>=3.10.0,<4.0
 groq>=0.4.0
+tzdata>=2024.1

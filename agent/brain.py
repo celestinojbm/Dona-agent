@@ -9,7 +9,8 @@ genera respuestas con Claude y maneja tool use para recordatorios.
 import os
 import yaml
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
@@ -68,31 +69,37 @@ def cargar_system_prompt() -> str:
     config = cargar_config_prompts()
     base = config.get("system_prompt", "Eres Dona, una asistente personal útil. Responde en español.")
 
-    from datetime import timedelta
+    # Zona horaria del usuario — configurable via env var, default America/New_York
+    tz_nombre = os.getenv("USER_TIMEZONE", "America/New_York")
+    tz_usuario = ZoneInfo(tz_nombre)
+
     ahora_utc = datetime.now(timezone.utc)
-    ahora_usuario = ahora_utc - timedelta(hours=5)  # UTC-5 (Eastern Time)
+    ahora_local = ahora_utc.astimezone(tz_usuario)
+
+    # Calcular el offset real en horas (respeta DST automáticamente)
+    offset_segundos = ahora_local.utcoffset().total_seconds()
+    offset_horas = int(-offset_segundos / 3600)  # positivo = horas a sumar para ir a UTC
 
     dia_semana = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
-    hoy_nombre = dia_semana[ahora_usuario.weekday()]
-    manana = ahora_usuario + timedelta(days=1)
-    pasado = ahora_usuario + timedelta(days=2)
+    hoy_nombre = dia_semana[ahora_local.weekday()]
+    manana = ahora_local + timedelta(days=1)
+    pasado = ahora_local + timedelta(days=2)
 
     return (
         f"{base}\n\n"
         f"## Fecha y hora actual\n"
-        f"- Hora del usuario: {ahora_usuario.strftime('%Y-%m-%d %H:%M')} ({hoy_nombre})\n"
-        f"- UTC: {ahora_utc.strftime('%Y-%m-%d %H:%M')}\n"
+        f"- Hora del usuario ({tz_nombre}): {ahora_local.strftime('%Y-%m-%d %H:%M')} ({hoy_nombre})\n"
+        f"- UTC: {ahora_utc.strftime('%Y-%m-%d %H:%M')} (offset actual: UTC{int(offset_segundos/3600):+d})\n"
         f"- Mañana es: {manana.strftime('%Y-%m-%d')} ({dia_semana[manana.weekday()]})\n"
         f"- Pasado mañana es: {pasado.strftime('%Y-%m-%d')} ({dia_semana[pasado.weekday()]})\n\n"
-        f"## Cómo interpretar fechas y horas del usuario\n"
-        f"- 'mañana a las 3pm' → {manana.strftime('%Y-%m-%d')}T20:00:00 (UTC)\n"
-        f"- 'en 2 horas' → suma 2 horas a la hora UTC actual\n"
-        f"- 'esta noche a las 8' → {ahora_usuario.strftime('%Y-%m-%d')}T01:00:00 (UTC) si aún no pasó\n"
-        f"- 'el viernes' → calcula el próximo viernes desde hoy\n"
-        f"- Siempre convierte a UTC sumando 5 horas a la hora local del usuario\n\n"
+        f"## Cómo convertir hora local del usuario a UTC\n"
+        f"- Suma {offset_horas} horas a la hora local para obtener UTC\n"
+        f"- Ejemplo: '1:00pm hora local' → '{ahora_local.replace(hour=13, minute=0).astimezone(timezone.utc).strftime('%H:%M')} UTC'\n"
+        f"- 'en 2 horas' → {(ahora_utc + timedelta(hours=2)).strftime('%Y-%m-%dT%H:%M:%S')} UTC\n"
+        f"- 'el viernes' → calcula el próximo viernes desde hoy ({hoy_nombre})\n\n"
         f"## Recordatorios\n"
         f"Cuando el usuario pida que le recuerdes algo, SIEMPRE llama la herramienta `crear_recordatorio`.\n"
-        f"fecha_hora_utc debe ser ISO 8601 sin timezone: '2026-03-21T20:00:00'"
+        f"fecha_hora_utc debe ser ISO 8601 sin timezone: '2026-03-21T17:00:00'"
     )
 
 
