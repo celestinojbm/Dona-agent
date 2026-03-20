@@ -7,7 +7,7 @@ Esto permite cambiar de proveedor sin modificar el resto del código.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fastapi import Request
 
 
@@ -15,9 +15,11 @@ from fastapi import Request
 class MensajeEntrante:
     """Mensaje normalizado — mismo formato sin importar el proveedor."""
     telefono: str       # Número del remitente
-    texto: str          # Contenido del mensaje
+    texto: str          # Contenido del mensaje de texto
     mensaje_id: str     # ID único del mensaje
     es_propio: bool     # True si lo envió el agente (se ignora)
+    audio_id: str = field(default="")       # ID del audio en Whapi (si es nota de voz)
+    audio_mime: str = field(default="")     # Tipo MIME del audio
 
 
 class ProveedorWhatsApp(ABC):

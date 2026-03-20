@@ -68,21 +68,31 @@ def cargar_system_prompt() -> str:
     config = cargar_config_prompts()
     base = config.get("system_prompt", "Eres Dona, una asistente personal útil. Responde en español.")
 
-    # Inyectar fecha/hora actual para que Claude pueda calcular "mañana", "a las 3pm", etc.
-    ahora_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    ahora_local = datetime.now(timezone.utc).replace(tzinfo=None)
-    # Asumir UTC-5 (hora del usuario)
     from datetime import timedelta
-    ahora_usuario = (datetime.now(timezone.utc) - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M")
+    ahora_utc = datetime.now(timezone.utc)
+    ahora_usuario = ahora_utc - timedelta(hours=5)  # UTC-5 (Eastern Time)
+
+    dia_semana = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+    hoy_nombre = dia_semana[ahora_usuario.weekday()]
+    manana = ahora_usuario + timedelta(days=1)
+    pasado = ahora_usuario + timedelta(days=2)
 
     return (
         f"{base}\n\n"
         f"## Fecha y hora actual\n"
-        f"- UTC: {ahora_utc}\n"
-        f"- Hora del usuario (UTC-5): {ahora_usuario}\n\n"
+        f"- Hora del usuario: {ahora_usuario.strftime('%Y-%m-%d %H:%M')} ({hoy_nombre})\n"
+        f"- UTC: {ahora_utc.strftime('%Y-%m-%d %H:%M')}\n"
+        f"- Mañana es: {manana.strftime('%Y-%m-%d')} ({dia_semana[manana.weekday()]})\n"
+        f"- Pasado mañana es: {pasado.strftime('%Y-%m-%d')} ({dia_semana[pasado.weekday()]})\n\n"
+        f"## Cómo interpretar fechas y horas del usuario\n"
+        f"- 'mañana a las 3pm' → {manana.strftime('%Y-%m-%d')}T20:00:00 (UTC)\n"
+        f"- 'en 2 horas' → suma 2 horas a la hora UTC actual\n"
+        f"- 'esta noche a las 8' → {ahora_usuario.strftime('%Y-%m-%d')}T01:00:00 (UTC) si aún no pasó\n"
+        f"- 'el viernes' → calcula el próximo viernes desde hoy\n"
+        f"- Siempre convierte a UTC sumando 5 horas a la hora local del usuario\n\n"
         f"## Recordatorios\n"
-        f"Cuando el usuario pida un recordatorio, SIEMPRE usa la herramienta `crear_recordatorio`.\n"
-        f"Convierte la hora local del usuario (UTC-5) a UTC sumando 5 horas antes de guardar."
+        f"Cuando el usuario pida que le recuerdes algo, SIEMPRE llama la herramienta `crear_recordatorio`.\n"
+        f"fecha_hora_utc debe ser ISO 8601 sin timezone: '2026-03-21T20:00:00'"
     )
 
 

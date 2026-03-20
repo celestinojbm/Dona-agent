@@ -9,6 +9,9 @@ from agent.providers.base import ProveedorWhatsApp, MensajeEntrante
 
 logger = logging.getLogger("agentkit")
 
+# Tipos de mensaje de audio que WhatsApp puede enviar
+TIPOS_AUDIO = {"audio", "voice", "ptt"}
+
 
 class ProveedorWhapi(ProveedorWhatsApp):
     """Proveedor de WhatsApp usando Whapi.cloud (REST API simple)."""
@@ -20,18 +23,18 @@ class ProveedorWhapi(ProveedorWhatsApp):
     async def parsear_webhook(self, request: Request) -> list[MensajeEntrante]:
         """
         Parsea el payload de Whapi.cloud.
-        Soporta dos formatos:
-        - Webhook genérico (/webhook):        {"messages": [{...}, ...]}
-        - Webhook por evento (/webhook/messages): {...mensaje directo...}
+        Soporta mensajes de texto y notas de voz (audio).
+        Formatos:
+        - Webhook genérico:   {"messages": [{...}, ...]}
+        - Webhook por evento: {...mensaje directo...}
         """
         body = await request.json()
         logger.debug(f"Payload Whapi recibido: {body}")
         mensajes = []
 
-        # Formato genérico: {"messages": [...]}
+        # Normalizar a lista
         if "messages" in body:
             lista = body["messages"]
-        # Formato evento específico: el body ES el mensaje directamente
         elif "chat_id" in body:
             lista = [body]
         else:
@@ -39,17 +42,45 @@ class ProveedorWhapi(ProveedorWhatsApp):
             return []
 
         for msg in lista:
-            texto = msg.get("text", {}).get("body", "") if isinstance(msg.get("text"), dict) else ""
-            mensajes.append(MensajeEntrante(
-                telefono=msg.get("chat_id", ""),
-                texto=texto,
-                mensaje_id=msg.get("id", ""),
-                es_propio=msg.get("from_me", False),
-            ))
+            tipo = msg.get("type", "text")
+            telefono = msg.get("chat_id", "")
+            mensaje_id = msg.get("id", "")
+            es_propio = msg.get("from_me", False)
+
+            if tipo == "text":
+                # Mensaje de texto normal
+                texto = msg.get("text", {}).get("body", "") if isinstance(msg.get("text"), dict) else ""
+                mensajes.append(MensajeEntrante(
+                    telefono=telefono,
+                    texto=texto,
+                    mensaje_id=mensaje_id,
+                    es_propio=es_propio,
+                ))
+
+            elif tipo in TIPOS_AUDIO:
+                # Nota de voz — extraer el ID y mime type del audio
+                audio_data = msg.get("audio") or msg.get("voice") or {}
+                if not isinstance(audio_data, dict):
+                    audio_data = {}
+                audio_id = audio_data.get("id", mensaje_id)
+                mime_type = audio_data.get("mime_type", "audio/ogg; codecs=opus")
+                logger.info(f"Nota de voz recibida de {telefono}: id={audio_id}")
+                mensajes.append(MensajeEntrante(
+                    telefono=telefono,
+                    texto="",           # Se llenará tras transcribir
+                    mensaje_id=mensaje_id,
+                    es_propio=es_propio,
+                    audio_id=audio_id,
+                    audio_mime=mime_type,
+                ))
+
+            else:
+                logger.debug(f"Tipo de mensaje ignorado: {tipo}")
+
         return mensajes
 
     async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
-        """Envía mensaje via Whapi.cloud."""
+        """Envía mensaje de texto via Whapi.cloud."""
         if not self.token:
             logger.warning("WHAPI_TOKEN no configurado — mensaje no enviado")
             return False

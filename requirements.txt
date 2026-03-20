@@ -8,3 +8,4 @@ pyyaml>=6.0.1
 aiosqlite>=0.19.0
 python-multipart>=0.0.6
 APScheduler>=3.10.0,<4.0
+openai>=1.0.0

@@ -18,6 +18,7 @@ from agent.brain import generar_respuesta
 from agent.memory import inicializar_db, guardar_mensaje, obtener_historial
 from agent.providers import obtener_proveedor
 from agent.scheduler import iniciar_scheduler, detener_scheduler
+from agent.transcriber import procesar_audio_whapi
 
 load_dotenv()
 
@@ -110,7 +111,24 @@ async def procesar_webhook(request: Request):
         mensajes = await proveedor.parsear_webhook(request)
 
         for msg in mensajes:
-            if msg.es_propio or not msg.texto:
+            if msg.es_propio:
+                continue
+
+            # Si es una nota de voz, transcribirla primero
+            if msg.audio_id and not msg.texto:
+                token = os.getenv("WHAPI_TOKEN", "")
+                logger.info(f"Transcribiendo nota de voz de {msg.telefono}...")
+                texto_transcrito = await procesar_audio_whapi(msg.audio_id, msg.audio_mime, token)
+                if not texto_transcrito:
+                    await proveedor.enviar_mensaje(
+                        msg.telefono,
+                        "No pude entender tu nota de voz 😅 ¿Puedes escribirlo?"
+                    )
+                    continue
+                msg.texto = texto_transcrito
+                logger.info(f"Nota de voz transcrita: \"{texto_transcrito}\"")
+
+            if not msg.texto:
                 continue
 
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
