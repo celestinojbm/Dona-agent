@@ -101,36 +101,23 @@ async def debug_handler(request: Request):
     return {"status": "ok", "body": body.decode("utf-8", errors="replace")}
 
 
-@app.post("/webhook/messages")
-@app.post("/webhook")
-async def webhook_handler(request: Request):
-    """
-    Recibe mensajes de WhatsApp via el proveedor configurado.
-    Procesa el mensaje, genera respuesta con Claude y la envía de vuelta.
-    """
+async def procesar_webhook(request: Request):
+    """Lógica compartida: parsea el mensaje, llama a Claude y responde."""
     try:
-        # Parsear webhook — el proveedor normaliza el formato
         mensajes = await proveedor.parsear_webhook(request)
 
         for msg in mensajes:
-            # Ignorar mensajes propios o vacíos
             if msg.es_propio or not msg.texto:
                 continue
 
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
 
-            # Obtener historial ANTES de guardar el mensaje actual
-            # (brain.py agrega el mensaje actual, evitando duplicados)
             historial = await obtener_historial(msg.telefono)
-
-            # Generar respuesta con Claude
             respuesta = await generar_respuesta(msg.texto, historial)
 
-            # Guardar mensaje del usuario Y respuesta del agente en memoria
             await guardar_mensaje(msg.telefono, "user", msg.texto)
             await guardar_mensaje(msg.telefono, "assistant", respuesta)
 
-            # Enviar respuesta por WhatsApp via el proveedor
             await proveedor.enviar_mensaje(msg.telefono, respuesta)
 
             logger.info(f"Respuesta a {msg.telefono}: {respuesta}")
@@ -139,5 +126,16 @@ async def webhook_handler(request: Request):
 
     except Exception as e:
         logger.error(f"Error en webhook ({type(e).__name__}): {e}", exc_info=True)
-        # Devolvemos 200 para que Whapi/Meta/Twilio no reintenten el webhook
         return {"status": "error", "detail": type(e).__name__}
+
+
+@app.post("/webhook")
+async def webhook_handler(request: Request):
+    """Webhook genérico."""
+    return await procesar_webhook(request)
+
+
+@app.post("/webhook/messages")
+async def webhook_messages_handler(request: Request):
+    """Whapi envía aquí cuando el evento es 'messages' (agrega /messages a la URL base)."""
+    return await procesar_webhook(request)
