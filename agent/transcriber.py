@@ -33,12 +33,13 @@ async def descargar_audio_whapi(audio_id: str, token: str) -> bytes | None:
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
+            logger.info(f"Descargando audio desde: {url}")
             r = await client.get(url, headers=headers)
+            logger.info(f"Respuesta descarga audio: {r.status_code} content-type={r.headers.get('content-type', '?')} bytes={len(r.content)}")
             if r.status_code == 200:
-                logger.info(f"Audio descargado: {len(r.content)} bytes")
                 return r.content
             else:
-                logger.error(f"Error descargando audio de Whapi: {r.status_code} — {r.text}")
+                logger.error(f"Error descargando audio de Whapi: {r.status_code} — {r.text[:200]}")
                 return None
     except Exception as e:
         logger.error(f"Excepción descargando audio ({type(e).__name__}): {e}")

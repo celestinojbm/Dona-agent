@@ -58,13 +58,14 @@ class ProveedorWhapi(ProveedorWhatsApp):
                 ))
 
             elif tipo in TIPOS_AUDIO:
-                # Nota de voz — extraer el ID y mime type del audio
+                # Nota de voz — loguear payload completo para diagnóstico
+                logger.info(f"AUDIO MSG completo: {msg}")
                 audio_data = msg.get("audio") or msg.get("voice") or {}
                 if not isinstance(audio_data, dict):
                     audio_data = {}
                 audio_id = audio_data.get("id", mensaje_id)
                 mime_type = audio_data.get("mime_type", "audio/ogg; codecs=opus")
-                logger.info(f"Nota de voz recibida de {telefono}: id={audio_id}")
+                logger.info(f"Nota de voz de {telefono}: tipo={tipo} audio_id={audio_id} mime={mime_type}")
                 mensajes.append(MensajeEntrante(
                     telefono=telefono,
                     texto="",           # Se llenará tras transcribir
