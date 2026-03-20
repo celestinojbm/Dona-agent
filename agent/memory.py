@@ -41,6 +41,15 @@ class Mensaje(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class TimezoneUsuario(Base):
+    """Zona horaria inferida por usuario — se actualiza automáticamente."""
+    __tablename__ = "timezone_usuarios"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    offset_minutos: Mapped[int] = mapped_column(Integer, default=0)  # ej: -240 para UTC-4
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Recordatorio(Base):
     """Recordatorio programado para enviar al usuario en una fecha/hora específica."""
     __tablename__ = "recordatorios"
@@ -57,6 +66,33 @@ async def inicializar_db():
     """Crea las tablas si no existen."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def guardar_timezone(telefono: str, offset_minutos: int):
+    """Guarda o actualiza el offset de zona horaria de un usuario."""
+    async with async_session() as session:
+        query = select(TimezoneUsuario).where(TimezoneUsuario.telefono == telefono)
+        result = await session.execute(query)
+        registro = result.scalar_one_or_none()
+        if registro:
+            registro.offset_minutos = offset_minutos
+            registro.actualizado = datetime.utcnow()
+        else:
+            session.add(TimezoneUsuario(
+                telefono=telefono,
+                offset_minutos=offset_minutos,
+                actualizado=datetime.utcnow()
+            ))
+        await session.commit()
+
+
+async def obtener_timezone(telefono: str) -> int | None:
+    """Retorna el offset en minutos guardado para este usuario, o None si no existe."""
+    async with async_session() as session:
+        query = select(TimezoneUsuario).where(TimezoneUsuario.telefono == telefono)
+        result = await session.execute(query)
+        registro = result.scalar_one_or_none()
+        return registro.offset_minutos if registro else None
 
 
 async def guardar_mensaje(telefono: str, role: str, content: str):
