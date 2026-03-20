@@ -91,6 +91,16 @@ async def webhook_verificacion(request: Request):
     return {"status": "ok"}
 
 
+@app.post("/debug")
+async def debug_handler(request: Request):
+    """Captura el body crudo de cualquier request — para diagnosticar Whapi."""
+    body = await request.body()
+    headers = dict(request.headers)
+    logger.info(f"DEBUG body: {body.decode('utf-8', errors='replace')}")
+    logger.info(f"DEBUG headers: {headers}")
+    return {"status": "ok", "body": body.decode("utf-8", errors="replace")}
+
+
 @app.post("/webhook/messages")
 @app.post("/webhook")
 async def webhook_handler(request: Request):
