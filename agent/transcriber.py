@@ -1,20 +1,21 @@
-# agent/transcriber.py — Transcripción de notas de voz con OpenAI Whisper
+# agent/transcriber.py — Transcripción de notas de voz con Groq Whisper
 # Generado por AgentKit
 
 """
-Descarga el audio de WhatsApp y lo transcribe a texto usando OpenAI Whisper API.
+Descarga el audio de WhatsApp via Whapi y lo transcribe
+usando Groq's Whisper API (gratuita, sin límite de cuota razonable).
 """
 
 import os
 import io
 import logging
 import httpx
-from openai import AsyncOpenAI
+from groq import AsyncGroq
 
 logger = logging.getLogger("agentkit")
 
-# Cliente de OpenAI para Whisper
-openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Cliente de Groq para Whisper
+groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 async def descargar_audio_whapi(audio_id: str, token: str) -> bytes | None:
@@ -35,7 +36,7 @@ async def descargar_audio_whapi(audio_id: str, token: str) -> bytes | None:
         async with httpx.AsyncClient(timeout=30.0) as client:
             logger.info(f"Descargando audio desde: {url}")
             r = await client.get(url, headers=headers)
-            logger.info(f"Respuesta descarga audio: {r.status_code} content-type={r.headers.get('content-type', '?')} bytes={len(r.content)}")
+            logger.info(f"Audio descargado: {r.status_code} {len(r.content)} bytes")
             if r.status_code == 200:
                 return r.content
             else:
@@ -48,7 +49,7 @@ async def descargar_audio_whapi(audio_id: str, token: str) -> bytes | None:
 
 async def transcribir_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str | None:
     """
-    Transcribe audio a texto usando OpenAI Whisper API.
+    Transcribe audio a texto usando Groq Whisper (gratuito).
 
     Args:
         audio_bytes: Bytes del archivo de audio
@@ -57,8 +58,8 @@ async def transcribir_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") ->
     Returns:
         Texto transcrito, o None si falló
     """
-    if not os.getenv("OPENAI_API_KEY"):
-        logger.warning("OPENAI_API_KEY no configurada — transcripción no disponible")
+    if not os.getenv("GROQ_API_KEY"):
+        logger.warning("GROQ_API_KEY no configurada — transcripción no disponible")
         return None
 
     # Determinar extensión según mime type
@@ -77,24 +78,26 @@ async def transcribir_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") ->
         archivo = io.BytesIO(audio_bytes)
         archivo.name = f"audio.{extension}"
 
-        response = await openai_client.audio.transcriptions.create(
-            model="whisper-1",
+        response = await groq_client.audio.transcriptions.create(
+            model="whisper-large-v3",
             file=archivo,
-            language="es"  # Español
+            language="es",
+            response_format="text"
         )
 
-        texto = response.text.strip()
+        # Groq con response_format="text" devuelve el string directamente
+        texto = response.strip() if isinstance(response, str) else response.text.strip()
         logger.info(f"Audio transcrito: \"{texto[:80]}{'...' if len(texto) > 80 else ''}\"")
         return texto if texto else None
 
     except Exception as e:
-        logger.error(f"Error transcribiendo audio con Whisper ({type(e).__name__}): {e}")
+        logger.error(f"Error transcribiendo audio con Groq Whisper ({type(e).__name__}): {e}")
         return None
 
 
 async def procesar_audio_whapi(audio_id: str, mime_type: str, token: str) -> str | None:
     """
-    Pipeline completo: descarga el audio de Whapi y lo transcribe.
+    Pipeline completo: descarga el audio de Whapi y lo transcribe con Groq Whisper.
 
     Returns:
         Texto transcrito, o None si falló algún paso
