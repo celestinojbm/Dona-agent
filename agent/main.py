@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from agent.brain import generar_respuesta
 from agent.memory import inicializar_db, guardar_mensaje, obtener_historial
 from agent.providers import obtener_proveedor
+from agent.scheduler import iniciar_scheduler, detener_scheduler
 
 load_dotenv()
 
@@ -33,12 +34,14 @@ PORT = int(os.getenv("PORT", 8000))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Inicializa la base de datos al arrancar el servidor."""
+    """Inicializa la base de datos y el scheduler al arrancar el servidor."""
     await inicializar_db()
+    iniciar_scheduler(proveedor)
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor Dona corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
     yield
+    detener_scheduler()
 
 
 app = FastAPI(
@@ -113,7 +116,7 @@ async def procesar_webhook(request: Request):
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
 
             historial = await obtener_historial(msg.telefono)
-            respuesta = await generar_respuesta(msg.texto, historial)
+            respuesta = await generar_respuesta(msg.texto, historial, telefono=msg.telefono)
 
             await guardar_mensaje(msg.telefono, "user", msg.texto)
             await guardar_mensaje(msg.telefono, "assistant", respuesta)
