@@ -18,6 +18,7 @@ class MensajeEntrante:
     texto: str          # Contenido del mensaje de texto
     mensaje_id: str     # ID único del mensaje
     es_propio: bool     # True si lo envió el agente (se ignora)
+    timestamp: int = field(default=0)       # Timestamp Unix UTC del mensaje (de WhatsApp)
     audio_id: str = field(default="")       # ID del audio en Whapi (si es nota de voz)
     audio_mime: str = field(default="")     # Tipo MIME del audio
 

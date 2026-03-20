@@ -61,46 +61,68 @@ def cargar_config_prompts() -> dict:
         return {}
 
 
-def cargar_system_prompt() -> str:
+def construir_contexto_tiempo(timestamp_mensaje: int = 0) -> str:
     """
-    Lee el system prompt desde config/prompts.yaml
-    e inyecta la fecha/hora UTC actual para que Claude calcule tiempos correctamente.
-    """
-    config = cargar_config_prompts()
-    base = config.get("system_prompt", "Eres Dona, una asistente personal útil. Responde en español.")
+    Construye el contexto de fecha/hora para Claude usando el timestamp
+    exacto del mensaje de WhatsApp como punto de referencia.
 
-    # Zona horaria del usuario — configurable via env var, default America/New_York
+    Estrategia:
+    - Tiempos RELATIVOS ("en 10 minutos", "en 2 horas"): suma directamente al timestamp UTC
+      → no necesita zona horaria, siempre correcto
+    - Tiempos ABSOLUTOS ("a las 3pm", "mañana a las 9"): usa la zona horaria configurada,
+      que Claude puede inferir del contexto de la conversación
+    """
+    # Usar el timestamp del mensaje si está disponible, si no el tiempo del servidor
+    if timestamp_mensaje and timestamp_mensaje > 0:
+        ref_utc = datetime.fromtimestamp(timestamp_mensaje, tz=timezone.utc)
+    else:
+        ref_utc = datetime.now(timezone.utc)
+
+    # Zona horaria del usuario (configurable, respeta DST automáticamente)
     tz_nombre = os.getenv("USER_TIMEZONE", "America/New_York")
     tz_usuario = ZoneInfo(tz_nombre)
+    ref_local = ref_utc.astimezone(tz_usuario)
 
-    ahora_utc = datetime.now(timezone.utc)
-    ahora_local = ahora_utc.astimezone(tz_usuario)
-
-    # Calcular el offset real en horas (respeta DST automáticamente)
-    offset_segundos = ahora_local.utcoffset().total_seconds()
-    offset_horas = int(-offset_segundos / 3600)  # positivo = horas a sumar para ir a UTC
+    # Offset real en este momento (respeta DST)
+    offset_seg = ref_local.utcoffset().total_seconds()
+    offset_horas = int(offset_seg / 3600)  # ej: -4 para EDT, -5 para EST
+    offset_str = f"UTC{offset_horas:+d}"   # "UTC-4" o "UTC-5"
 
     dia_semana = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
-    hoy_nombre = dia_semana[ahora_local.weekday()]
-    manana = ahora_local + timedelta(days=1)
-    pasado = ahora_local + timedelta(days=2)
+    hoy = dia_semana[ref_local.weekday()]
+    manana = ref_local + timedelta(days=1)
+    pasado = ref_local + timedelta(days=2)
+
+    # Calcular ejemplos de tiempos relativos en UTC
+    en_10min = ref_utc + timedelta(minutes=10)
+    en_1h    = ref_utc + timedelta(hours=1)
+    en_2h    = ref_utc + timedelta(hours=2)
 
     return (
-        f"{base}\n\n"
-        f"## Fecha y hora actual\n"
-        f"- Hora del usuario ({tz_nombre}): {ahora_local.strftime('%Y-%m-%d %H:%M')} ({hoy_nombre})\n"
-        f"- UTC: {ahora_utc.strftime('%Y-%m-%d %H:%M')} (offset actual: UTC{int(offset_segundos/3600):+d})\n"
-        f"- Mañana es: {manana.strftime('%Y-%m-%d')} ({dia_semana[manana.weekday()]})\n"
-        f"- Pasado mañana es: {pasado.strftime('%Y-%m-%d')} ({dia_semana[pasado.weekday()]})\n\n"
-        f"## Cómo convertir hora local del usuario a UTC\n"
-        f"- Suma {offset_horas} horas a la hora local para obtener UTC\n"
-        f"- Ejemplo: '1:00pm hora local' → '{ahora_local.replace(hour=13, minute=0).astimezone(timezone.utc).strftime('%H:%M')} UTC'\n"
-        f"- 'en 2 horas' → {(ahora_utc + timedelta(hours=2)).strftime('%Y-%m-%dT%H:%M:%S')} UTC\n"
-        f"- 'el viernes' → calcula el próximo viernes desde hoy ({hoy_nombre})\n\n"
-        f"## Recordatorios\n"
-        f"Cuando el usuario pida que le recuerdes algo, SIEMPRE llama la herramienta `crear_recordatorio`.\n"
-        f"fecha_hora_utc debe ser ISO 8601 sin timezone: '2026-03-21T17:00:00'"
+        f"## Referencia de tiempo (momento en que llegó este mensaje)\n"
+        f"- Timestamp del mensaje: {ref_utc.strftime('%Y-%m-%dT%H:%M:%S')} UTC\n"
+        f"- Hora local del usuario: {ref_local.strftime('%Y-%m-%d %H:%M')} ({hoy}, {tz_nombre}, {offset_str})\n"
+        f"- Mañana: {manana.strftime('%Y-%m-%d')} ({dia_semana[manana.weekday()]})\n"
+        f"- Pasado mañana: {pasado.strftime('%Y-%m-%d')} ({dia_semana[pasado.weekday()]})\n\n"
+        f"## Reglas para calcular fecha_hora_utc de recordatorios\n"
+        f"TIEMPOS RELATIVOS — suma directamente al timestamp UTC del mensaje:\n"
+        f"- 'en 10 minutos' → {en_10min.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        f"- 'en 1 hora'     → {en_1h.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        f"- 'en 2 horas'    → {en_2h.strftime('%Y-%m-%dT%H:%M:%S')}\n\n"
+        f"TIEMPOS ABSOLUTOS — convierte hora local a UTC (offset actual = {offset_str}, suma {-offset_horas} horas):\n"
+        f"- '3pm de hoy'           → {ref_local.replace(hour=15, minute=0, second=0).astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        f"- '9am de mañana'        → {manana.replace(hour=9, minute=0, second=0).astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        f"- 'esta noche a las 8pm' → {ref_local.replace(hour=20, minute=0, second=0).astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}\n\n"
+        f"SIEMPRE usa ISO 8601 sin timezone para fecha_hora_utc: '2026-03-21T19:00:00'\n"
+        f"Cuando el usuario pida un recordatorio, llama SIEMPRE la herramienta `crear_recordatorio`."
     )
+
+
+def cargar_system_prompt(timestamp_mensaje: int = 0) -> str:
+    """Lee el system prompt y agrega contexto de tiempo basado en el timestamp del mensaje."""
+    config = cargar_config_prompts()
+    base = config.get("system_prompt", "Eres Dona, una asistente personal útil. Responde en español.")
+    return f"{base}\n\n{construir_contexto_tiempo(timestamp_mensaje)}"
 
 
 def obtener_mensaje_error() -> str:
@@ -113,7 +135,7 @@ def obtener_mensaje_fallback() -> str:
     return config.get("fallback_message", "Hmm, no entendí bien eso 😅 ¿Me lo puedes decir de otra forma?")
 
 
-async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str = "") -> str:
+async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str = "", timestamp_mensaje: int = 0) -> str:
     """
     Genera una respuesta usando Claude API.
     Si Claude detecta un recordatorio, llama la herramienta crear_recordatorio
@@ -130,7 +152,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     if not mensaje or len(mensaje.strip()) < 2:
         return obtener_mensaje_fallback()
 
-    system_prompt = cargar_system_prompt()
+    system_prompt = cargar_system_prompt(timestamp_mensaje)
 
     # Construir lista de mensajes (historial + mensaje actual)
     mensajes = [{"role": m["role"], "content": m["content"]} for m in historial]

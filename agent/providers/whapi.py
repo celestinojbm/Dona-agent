@@ -55,6 +55,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
                     texto=texto,
                     mensaje_id=mensaje_id,
                     es_propio=es_propio,
+                    timestamp=msg.get("timestamp", 0),
                 ))
 
             elif tipo in TIPOS_AUDIO:
@@ -71,6 +72,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
                     texto="",           # Se llenará tras transcribir
                     mensaje_id=mensaje_id,
                     es_propio=es_propio,
+                    timestamp=msg.get("timestamp", 0),
                     audio_id=audio_id,
                     audio_mime=mime_type,
                 ))
