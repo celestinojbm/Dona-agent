@@ -7,6 +7,7 @@ genera respuestas con Claude y maneja tool use para recordatorios.
 """
 
 import os
+import json
 import yaml
 import logging
 from datetime import datetime, timezone, timedelta
@@ -52,7 +53,8 @@ TOOLS = [
         "description": (
             "Guarda un recordatorio para enviarlo automáticamente al usuario "
             "en una fecha y hora específica via WhatsApp. "
-            "Úsala SIEMPRE que el usuario pida que le recuerdes algo en un momento futuro."
+            "Úsala SIEMPRE que el usuario pida que le recuerdes algo en un momento futuro. "
+            "Para recordatorios recurrentes, incluye el campo 'recurrencia'."
         ),
         "input_schema": {
             "type": "object",
@@ -64,13 +66,67 @@ TOOLS = [
                 "fecha_hora_utc": {
                     "type": "string",
                     "description": (
-                        "Fecha y hora en formato ISO 8601 UTC cuando enviar el recordatorio. "
+                        "Fecha y hora en formato ISO 8601 UTC de la PRIMERA (o única) ocurrencia. "
                         "Usa el offset de zona horaria del usuario para convertir hora local a UTC. "
                         "Ejemplo: '2026-03-20T19:00:00'"
+                    )
+                },
+                "recurrencia": {
+                    "type": "object",
+                    "description": (
+                        "Solo para recordatorios que se repiten. Omitir si es único. "
+                        "Ejemplos: "
+                        "{\"tipo\": \"diario\"} — todos los días a la misma hora. "
+                        "{\"tipo\": \"semanal\", \"dia\": 0} — cada lunes (0=lun,1=mar,...,6=dom). "
+                        "{\"tipo\": \"dias_semana\"} — lunes a viernes a la misma hora. "
+                        "{\"tipo\": \"mensual\", \"dia\": 15} — el día 15 de cada mes."
+                    )
+                },
+                "fecha_fin_utc": {
+                    "type": "string",
+                    "description": (
+                        "Solo para recurrentes: fecha límite en ISO 8601 UTC. "
+                        "Después de esta fecha se deja de enviar. Omitir si no tiene fin."
                     )
                 }
             },
             "required": ["mensaje_recordatorio", "fecha_hora_utc"]
+        }
+    },
+    {
+        "name": "listar_recordatorios",
+        "description": (
+            "Muestra al usuario la lista de sus recordatorios activos y futuros. "
+            "Úsala cuando el usuario pregunte por sus recordatorios, "
+            "qué recordatorios tiene, o quiere ver su lista."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "cancelar_recordatorio",
+        "description": (
+            "Cancela uno o más recordatorios del usuario. "
+            "Úsala cuando el usuario quiera borrar, eliminar o cancelar un recordatorio. "
+            "Busca coincidencias en el texto del recordatorio con las palabras clave."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "palabras_clave": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Palabras o frases del mensaje del recordatorio a cancelar. "
+                        "Ejemplo: ['reunión', 'junta'] cancela recordatorios que contengan "
+                        "'reunión' o 'junta'. Al menos una palabra clave."
+                    )
+                }
+            },
+            "required": ["palabras_clave"]
         }
     }
 ]
@@ -201,9 +257,9 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
 
         logger.info(f"Claude respuesta ({response.usage.input_tokens} in / {response.usage.output_tokens} out) stop={response.stop_reason}")
 
-        # Si Claude quiere usar una herramienta (crear recordatorio)
+        # Si Claude quiere usar una herramienta
         if response.stop_reason == "tool_use":
-            return await _manejar_tool_use(response, mensajes, system_prompt, telefono)
+            return await _manejar_tool_use(response, mensajes, system_prompt, telefono, offset_guardado)
 
         # Respuesta de texto normal
         return _extraer_texto(response)
@@ -213,12 +269,15 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         return obtener_mensaje_error()
 
 
-async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str) -> str:
+async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str, offset_guardado: int | None) -> str:
     """
     Ejecuta las herramientas que Claude solicitó y obtiene la respuesta final.
-    Soporta: guardar_zona_horaria, crear_recordatorio.
+    Soporta: guardar_zona_horaria, crear_recordatorio, listar_recordatorios, cancelar_recordatorio.
     """
-    from agent.memory import guardar_recordatorio, guardar_timezone
+    from agent.memory import (
+        guardar_recordatorio, guardar_timezone,
+        obtener_recordatorios_activos, cancelar_recordatorios_por_keyword
+    )
 
     resultados_herramientas = []
 
@@ -226,6 +285,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
         if bloque.type != "tool_use":
             continue
 
+        # ── guardar_zona_horaria ──────────────────────────────────────
         if bloque.name == "guardar_zona_horaria":
             try:
                 offset_min = int(bloque.input["offset_minutos"])
@@ -242,29 +302,97 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 "content": resultado
             })
 
+        # ── crear_recordatorio ────────────────────────────────────────
         elif bloque.name == "crear_recordatorio":
             try:
                 fecha_hora_str = bloque.input["fecha_hora_utc"]
-                # Parsear ISO 8601 — puede venir con o sin microsegundos
                 fecha_hora = datetime.fromisoformat(fecha_hora_str.replace("Z", ""))
                 mensaje_recordatorio = bloque.input["mensaje_recordatorio"]
+
+                # Recurrencia (opcional)
+                recurrencia = bloque.input.get("recurrencia") or None
+
+                # Fecha fin (opcional)
+                fecha_fin = None
+                fecha_fin_str = bloque.input.get("fecha_fin_utc")
+                if fecha_fin_str:
+                    fecha_fin = datetime.fromisoformat(fecha_fin_str.replace("Z", ""))
+
+                # Guardar offset actual del usuario para que el scheduler pueda recalcular
+                offset_snap = offset_guardado
 
                 recordatorio = await guardar_recordatorio(
                     telefono=telefono,
                     mensaje=mensaje_recordatorio,
-                    fecha_hora=fecha_hora
+                    fecha_hora=fecha_hora,
+                    recurrencia=recurrencia,
+                    offset_tz_minutos=offset_snap,
+                    fecha_fin=fecha_fin,
                 )
 
-                hora_local = (fecha_hora.replace(tzinfo=timezone.utc)
-                              .astimezone(None)
-                              .strftime("%Y-%m-%d %H:%M"))
-
-                resultado = f"Recordatorio guardado correctamente. ID: {recordatorio.id}. Se enviará a las {hora_local} (hora UTC)."
-                logger.info(f"Recordatorio #{recordatorio.id} guardado para {telefono} a las {fecha_hora}")
+                tipo_str = "recurrente" if recurrencia else "único"
+                resultado = (
+                    f"Recordatorio {tipo_str} guardado. ID: {recordatorio.id}. "
+                    f"Primera ocurrencia: {fecha_hora.strftime('%Y-%m-%d %H:%M')} UTC."
+                )
+                logger.info(f"Recordatorio #{recordatorio.id} ({tipo_str}) guardado para {telefono} — {fecha_hora}")
 
             except Exception as e:
                 resultado = f"Error al guardar el recordatorio: {e}"
                 logger.error(f"Error guardando recordatorio: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── listar_recordatorios ──────────────────────────────────────
+        elif bloque.name == "listar_recordatorios":
+            try:
+                activos = await obtener_recordatorios_activos(telefono)
+                if not activos:
+                    resultado = "El usuario no tiene recordatorios activos."
+                else:
+                    lineas = []
+                    for r in activos:
+                        fh = r["fecha_hora"]
+                        # Convertir UTC a local si tenemos offset
+                        if offset_guardado is not None:
+                            fh_local = fh + timedelta(minutes=offset_guardado)
+                            fh_str = fh_local.strftime("%d/%m %H:%M")
+                        else:
+                            fh_str = fh.strftime("%d/%m %H:%M") + " UTC"
+                        tipo = r["tipo_str"]
+                        fin_str = ""
+                        if r["fecha_fin"]:
+                            fin_str = f" (hasta {r['fecha_fin'].strftime('%d/%m/%Y')})"
+                        lineas.append(f"- ID {r['id']}: \"{r['mensaje']}\" — {tipo} a las {fh_str}{fin_str}")
+                    resultado = "Recordatorios activos del usuario:\n" + "\n".join(lineas)
+                logger.info(f"Recordatorios listados para {telefono}: {len(activos)} activos")
+            except Exception as e:
+                resultado = f"Error listando recordatorios: {e}"
+                logger.error(f"Error listando recordatorios: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── cancelar_recordatorio ─────────────────────────────────────
+        elif bloque.name == "cancelar_recordatorio":
+            try:
+                palabras = bloque.input.get("palabras_clave", [])
+                cancelados = await cancelar_recordatorios_por_keyword(telefono, palabras)
+                if cancelados:
+                    resultado = f"Cancelados {len(cancelados)} recordatorio(s). IDs: {cancelados}"
+                else:
+                    resultado = "No se encontraron recordatorios activos que coincidan con esas palabras."
+                logger.info(f"Cancelar recordatorio para {telefono} con palabras {palabras}: {cancelados}")
+            except Exception as e:
+                resultado = f"Error cancelando recordatorio: {e}"
+                logger.error(f"Error cancelando recordatorio: {e}")
 
             resultados_herramientas.append({
                 "type": "tool_result",
