@@ -15,7 +15,10 @@ from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 
 from agent.brain import generar_respuesta
-from agent.memory import inicializar_db, guardar_mensaje, obtener_historial
+from agent.memory import (
+    inicializar_db, guardar_mensaje, obtener_historial,
+    obtener_mirofish_estado, guardar_mirofish_estado,
+)
 from agent.providers import obtener_proveedor
 from agent.scheduler import iniciar_scheduler, detener_scheduler
 from agent.transcriber import procesar_audio_whapi
@@ -137,8 +140,17 @@ async def procesar_webhook(request: Request):
             respuesta = await generar_respuesta(
                 msg.texto, historial,
                 telefono=msg.telefono,
-                timestamp_mensaje=msg.timestamp
+                timestamp_mensaje=msg.timestamp,
+                proveedor=proveedor,
             )
+
+            # Actualizar memoria de grafo MiroFish en background si el mensaje tiene contexto relevante
+            import asyncio as _asyncio
+            import agent.mirofish_client as _mf
+            if _mf._disponible() and _tiene_contexto_relevante(msg.texto):
+                _asyncio.create_task(
+                    _actualizar_memoria_mirofish(msg.telefono, msg.texto)
+                )
 
             await guardar_mensaje(msg.telefono, "user", msg.texto)
             await guardar_mensaje(msg.telefono, "assistant", respuesta)
@@ -152,6 +164,53 @@ async def procesar_webhook(request: Request):
     except Exception as e:
         logger.error(f"Error en webhook ({type(e).__name__}): {e}", exc_info=True)
         return {"status": "error", "detail": type(e).__name__}
+
+
+# Palabras clave que indican contexto relevante para el grafo de memoria MiroFish
+_KEYWORDS_CONTEXTO = {
+    "reunión", "reunion", "proyecto", "contrato", "llamada", "cita",
+    "cliente", "socio", "proveedor", "equipo", "empresa", "acuerdo",
+    "presentación", "presentacion", "negociación", "negociacion",
+    "propuesta", "junta", "entrevista", "socio", "alianza",
+}
+
+
+def _tiene_contexto_relevante(texto: str) -> bool:
+    """Retorna True si el mensaje contiene información social/profesional relevante."""
+    texto_lower = texto.lower()
+    return len(texto) > 30 and any(kw in texto_lower for kw in _KEYWORDS_CONTEXTO)
+
+
+async def _actualizar_memoria_mirofish(telefono: str, texto: str):
+    """
+    Construye o actualiza el grafo de conocimiento del usuario en MiroFish.
+    Corre en background — silencioso, sin interrumpir la experiencia del usuario.
+    """
+    import agent.mirofish_client as mf
+
+    try:
+        estado = await obtener_mirofish_estado(telefono)
+        project_id_existente = estado.get("project_id") if estado else None
+
+        # Solo construir grafo nuevo si no tiene uno reciente (o no tiene ninguno)
+        # Evitar reconstruir en cada mensaje — solo si no existe grafo aún
+        if project_id_existente and estado.get("graph_id"):
+            logger.debug(f"MiroFish: usuario {telefono} ya tiene grafo, omitiendo actualización")
+            return
+
+        logger.info(f"MiroFish: construyendo grafo de memoria para {telefono}")
+        project_id, graph_id = await mf.construir_grafo_completo(
+            texto=texto,
+            telefono=telefono,
+            requerimiento="Analiza las relaciones, personas, compromisos y eventos mencionados",
+        )
+
+        if project_id:
+            await guardar_mirofish_estado(telefono, project_id=project_id, graph_id=graph_id)
+            logger.info(f"MiroFish: grafo guardado para {telefono} — project={project_id}, graph={graph_id}")
+
+    except Exception as e:
+        logger.error(f"MiroFish _actualizar_memoria_mirofish error ({telefono}): {e}")
 
 
 @app.post("/webhook")

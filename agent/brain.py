@@ -9,6 +9,7 @@ genera respuestas con Claude y maneja tool use para recordatorios.
 import os
 import json
 import yaml
+import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -104,6 +105,30 @@ TOOLS = [
             "type": "object",
             "properties": {},
             "required": []
+        }
+    },
+    {
+        "name": "simular_escenario",
+        "description": (
+            "Analiza cómo distintas personas o entidades en la vida del usuario reaccionarían "
+            "ante un escenario hipotético. Úsala cuando el usuario pregunta '¿qué pasaría si...?', "
+            "'simula que...', 'cómo reaccionaría X si...', o pide predecir consecuencias sociales "
+            "de una decisión. El análisis toma 1-2 minutos y el resultado llega por este chat."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "escenario": {
+                    "type": "string",
+                    "description": (
+                        "Descripción detallada del escenario a simular en lenguaje natural. "
+                        "Incluye el contexto y las personas/organizaciones relevantes si las conoces. "
+                        "Ejemplo: '¿Qué pasaría si cancelo el contrato con Carlos y le digo "
+                        "que el proyecto se retrasó por problemas técnicos?'"
+                    )
+                }
+            },
+            "required": ["escenario"]
         }
     },
     {
@@ -218,7 +243,7 @@ def obtener_mensaje_fallback() -> str:
     return config.get("fallback_message", "Hmm, no entendí bien eso 😅 ¿Me lo puedes decir de otra forma?")
 
 
-async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str = "", timestamp_mensaje: int = 0) -> str:
+async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str = "", timestamp_mensaje: int = 0, proveedor=None) -> str:
     """
     Genera una respuesta usando Claude API.
     Si Claude detecta un recordatorio, llama la herramienta crear_recordatorio
@@ -259,7 +284,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
 
         # Si Claude quiere usar una herramienta
         if response.stop_reason == "tool_use":
-            return await _manejar_tool_use(response, mensajes, system_prompt, telefono, offset_guardado)
+            return await _manejar_tool_use(response, mensajes, system_prompt, telefono, offset_guardado, proveedor)
 
         # Respuesta de texto normal
         return _extraer_texto(response)
@@ -269,14 +294,16 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         return obtener_mensaje_error()
 
 
-async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str, offset_guardado: int | None) -> str:
+async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str, offset_guardado: int | None, proveedor=None) -> str:
     """
     Ejecuta las herramientas que Claude solicitó y obtiene la respuesta final.
-    Soporta: guardar_zona_horaria, crear_recordatorio, listar_recordatorios, cancelar_recordatorio.
+    Soporta: guardar_zona_horaria, crear_recordatorio, listar_recordatorios,
+             cancelar_recordatorio, simular_escenario.
     """
     from agent.memory import (
         guardar_recordatorio, guardar_timezone,
-        obtener_recordatorios_activos, cancelar_recordatorios_por_keyword
+        obtener_recordatorios_activos, cancelar_recordatorios_por_keyword,
+        obtener_mirofish_estado,
     )
 
     resultados_herramientas = []
@@ -400,6 +427,50 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 "content": resultado
             })
 
+        # ── simular_escenario ─────────────────────────────────────────
+        elif bloque.name == "simular_escenario":
+            try:
+                import agent.mirofish_client as mf
+                if not mf._disponible():
+                    resultado = (
+                        "La función de simulación no está disponible en este momento "
+                        "(MIROFISH_BASE_URL no configurado)."
+                    )
+                else:
+                    estado = await obtener_mirofish_estado(telefono)
+                    project_id = estado.get("project_id") if estado else None
+                    graph_id = estado.get("graph_id") if estado else None
+
+                    if not project_id or not graph_id:
+                        resultado = (
+                            "Aún no tengo suficiente contexto sobre tu vida para simular escenarios. "
+                            "Sigue usando Dona con mensajes sobre tu trabajo, personas y proyectos. "
+                            "En unos días podré hacer simulaciones para ti."
+                        )
+                    else:
+                        escenario = bloque.input["escenario"]
+                        # Arrancar simulación en background — resultado llega por WhatsApp
+                        asyncio.create_task(
+                            _ejecutar_simulacion_background(
+                                telefono=telefono,
+                                project_id=project_id,
+                                graph_id=graph_id,
+                                escenario=escenario,
+                                proveedor=proveedor,
+                            )
+                        )
+                        resultado = "Simulación iniciada. El análisis toma 1-2 minutos — el resultado llega por este chat."
+                        logger.info(f"Simulación MiroFish iniciada en background para {telefono}")
+            except Exception as e:
+                resultado = f"Error al iniciar la simulación: {e}"
+                logger.error(f"Error simular_escenario: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
     # Segunda llamada a Claude con los resultados de las herramientas
     mensajes_con_tool = mensajes + [
         {"role": "assistant", "content": response.content},
@@ -415,6 +486,43 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
     )
 
     return _extraer_texto(respuesta_final)
+
+
+async def _ejecutar_simulacion_background(
+    telefono: str, project_id: str, graph_id: str, escenario: str, proveedor
+):
+    """
+    Corre el pipeline completo de simulación MiroFish y envía el resultado por WhatsApp.
+    Diseñada para ejecutarse como asyncio.create_task (fire and forget).
+    """
+    import agent.mirofish_client as mf
+
+    try:
+        logger.info(f"MiroFish background: iniciando simulación para {telefono}")
+        reporte = await mf.pipeline_simulacion(project_id, graph_id, escenario)
+
+        if reporte and proveedor:
+            # WhatsApp tiene límite práctico ~4000 chars por mensaje
+            if len(reporte) > 3800:
+                reporte = reporte[:3800] + "\n\n_(reporte truncado por límite de WhatsApp)_"
+            mensaje_resultado = f"*Análisis de escenario completado:*\n\n{reporte}"
+            await proveedor.enviar_mensaje(telefono, mensaje_resultado)
+            logger.info(f"MiroFish background: resultado enviado a {telefono}")
+        elif proveedor:
+            await proveedor.enviar_mensaje(
+                telefono,
+                "No pude completar el análisis del escenario. Por favor intenta de nuevo."
+            )
+    except Exception as e:
+        logger.error(f"MiroFish background error para {telefono}: {e}")
+        if proveedor:
+            try:
+                await proveedor.enviar_mensaje(
+                    telefono,
+                    "Hubo un error al analizar el escenario. Intenta de nuevo más tarde."
+                )
+            except Exception:
+                pass
 
 
 def _extraer_texto(response) -> str:

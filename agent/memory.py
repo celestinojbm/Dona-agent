@@ -84,6 +84,16 @@ class Recordatorio(Base):
     ultimo_envio: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
 
+class UsuarioMiroFish(Base):
+    """Estado MiroFish por usuario — project_id y graph_id del grafo de conocimiento."""
+    __tablename__ = "usuario_mirofish"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    project_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    graph_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 async def inicializar_db():
     """Crea las tablas si no existen."""
     async with engine.begin() as conn:
@@ -401,6 +411,47 @@ def _calcular_proxima_ocurrencia(
     except Exception as e:
         logger.error(f"Error calculando próxima ocurrencia: {e}")
         return None
+
+
+async def obtener_mirofish_estado(telefono: str) -> dict | None:
+    """Retorna el estado MiroFish del usuario (project_id, graph_id) o None si no existe."""
+    async with async_session() as session:
+        query = select(UsuarioMiroFish).where(UsuarioMiroFish.telefono == telefono)
+        result = await session.execute(query)
+        registro = result.scalar_one_or_none()
+        if not registro:
+            return None
+        return {
+            "project_id": registro.project_id,
+            "graph_id": registro.graph_id,
+            "actualizado": registro.actualizado,
+        }
+
+
+async def guardar_mirofish_estado(
+    telefono: str,
+    project_id: str | None = None,
+    graph_id: str | None = None,
+):
+    """Guarda o actualiza el estado MiroFish de un usuario."""
+    async with async_session() as session:
+        query = select(UsuarioMiroFish).where(UsuarioMiroFish.telefono == telefono)
+        result = await session.execute(query)
+        registro = result.scalar_one_or_none()
+        if registro:
+            if project_id is not None:
+                registro.project_id = project_id
+            if graph_id is not None:
+                registro.graph_id = graph_id
+            registro.actualizado = datetime.utcnow()
+        else:
+            session.add(UsuarioMiroFish(
+                telefono=telefono,
+                project_id=project_id,
+                graph_id=graph_id,
+                actualizado=datetime.utcnow(),
+            ))
+        await session.commit()
 
 
 async def limpiar_historial(telefono: str):
