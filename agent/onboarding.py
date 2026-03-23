@@ -214,11 +214,17 @@ async def procesar_mensaje_onboarding(telefono: str, texto: str) -> str | None:
             ciudad, pais = _extraer_ciudad_pais(texto)
             from agent.memory import guardar_ubicacion
             await guardar_ubicacion(telefono, ciudad=ciudad, pais=pais)
+            confirmacion = f"¡Perfecto! Registré *{ciudad}* 📍\n\n"
+        else:
+            confirmacion = "¡Listo! Omitiremos la ubicación por ahora.\n\n"
         await guardar_onboarding(telefono, fase=1, paso=0)
-        return MENSAJES[(1, 0)].format(nombre=nombre)
+        return confirmacion + MENSAJES[(1, 0)].format(nombre=nombre)
 
-    # ── Fases 1-3: procesar respuesta y avanzar ───────────────────────────────
+    # ── Fases 1-3: detectar preguntas fuera del flujo antes de avanzar ─────────
     if fase in (1, 2, 3):
+        if _es_pregunta_fuera_de_flujo(texto):
+            # Claude responde la pregunta, el estado de onboarding no avanza
+            return None
         return await _avanzar_fase(telefono, estado, texto)
 
     return None
@@ -334,6 +340,19 @@ def _extraer_ciudad_pais(texto: str) -> tuple[str, str]:
         partes = texto.split(",", 1)
         return partes[0].strip().title(), partes[1].strip().title()
     return texto.strip().title(), ""
+
+
+def _es_pregunta_fuera_de_flujo(texto: str) -> bool:
+    """
+    Detecta si el mensaje es una pregunta que no corresponde al onboarding.
+    En ese caso el mensaje se pasa a Claude sin avanzar el estado.
+    Ejemplos que devuelven True:
+      "¿Sabes dónde vivo?"
+      "Qué hora es?"
+      "¿Puedes ayudarme con algo ahora?"
+    """
+    t = texto.strip()
+    return t.startswith("¿") or t.endswith("?")
 
 
 def _extraer_nombre(texto: str) -> str:
