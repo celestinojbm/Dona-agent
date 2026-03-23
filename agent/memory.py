@@ -27,16 +27,14 @@ if DATABASE_URL.startswith("postgresql://"):
 
 # asyncpg con PostgreSQL requiere SSL explícito y deshabilitar prepared statements
 # (PgBouncer transaction mode — usado por Supabase pooler — no los soporta)
-if DATABASE_URL.startswith("postgresql+asyncpg://"):
+_ES_POSTGRES = DATABASE_URL.startswith("postgresql+asyncpg://")
+if _ES_POSTGRES:
     engine = create_async_engine(
         DATABASE_URL,
-        echo=False,
+        echo=True,   # temporal — ver SQL exacto en logs de Render
         connect_args={
             "ssl": "require",
-            "statement_cache_size": 0,   # requerido para PgBouncer
-            "server_settings": {
-                "search_path": "public",  # Supabase necesita esto explícito
-            },
+            "statement_cache_size": 0,  # requerido para PgBouncer
         },
     )
 else:
@@ -225,15 +223,51 @@ async def _migrar_columnas(conn):
 
 async def inicializar_db():
     """Crea las tablas si no existen y aplica migraciones."""
+    tablas_esperadas = set(Base.metadata.tables.keys())
+    logger.info(f"[DB] Driver: {'PostgreSQL/asyncpg' if _ES_POSTGRES else 'SQLite'}")
+    logger.info(f"[DB] Tablas en metadata ({len(tablas_esperadas)}): {sorted(tablas_esperadas)}")
+
     try:
         async with engine.begin() as conn:
+            # Paso 1: create_all — crea las tablas que no existen
+            logger.info("[DB] Ejecutando create_all...")
             await conn.run_sync(Base.metadata.create_all)
+            logger.info("[DB] create_all completado")
+
+            # Paso 2: verificar qué tablas existen realmente en el schema public
+            if _ES_POSTGRES:
+                resultado = await conn.execute(text(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'public' ORDER BY table_name"
+                ))
+                tablas_en_db = {row[0] for row in resultado.fetchall()}
+                logger.info(f"[DB] Tablas en Supabase/public: {sorted(tablas_en_db)}")
+
+                faltantes = tablas_esperadas - tablas_en_db
+                if faltantes:
+                    logger.warning(f"[DB] Tablas faltantes después de create_all: {sorted(faltantes)}")
+                    # Forzar creación explícita con CREATE TABLE IF NOT EXISTS
+                    for nombre in sorted(faltantes):
+                        tabla = Base.metadata.tables[nombre]
+                        ddl = str(tabla.compile(dialect=conn.dialect)) if hasattr(tabla, "compile") else None
+                        # Usar CreateTable de SQLAlchemy para generar el DDL correcto
+                        from sqlalchemy.schema import CreateTable
+                        ddl_str = str(CreateTable(tabla).compile(conn.dialect))
+                        # Insertar IF NOT EXISTS manualmente
+                        ddl_str = ddl_str.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1)
+                        logger.info(f"[DB] Creando tabla '{nombre}' explícitamente...")
+                        await conn.execute(text(ddl_str))
+                        logger.info(f"[DB] Tabla '{nombre}' creada OK")
+                else:
+                    logger.info("[DB] Todas las tablas presentes en Supabase ✓")
+
+            # Paso 3: migraciones de columnas
             await _migrar_columnas(conn)
-        tablas = [t for t in Base.metadata.tables.keys()]
-        logger.info(f"DB inicializada. Tablas: {tablas}")
+            logger.info("[DB] Migraciones aplicadas")
+
     except Exception as e:
-        logger.error(f"ERROR al inicializar DB: {type(e).__name__}: {e}", exc_info=True)
-        raise  # relanzar para que Render muestre el error y no arranque en estado roto
+        logger.error(f"[DB] ERROR en inicializar_db: {type(e).__name__}: {e}", exc_info=True)
+        raise
 
 
 async def guardar_timezone(telefono: str, offset_minutos: int):
