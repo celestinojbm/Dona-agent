@@ -13,7 +13,9 @@ from agent.memory import (
     obtener_recordatorios_pendientes,
     marcar_recordatorio_enviado,
     registrar_fallo_recordatorio,
+    obtener_usuarios_onboarding_pendientes,
 )
+from agent.onboarding import iniciar_siguiente_fase
 
 logger = logging.getLogger("agentkit")
 
@@ -80,8 +82,26 @@ async def _verificar_y_enviar_recordatorios(proveedor):
         logger.error(f"Error en scheduler de recordatorios ({type(e).__name__}): {e}")
 
 
+async def _verificar_avance_onboarding(proveedor):
+    """
+    Job que corre cada hora.
+    Activa la siguiente fase del onboarding para usuarios que ya esperaron 18+ horas.
+    """
+    try:
+        pendientes = await obtener_usuarios_onboarding_pendientes()
+        if not pendientes:
+            return
+        logger.info(f"Onboarding scheduler: {len(pendientes)} usuario(s) pendiente(s) de avanzar fase")
+        for usuario in pendientes:
+            activado = await iniciar_siguiente_fase(usuario["telefono"], proveedor)
+            if activado:
+                logger.info(f"Onboarding: fase avanzada para {usuario['telefono']}")
+    except Exception as e:
+        logger.error(f"Error en scheduler de onboarding ({type(e).__name__}): {e}")
+
+
 def iniciar_scheduler(proveedor):
-    """Registra el job y arranca el scheduler."""
+    """Registra los jobs y arranca el scheduler."""
     scheduler.add_job(
         _verificar_y_enviar_recordatorios,
         trigger="interval",
@@ -90,8 +110,16 @@ def iniciar_scheduler(proveedor):
         id="verificar_recordatorios",
         replace_existing=True,
     )
+    scheduler.add_job(
+        _verificar_avance_onboarding,
+        trigger="interval",
+        hours=1,
+        args=[proveedor],
+        id="verificar_onboarding",
+        replace_existing=True,
+    )
     scheduler.start()
-    logger.info("Scheduler iniciado — verificando recordatorios cada minuto")
+    logger.info("Scheduler iniciado — recordatorios cada minuto, onboarding cada hora")
 
 
 def detener_scheduler():

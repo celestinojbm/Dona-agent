@@ -84,6 +84,22 @@ class Recordatorio(Base):
     ultimo_envio: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
 
+class UsuarioOnboarding(Base):
+    """Estado del onboarding conversacional por usuario."""
+    __tablename__ = "usuario_onboarding"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(100), default="")      # Nombre capturado en bienvenida
+    fase: Mapped[int] = mapped_column(Integer, default=0)
+    # 0=esperando "sí", 1=fase1 activa, 2=fase2 activa, 3=fase3 activa, 4=completado
+    paso: Mapped[int] = mapped_column(Integer, default=0)
+    # Paso dentro de la fase (0-2). 99=esperando activación del día siguiente.
+    contexto: Mapped[str] = mapped_column(Text, default="")            # Texto acumulado para MiroFish
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completado_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    registrado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class UsuarioMiroFish(Base):
     """Estado MiroFish por usuario — project_id y graph_id del grafo de conocimiento."""
     __tablename__ = "usuario_mirofish"
@@ -411,6 +427,75 @@ def _calcular_proxima_ocurrencia(
     except Exception as e:
         logger.error(f"Error calculando próxima ocurrencia: {e}")
         return None
+
+
+async def obtener_onboarding(telefono: str) -> dict | None:
+    """Retorna el estado de onboarding del usuario, o None si no existe registro."""
+    async with async_session() as session:
+        query = select(UsuarioOnboarding).where(UsuarioOnboarding.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if not r:
+            return None
+        return {
+            "telefono": r.telefono,
+            "nombre": r.nombre,
+            "fase": r.fase,
+            "paso": r.paso,
+            "contexto": r.contexto,
+            "actualizado": r.actualizado,
+            "completado_en": r.completado_en,
+            "registrado_en": r.registrado_en,
+        }
+
+
+async def guardar_onboarding(telefono: str, **kwargs):
+    """Crea o actualiza el estado de onboarding de un usuario."""
+    async with async_session() as session:
+        query = select(UsuarioOnboarding).where(UsuarioOnboarding.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if r:
+            for key, val in kwargs.items():
+                setattr(r, key, val)
+            r.actualizado = datetime.utcnow()
+        else:
+            nuevo = UsuarioOnboarding(
+                telefono=telefono,
+                registrado_en=datetime.utcnow(),
+                actualizado=datetime.utcnow(),
+            )
+            for key, val in kwargs.items():
+                setattr(nuevo, key, val)
+            session.add(nuevo)
+        await session.commit()
+
+
+async def obtener_usuarios_onboarding_pendientes() -> list[dict]:
+    """
+    Retorna usuarios que están en paso=99 (esperando activación del siguiente día)
+    y han pasado al menos 18 horas desde la última actualización.
+    """
+    async with async_session() as session:
+        limite = datetime.utcnow() - timedelta(hours=18)
+        query = (
+            select(UsuarioOnboarding)
+            .where(UsuarioOnboarding.paso == 99)
+            .where(UsuarioOnboarding.fase.in_([1, 2]))
+            .where(UsuarioOnboarding.actualizado <= limite)
+        )
+        result = await session.execute(query)
+        registros = result.scalars().all()
+        return [
+            {
+                "telefono": r.telefono,
+                "nombre": r.nombre,
+                "fase": r.fase,
+                "paso": r.paso,
+                "contexto": r.contexto,
+            }
+            for r in registros
+        ]
 
 
 async def obtener_mirofish_estado(telefono: str) -> dict | None:

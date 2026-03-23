@@ -19,6 +19,7 @@ from agent.memory import (
     inicializar_db, guardar_mensaje, obtener_historial,
     obtener_mirofish_estado, guardar_mirofish_estado,
 )
+from agent.onboarding import procesar_mensaje_onboarding, es_onboarding_activo
 from agent.providers import obtener_proveedor
 from agent.scheduler import iniciar_scheduler, detener_scheduler
 from agent.transcriber import procesar_audio_whapi
@@ -136,6 +137,15 @@ async def procesar_webhook(request: Request):
 
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
 
+            # ── Onboarding: interceptar si el usuario está en el flujo ────────
+            if await es_onboarding_activo(msg.telefono):
+                respuesta_onboarding = await procesar_mensaje_onboarding(msg.telefono, msg.texto)
+                if respuesta_onboarding is not None:
+                    await proveedor.enviar_mensaje(msg.telefono, respuesta_onboarding)
+                    logger.info(f"Onboarding → {msg.telefono}: {respuesta_onboarding[:60]}...")
+                    continue  # No pasar al flujo normal de Dona
+
+            # ── Flujo normal de Dona ──────────────────────────────────────────
             historial = await obtener_historial(msg.telefono)
             respuesta = await generar_respuesta(
                 msg.texto, historial,
