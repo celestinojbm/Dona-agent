@@ -159,6 +159,31 @@ class UsuarioProactividad(Base):
     ultimo_conflict_check: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class EventoComportamiento(Base):
+    """Eventos de comportamiento del usuario — para análisis de patrones semanales."""
+    __tablename__ = "eventos_comportamiento"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    tipo: Mapped[str] = mapped_column(String(50))
+    # Valores: "message_sent", "reminder_created", "reminder_cancelled",
+    #          "proactive_sent", "proactive_engaged"
+    hora_dia: Mapped[int] = mapped_column(Integer)      # 0-23 en hora local del usuario
+    dia_semana: Mapped[int] = mapped_column(Integer)    # 0=lun, 6=dom
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class PerfilAprendizaje(Base):
+    """Perfil de aprendizaje actualizado semanalmente por el analizador de patrones."""
+    __tablename__ = "perfil_aprendizaje"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    perfil: Mapped[str] = mapped_column(Text, default="")   # Texto en lenguaje natural para el prompt
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    eventos_analizados: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class UsuarioMiroFish(Base):
     """Estado MiroFish por usuario — project_id y graph_id del grafo de conocimiento."""
     __tablename__ = "usuario_mirofish"
@@ -935,6 +960,104 @@ async def guardar_mirofish_estado(
                 graph_id=graph_id,
                 actualizado=datetime.utcnow(),
             ))
+        await session.commit()
+
+
+async def guardar_evento_comportamiento(
+    telefono: str, tipo: str, hora_dia: int, dia_semana: int, metadata: dict | None = None
+):
+    """Registra un evento de comportamiento del usuario."""
+    async with async_session() as session:
+        session.add(EventoComportamiento(
+            telefono=telefono,
+            tipo=tipo,
+            hora_dia=hora_dia,
+            dia_semana=dia_semana,
+            metadata_json=json.dumps(metadata) if metadata else None,
+            timestamp=datetime.utcnow(),
+        ))
+        await session.commit()
+
+
+async def obtener_eventos_comportamiento(telefono: str, dias: int = 30) -> list[dict]:
+    """Retorna los eventos de comportamiento de los últimos N días."""
+    async with async_session() as session:
+        desde = datetime.utcnow() - timedelta(days=dias)
+        query = (
+            select(EventoComportamiento)
+            .where(EventoComportamiento.telefono == telefono)
+            .where(EventoComportamiento.timestamp >= desde)
+            .order_by(EventoComportamiento.timestamp)
+        )
+        result = await session.execute(query)
+        return [
+            {
+                "tipo": e.tipo,
+                "hora_dia": e.hora_dia,
+                "dia_semana": e.dia_semana,
+                "metadata": json.loads(e.metadata_json) if e.metadata_json else {},
+                "timestamp": e.timestamp,
+            }
+            for e in result.scalars().all()
+        ]
+
+
+async def contar_eventos_comportamiento(telefono: str, dias: int = 30) -> int:
+    """Cuenta el total de eventos de comportamiento en los últimos N días."""
+    async with async_session() as session:
+        desde = datetime.utcnow() - timedelta(days=dias)
+        query = (
+            select(EventoComportamiento)
+            .where(EventoComportamiento.telefono == telefono)
+            .where(EventoComportamiento.timestamp >= desde)
+        )
+        result = await session.execute(query)
+        return len(result.scalars().all())
+
+
+async def guardar_perfil_aprendizaje(telefono: str, perfil: str, eventos_count: int = 0):
+    """Guarda o actualiza el perfil de aprendizaje del usuario."""
+    async with async_session() as session:
+        query = select(PerfilAprendizaje).where(PerfilAprendizaje.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if r:
+            r.perfil = perfil
+            r.actualizado = datetime.utcnow()
+            r.eventos_analizados = eventos_count
+        else:
+            session.add(PerfilAprendizaje(
+                telefono=telefono,
+                perfil=perfil,
+                actualizado=datetime.utcnow(),
+                eventos_analizados=eventos_count,
+            ))
+        await session.commit()
+
+
+async def obtener_perfil_aprendizaje(telefono: str) -> str | None:
+    """Retorna el perfil de aprendizaje del usuario o None si no existe."""
+    async with async_session() as session:
+        query = select(PerfilAprendizaje).where(PerfilAprendizaje.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        return r.perfil if r and r.perfil else None
+
+
+async def borrar_datos_aprendizaje(telefono: str):
+    """Borra todos los eventos de comportamiento y el perfil del usuario."""
+    async with async_session() as session:
+        # Borrar eventos
+        q1 = select(EventoComportamiento).where(EventoComportamiento.telefono == telefono)
+        r1 = await session.execute(q1)
+        for e in r1.scalars().all():
+            await session.delete(e)
+        # Borrar perfil
+        q2 = select(PerfilAprendizaje).where(PerfilAprendizaje.telefono == telefono)
+        r2 = await session.execute(q2)
+        p = r2.scalar_one_or_none()
+        if p:
+            await session.delete(p)
         await session.commit()
 
 

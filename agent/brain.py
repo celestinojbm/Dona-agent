@@ -231,11 +231,19 @@ def cargar_system_prompt(
     offset_guardado: int | None = None,
     tono_emocional: str = "",
     contexto_emocional: str = "",
+    perfil_aprendizaje: str = "",
 ) -> str:
-    """Lee el system prompt e inyecta contexto de tiempo y estado emocional."""
+    """Lee el system prompt e inyecta contexto de tiempo, estado emocional y perfil de aprendizaje."""
     config = cargar_config_prompts()
     base = config.get("system_prompt", "Eres Dona, una asistente personal útil. Responde en español.")
     partes = [base, construir_contexto_tiempo(timestamp_mensaje, offset_guardado)]
+    if perfil_aprendizaje:
+        partes.append(
+            f"## Perfil de aprendizaje (comportamiento real observado)\n"
+            f"{perfil_aprendizaje}\n"
+            f"Usa este perfil para personalizar horarios, tipo de sugerencias y tono. "
+            f"Nunca menciones que estás 'aprendiendo' o 'analizando' al usuario — hazlo de forma natural."
+        )
     if tono_emocional:
         partes.append(f"## Tono para este mensaje\n{tono_emocional}")
     if contexto_emocional:
@@ -271,7 +279,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         return obtener_mensaje_fallback()
 
     # ── Detección emocional (paralela con carga de timezone) ─────────────────
-    from agent.memory import obtener_timezone, obtener_onboarding, obtener_estado_emocional
+    from agent.memory import obtener_timezone, obtener_onboarding, obtener_estado_emocional, obtener_perfil_aprendizaje
     from agent.emotion import (
         detectar_emocion, obtener_instrucciones_tono,
         obtener_contexto_emocional_str, MENSAJE_CRISIS,
@@ -280,9 +288,10 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     async def _none():
         return None
 
-    offset_guardado, estado_onboarding = await asyncio.gather(
+    offset_guardado, estado_onboarding, perfil_aprendizaje = await asyncio.gather(
         obtener_timezone(telefono) if telefono else _none(),
         obtener_onboarding(telefono) if telefono else _none(),
+        obtener_perfil_aprendizaje(telefono) if telefono else _none(),
     )
 
     contexto_usuario = estado_onboarding.get("contexto", "") if estado_onboarding else ""
@@ -318,6 +327,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         timestamp_mensaje, offset_guardado,
         tono_emocional=tono_emocional,
         contexto_emocional=ctx_emocional,
+        perfil_aprendizaje=perfil_aprendizaje or "",
     )
 
     # Construir lista de mensajes (historial + mensaje actual)

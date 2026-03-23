@@ -21,6 +21,7 @@ from agent.memory import (
     obtener_ubicacion, guardar_ubicacion, guardar_ciudad_temporal,
 )
 from agent.location import parece_viaje, detectar_viaje, es_ciudad_suelta
+from agent.learning import registrar_interaccion
 from agent.onboarding import procesar_mensaje_onboarding, es_onboarding_activo
 from agent.proactivity import es_comando_proactividad, manejar_comando_proactividad
 from agent.memory import (
@@ -212,6 +213,11 @@ async def procesar_webhook(request: Request):
                 _verificar_sobrecarga(msg.telefono, proveedor)
             )
 
+            # Registrar interacción para aprendizaje continuo (background)
+            _asyncio.create_task(
+                _registrar_interaccion_aprendizaje(msg.telefono, len(msg.texto))
+            )
+
         return {"status": "ok"}
 
     except Exception as e:
@@ -297,6 +303,24 @@ async def _actualizar_memoria_mirofish(telefono: str, texto: str):
 
     except Exception as e:
         logger.error(f"MiroFish _actualizar_memoria_mirofish error ({telefono}): {e}")
+
+
+async def _registrar_interaccion_aprendizaje(telefono: str, longitud_mensaje: int):
+    """
+    Registra el evento de mensaje enviado para el aprendizaje continuo.
+    Carga el offset del usuario para convertir hora UTC a hora local.
+    """
+    try:
+        from agent.memory import obtener_timezone
+        offset = await obtener_timezone(telefono) or 0
+        await registrar_interaccion(
+            telefono,
+            "message_sent",
+            metadata={"longitud": longitud_mensaje},
+            offset_min=offset,
+        )
+    except Exception as e:
+        logger.debug(f"_registrar_interaccion_aprendizaje ({telefono}): {e}")
 
 
 async def _detectar_y_guardar_viaje(telefono: str, texto: str):

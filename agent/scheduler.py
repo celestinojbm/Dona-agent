@@ -17,6 +17,7 @@ from agent.memory import (
 )
 from agent.onboarding import iniciar_siguiente_fase
 from agent.proactivity import verificar_proactividad
+from agent.learning import actualizar_perfiles_todos
 
 logger = logging.getLogger("agentkit")
 
@@ -127,8 +128,17 @@ def iniciar_scheduler(proveedor):
         id="verificar_proactividad",
         replace_existing=True,
     )
+    scheduler.add_job(
+        actualizar_perfiles_todos,
+        trigger="cron",
+        day_of_week="sun",
+        hour=23,
+        minute=0,
+        id="actualizar_perfiles_aprendizaje",
+        replace_existing=True,
+    )
     scheduler.start()
-    logger.info("Scheduler iniciado — recordatorios cada minuto, onboarding y proactividad cada hora")
+    logger.info("Scheduler iniciado — recordatorios cada minuto, onboarding y proactividad cada hora, aprendizaje los domingos")
 
 
 def detener_scheduler():

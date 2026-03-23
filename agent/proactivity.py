@@ -37,6 +37,8 @@ COMANDOS_PROACTIVIDAD = {
     "dona activa",
     "dona resumen",
     "dona semana",
+    "dona olvida mis patrones",
+    "dona olvida patrones",
 }
 
 
@@ -73,6 +75,15 @@ async def manejar_comando_proactividad(telefono: str, texto: str) -> str:
         nombre = estado.get("nombre", "") if estado else ""
         contexto = estado.get("contexto", "") if estado else ""
         return await _generar_weekly_review(telefono, nombre, contexto)
+
+    if cmd in ("dona olvida mis patrones", "dona olvida patrones"):
+        from agent.memory import borrar_datos_aprendizaje
+        await borrar_datos_aprendizaje(telefono)
+        return (
+            "Listo, borré todos tus datos de comportamiento y tu perfil de aprendizaje. "
+            "Empiezo desde cero 🗑️\n\n"
+            "Seguiré aprendiendo de tus interacciones a partir de ahora."
+        )
 
     return "No reconocí ese comando."
 
