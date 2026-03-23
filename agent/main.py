@@ -18,7 +18,9 @@ from agent.brain import generar_respuesta
 from agent.memory import (
     inicializar_db, guardar_mensaje, obtener_historial,
     obtener_mirofish_estado, guardar_mirofish_estado,
+    obtener_ubicacion, guardar_ubicacion, guardar_ciudad_temporal,
 )
+from agent.location import parece_viaje, detectar_viaje, es_ciudad_suelta
 from agent.onboarding import procesar_mensaje_onboarding, es_onboarding_activo
 from agent.proactivity import es_comando_proactividad, manejar_comando_proactividad
 from agent.memory import (
@@ -157,6 +159,29 @@ async def procesar_webhook(request: Request):
                     logger.info(f"Onboarding → {msg.telefono}: {respuesta_onboarding[:60]}...")
                     continue  # No pasar al flujo normal de Dona
 
+            # ── Bug fix: capturar ciudad si el usuario no tiene una configurada ─
+            # Si el mensaje es corto (≤4 palabras) y parece un nombre de ciudad,
+            # guardarlo como ciudad base sin pasar el mensaje a Claude.
+            ub = await obtener_ubicacion(msg.telefono)
+            if not ub or not ub.get("ciudad"):
+                if len(msg.texto.strip().split()) <= 4:
+                    ciudad_detectada = await es_ciudad_suelta(msg.texto)
+                    if ciudad_detectada:
+                        await guardar_ubicacion(msg.telefono, ciudad=ciudad_detectada)
+                        await proveedor.enviar_mensaje(
+                            msg.telefono,
+                            f"Perfecto, guardé *{ciudad_detectada}* como tu ciudad 🌍\n"
+                            f"A partir de mañana incluiré el clima en tu resumen matutino.",
+                        )
+                        logger.info(f"Ciudad base guardada para {msg.telefono}: {ciudad_detectada}")
+                        continue
+
+            # ── Detección de viaje (ciudad temporal con expiración) ───────────
+            # Pre-filtro barato antes de llamar al LLM — solo si hay keywords de viaje
+            if parece_viaje(msg.texto):
+                import asyncio as _asyncio
+                _asyncio.create_task(_detectar_y_guardar_viaje(msg.telefono, msg.texto))
+
             # ── Flujo normal de Dona ──────────────────────────────────────────
             historial = await obtener_historial(msg.telefono)
             respuesta = await generar_respuesta(
@@ -272,6 +297,23 @@ async def _actualizar_memoria_mirofish(telefono: str, texto: str):
 
     except Exception as e:
         logger.error(f"MiroFish _actualizar_memoria_mirofish error ({telefono}): {e}")
+
+
+async def _detectar_y_guardar_viaje(telefono: str, texto: str):
+    """
+    Detecta viaje en el texto y guarda la ciudad temporal.
+    Corre en background — no bloquea la respuesta principal.
+    """
+    try:
+        viaje = await detectar_viaje(texto)
+        if viaje:
+            await guardar_ciudad_temporal(telefono, viaje["ciudad"], viaje["dias"])
+            logger.info(
+                f"Ciudad temporal guardada para {telefono}: "
+                f"{viaje['ciudad']} ({viaje['dias']} días)"
+            )
+    except Exception as e:
+        logger.debug(f"_detectar_y_guardar_viaje ({telefono}): {e}")
 
 
 @app.post("/webhook")

@@ -124,10 +124,21 @@ async def verificar_proactividad(proveedor):
 
 
 async def _obtener_ubicacion_usuario(telefono: str) -> dict:
-    """Retorna ubicación del usuario (ciudad, pais, industria) con defaults vacíos."""
-    from agent.memory import obtener_ubicacion
+    """
+    Retorna ubicación del usuario con la ciudad efectiva (temporal si de viaje, base si no).
+    """
+    from agent.memory import obtener_ubicacion, obtener_ciudad_actual
     ub = await obtener_ubicacion(telefono)
-    return ub or {"ciudad": None, "pais": None, "industria": None}
+    if not ub:
+        return {"ciudad": None, "pais": None, "industria": None}
+    # Usar ciudad efectiva (viaje temporal tiene prioridad)
+    ciudad_efectiva = await obtener_ciudad_actual(telefono)
+    return {
+        "ciudad": ciudad_efectiva,          # Puede ser temporal (viaje) o permanente
+        "ciudad_base": ub.get("ciudad"),    # Siempre la de residencia
+        "pais": ub.get("pais"),
+        "industria": ub.get("industria"),
+    }
 
 
 async def _evaluar_disparadores(usuario: dict, ahora_local: datetime, offset_min: int) -> str | None:

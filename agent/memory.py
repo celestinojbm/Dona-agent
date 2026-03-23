@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Text, DateTime, select, Integer, Boolean, update
+from sqlalchemy import String, Text, DateTime, select, Integer, Boolean, update, text
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -89,9 +89,11 @@ class UsuarioUbicacion(Base):
     __tablename__ = "usuario_ubicacion"
 
     telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
-    ciudad: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ciudad: Mapped[str | None] = mapped_column(String(100), nullable=True)           # Ciudad de residencia (permanente)
     pais: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    industria: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Inferida del contexto
+    industria: Mapped[str | None] = mapped_column(String(100), nullable=True)        # Inferida del contexto
+    ciudad_actual: Mapped[str | None] = mapped_column(String(100), nullable=True)    # Ciudad temporal (viaje)
+    ciudad_actual_expira: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # Cuándo vuelve a residencia
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -167,10 +169,24 @@ class UsuarioMiroFish(Base):
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+async def _migrar_columnas(conn):
+    """Agrega columnas nuevas a tablas existentes (seguro si ya existen)."""
+    migraciones = [
+        "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual VARCHAR(100)",
+        "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual_expira TIMESTAMP",
+    ]
+    for sql in migraciones:
+        try:
+            await conn.execute(text(sql))
+        except Exception:
+            pass  # La columna ya existe — ignorar
+
+
 async def inicializar_db():
-    """Crea las tablas si no existen."""
+    """Crea las tablas si no existen y aplica migraciones."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrar_columnas(conn)
 
 
 async def guardar_timezone(telefono: str, offset_minutos: int):
@@ -487,14 +503,83 @@ def _calcular_proxima_ocurrencia(
 
 
 async def obtener_ubicacion(telefono: str) -> dict | None:
-    """Retorna ciudad, país e industria del usuario, o None si no existe."""
+    """Retorna ciudad, país, industria y datos de ciudad temporal del usuario, o None si no existe."""
     async with async_session() as session:
         query = select(UsuarioUbicacion).where(UsuarioUbicacion.telefono == telefono)
         result = await session.execute(query)
         r = result.scalar_one_or_none()
         if not r:
             return None
-        return {"ciudad": r.ciudad, "pais": r.pais, "industria": r.industria}
+        return {
+            "ciudad": r.ciudad,
+            "pais": r.pais,
+            "industria": r.industria,
+            "ciudad_actual": r.ciudad_actual,
+            "ciudad_actual_expira": r.ciudad_actual_expira,
+        }
+
+
+async def obtener_ciudad_actual(telefono: str) -> str | None:
+    """
+    Retorna la ciudad efectiva del usuario para clima/tráfico.
+    Prioriza la ciudad temporal (viaje) si está activa.
+    Al expirar, limpia automáticamente y retorna la ciudad de residencia.
+    """
+    async with async_session() as session:
+        query = select(UsuarioUbicacion).where(UsuarioUbicacion.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if not r:
+            return None
+
+        ahora = datetime.utcnow()
+
+        # Ciudad temporal activa y vigente
+        if r.ciudad_actual and r.ciudad_actual_expira and ahora < r.ciudad_actual_expira:
+            return r.ciudad_actual
+
+        # Ciudad temporal expirada — limpiarla
+        if r.ciudad_actual and r.ciudad_actual_expira and ahora >= r.ciudad_actual_expira:
+            r.ciudad_actual = None
+            r.ciudad_actual_expira = None
+            r.actualizado = ahora
+            await session.commit()
+
+        return r.ciudad
+
+
+async def guardar_ciudad_temporal(telefono: str, ciudad: str, dias: int = 3):
+    """Guarda una ciudad temporal (viaje) con expiración automática."""
+    expira = datetime.utcnow() + timedelta(days=max(1, min(dias, 30)))
+    async with async_session() as session:
+        query = select(UsuarioUbicacion).where(UsuarioUbicacion.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if r:
+            r.ciudad_actual = ciudad
+            r.ciudad_actual_expira = expira
+            r.actualizado = datetime.utcnow()
+        else:
+            session.add(UsuarioUbicacion(
+                telefono=telefono,
+                ciudad_actual=ciudad,
+                ciudad_actual_expira=expira,
+                actualizado=datetime.utcnow(),
+            ))
+        await session.commit()
+
+
+async def limpiar_ciudad_temporal(telefono: str):
+    """Borra la ciudad temporal del usuario (volvió de viaje)."""
+    async with async_session() as session:
+        query = select(UsuarioUbicacion).where(UsuarioUbicacion.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if r:
+            r.ciudad_actual = None
+            r.ciudad_actual_expira = None
+            r.actualizado = datetime.utcnow()
+            await session.commit()
 
 
 async def guardar_ubicacion(telefono: str, ciudad: str | None = None, pais: str | None = None, industria: str | None = None):
