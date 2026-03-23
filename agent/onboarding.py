@@ -222,7 +222,7 @@ async def procesar_mensaje_onboarding(telefono: str, texto: str) -> str | None:
 
     # ── Fases 1-3: detectar preguntas fuera del flujo antes de avanzar ─────────
     if fase in (1, 2, 3):
-        if _es_pregunta_fuera_de_flujo(texto):
+        if _es_mensaje_fuera_de_flujo(texto):
             # Claude responde la pregunta, el estado de onboarding no avanza
             return None
         return await _avanzar_fase(telefono, estado, texto)
@@ -342,17 +342,37 @@ def _extraer_ciudad_pais(texto: str) -> tuple[str, str]:
     return texto.strip().title(), ""
 
 
-def _es_pregunta_fuera_de_flujo(texto: str) -> bool:
+# Palabras/frases cortas que no son respuestas reales al onboarding
+_RESPUESTAS_TRIVIALES = {
+    "hola", "hola!", "hello", "hi", "hey", "buenas", "buen día", "buenos días",
+    "ok", "okay", "okey", "ok!", "vale",
+    "bien", "muy bien", "genial", "perfecto", "excelente", "increíble",
+    "gracias", "gracias!", "muchas gracias", "thank you", "thanks",
+    "sí", "si", "sí!", "si!", "no", "no sé", "no se",
+    "claro", "entendido", "listo", "dale", "va", "va!",
+    "jaja", "jajaja", "jeje", "jejeje", "lol",
+    "👍", "🙌", "😊", "😄", "❤️", "🔥",
+}
+
+
+def _es_mensaje_fuera_de_flujo(texto: str) -> bool:
     """
-    Detecta si el mensaje es una pregunta que no corresponde al onboarding.
-    En ese caso el mensaje se pasa a Claude sin avanzar el estado.
-    Ejemplos que devuelven True:
-      "¿Sabes dónde vivo?"
-      "Qué hora es?"
-      "¿Puedes ayudarme con algo ahora?"
+    Detecta mensajes que no son respuestas reales al onboarding.
+    En esos casos el mensaje se pasa a Claude sin avanzar el estado.
+
+    Devuelve True si:
+    - Es una pregunta (empieza con ¿ o termina con ?)
+    - Es un saludo, agradecimiento o respuesta trivial de ≤ 3 palabras
     """
     t = texto.strip()
-    return t.startswith("¿") or t.endswith("?")
+    # Preguntas directas
+    if t.startswith("¿") or t.endswith("?"):
+        return True
+    # Mensajes cortos triviales (normalizar quitando signos de puntuación)
+    t_norm = t.lower().rstrip("!.,;:")
+    if len(t_norm.split()) <= 3 and t_norm in _RESPUESTAS_TRIVIALES:
+        return True
+    return False
 
 
 def _extraer_nombre(texto: str) -> str:
