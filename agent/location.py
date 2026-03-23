@@ -33,6 +33,12 @@ _NO_CIUDADES = {
     "ya", "ahí", "aquí", "ahi", "aqui",
 }
 
+# Primera palabra de frases que nunca son solo el nombre de una ciudad
+_VERBOS_INICIO_FRASE = {
+    "vivo", "soy", "estoy", "me", "mi", "yo", "resido", "nací", "naci",
+    "tengo", "vive", "viven", "somos", "vivimos",
+}
+
 
 def parece_viaje(texto: str) -> bool:
     """Pre-filtro barato: ¿el texto menciona viaje o ubicación temporal?"""
@@ -107,6 +113,10 @@ async def es_ciudad_suelta(texto: str) -> str | None:
 
     # Debe ser ≤ 4 palabras y ≥ 3 caracteres
     if not palabras or len(palabras) > 4 or len(texto.strip()) < 3:
+        return None
+
+    # Si empieza con verbo o pronombre, es una oración — no es solo el nombre de una ciudad
+    if palabras[0].lower() in _VERBOS_INICIO_FRASE:
         return None
 
     # Al menos una palabra con inicial mayúscula (ciudades suelen capitalizar)

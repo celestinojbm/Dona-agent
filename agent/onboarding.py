@@ -306,17 +306,32 @@ async def iniciar_siguiente_fase(telefono: str, proveedor) -> bool:
 
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
 
+_PREFIJOS_UBICACION = (
+    "vivo en el ", "vivo en la ", "vivo en ",
+    "soy de el ", "soy de la ", "soy del ", "soy de ",
+    "estoy en el ", "estoy en la ", "estoy en ",
+    "me encuentro en ", "resido en el ", "resido en la ", "resido en ",
+    "mi ciudad es ", "mi ciudad natal es ",
+)
+
+
 def _extraer_ciudad_pais(texto: str) -> tuple[str, str]:
     """
     Extrae ciudad y país de un texto libre.
-    Ej: "Ciudad de México, México" → ("Ciudad de México", "México")
-    Ej: "Bogotá"                   → ("Bogotá", "")
+    Ej: "Ciudad de México, México"  → ("Ciudad de México", "México")
+    Ej: "Bogotá"                    → ("Bogotá", "")
+    Ej: "Vivo en Altamonte springs" → ("Altamonte Springs", "")
     """
     texto = texto.strip()
+    texto_lower = texto.lower()
+    for prefijo in _PREFIJOS_UBICACION:
+        if texto_lower.startswith(prefijo):
+            texto = texto[len(prefijo):]  # quitar prefijo, conservar capitalización original
+            break
     if "," in texto:
         partes = texto.split(",", 1)
         return partes[0].strip().title(), partes[1].strip().title()
-    return texto.title(), ""
+    return texto.strip().title(), ""
 
 
 def _extraer_nombre(texto: str) -> str:
