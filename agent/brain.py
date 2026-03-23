@@ -175,8 +175,13 @@ def construir_contexto_tiempo(timestamp_mensaje: int = 0, offset_guardado: int |
     - Tiempos ABSOLUTOS: usa el offset guardado del usuario (inferido previamente)
       o el USER_TIMEZONE como fallback inicial
     """
-    ref_utc = (datetime.fromtimestamp(timestamp_mensaje, tz=timezone.utc)
-               if timestamp_mensaje and timestamp_mensaje > 0
+    # Whapi envía segundos Unix. Si llega en milisegundos (>1e11), convertir.
+    ts = timestamp_mensaje or 0
+    if ts > 1_000_000_000_000:   # milisegundos → segundos
+        ts = ts // 1000
+
+    ref_utc = (datetime.fromtimestamp(ts, tz=timezone.utc)
+               if ts > 0
                else datetime.now(timezone.utc))
 
     # Determinar offset: primero el guardado por usuario, luego la env var
@@ -184,7 +189,7 @@ def construir_contexto_tiempo(timestamp_mensaje: int = 0, offset_guardado: int |
         offset_seg = offset_guardado * 60
         offset_horas = offset_guardado // 60
         ref_local = ref_utc + timedelta(seconds=offset_seg)
-        origen_tz = f"inferido (UTC{offset_horas:+d})"
+        origen_tz = f"UTC{offset_horas:+d}"
     else:
         tz_nombre = os.getenv("USER_TIMEZONE", "America/New_York")
         tz_usuario = ZoneInfo(tz_nombre)
@@ -196,6 +201,8 @@ def construir_contexto_tiempo(timestamp_mensaje: int = 0, offset_guardado: int |
     offset_str = f"UTC{offset_horas:+d}"
     dia_semana = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
     hoy = dia_semana[ref_local.weekday()]
+    hora_local_str = ref_local.strftime("%I:%M %p").lstrip("0")   # "7:37 PM"
+    fecha_local_str = ref_local.strftime("%Y-%m-%d")
     manana = ref_local + timedelta(days=1)
     pasado = ref_local + timedelta(days=2)
     en_10min = ref_utc + timedelta(minutes=10)
@@ -206,9 +213,17 @@ def construir_contexto_tiempo(timestamp_mensaje: int = 0, offset_guardado: int |
                  else "⚠ zona horaria estimada — si el usuario menciona la hora actual, llama `guardar_zona_horaria`")
 
     return (
-        f"## Referencia de tiempo del mensaje\n"
+        # ── Instrucción autoritativa de hora — DEBE ir primero ─────────────────
+        f"## ⚠️ HORA ACTUAL DEL USUARIO\n"
+        f"**{hora_local_str} ({hoy} {fecha_local_str}, {offset_str})**\n"
+        f"INSTRUCCIÓN CRÍTICA: Si el usuario pregunta qué hora es, responde EXACTAMENTE "
+        f"con **{hora_local_str}**. "
+        f"NUNCA uses horas mencionadas en el historial — esas son horas pasadas. "
+        f"La única hora válida y actual es la de este system prompt.\n\n"
+        # ── Referencia técnica ──────────────────────────────────────────────────
+        f"## Referencia de tiempo\n"
         f"- Timestamp UTC: {ref_utc.strftime('%Y-%m-%dT%H:%M:%S')}\n"
-        f"- Hora local estimada: {ref_local.strftime('%Y-%m-%d %H:%M')} ({hoy}, {offset_str}, {origen_tz})\n"
+        f"- Hora local: {ref_local.strftime('%Y-%m-%d %H:%M')} ({origen_tz})\n"
         f"- Estado zona horaria: {tz_status}\n"
         f"- Mañana: {manana.strftime('%Y-%m-%d')} ({dia_semana[manana.weekday()]})\n"
         f"- Pasado mañana: {pasado.strftime('%Y-%m-%d')} ({dia_semana[pasado.weekday()]})\n\n"
@@ -217,7 +232,7 @@ def construir_contexto_tiempo(timestamp_mensaje: int = 0, offset_guardado: int |
         f"- 'en 10 minutos' → {en_10min.strftime('%Y-%m-%dT%H:%M:%S')}\n"
         f"- 'en 1 hora'     → {en_1h.strftime('%Y-%m-%dT%H:%M:%S')}\n"
         f"- 'en 2 horas'    → {en_2h.strftime('%Y-%m-%dT%H:%M:%S')}\n\n"
-        f"TIEMPOS ABSOLUTOS (offset actual {offset_str}, resta {-offset_horas}h a la hora local):\n"
+        f"TIEMPOS ABSOLUTOS (offset {offset_str}, resta {-offset_horas}h a la hora local):\n"
         f"- '3pm hoy'    → {(ref_local.replace(hour=15, minute=0, second=0) - timedelta(seconds=offset_seg)).strftime('%Y-%m-%dT%H:%M:%S')}\n"
         f"- '9am mañana' → {(manana.replace(hour=9, minute=0, second=0) - timedelta(seconds=offset_seg)).strftime('%Y-%m-%dT%H:%M:%S')}\n"
         f"- '8pm hoy'    → {(ref_local.replace(hour=20, minute=0, second=0) - timedelta(seconds=offset_seg)).strftime('%Y-%m-%dT%H:%M:%S')}\n\n"
