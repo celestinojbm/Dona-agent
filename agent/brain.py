@@ -535,7 +535,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 "content": resultado
             })
 
-    # Segunda llamada a Claude con los resultados de las herramientas
+    # Siguiente llamada a Claude con los resultados de las herramientas
     mensajes_con_tool = mensajes + [
         {"role": "assistant", "content": response.content},
         {"role": "user", "content": resultados_herramientas}
@@ -548,6 +548,14 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
         messages=mensajes_con_tool,
         tools=TOOLS
     )
+
+    # Claude puede encadenar tool calls (ej: guardar_zona_horaria → crear_recordatorio).
+    # Si la respuesta siguiente es también tool_use, procesarla recursivamente.
+    if respuesta_final.stop_reason == "tool_use":
+        return await _manejar_tool_use(
+            respuesta_final, mensajes_con_tool, system_prompt,
+            telefono, offset_guardado, proveedor
+        )
 
     return _extraer_texto(respuesta_final)
 
