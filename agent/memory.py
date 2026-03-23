@@ -33,7 +33,10 @@ if DATABASE_URL.startswith("postgresql+asyncpg://"):
         echo=False,
         connect_args={
             "ssl": "require",
-            "statement_cache_size": 0,  # requerido para PgBouncer
+            "statement_cache_size": 0,   # requerido para PgBouncer
+            "server_settings": {
+                "search_path": "public",  # Supabase necesita esto explícito
+            },
         },
     )
 else:
@@ -222,9 +225,15 @@ async def _migrar_columnas(conn):
 
 async def inicializar_db():
     """Crea las tablas si no existen y aplica migraciones."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await _migrar_columnas(conn)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await _migrar_columnas(conn)
+        tablas = [t for t in Base.metadata.tables.keys()]
+        logger.info(f"DB inicializada. Tablas: {tablas}")
+    except Exception as e:
+        logger.error(f"ERROR al inicializar DB: {type(e).__name__}: {e}", exc_info=True)
+        raise  # relanzar para que Render muestre el error y no arranque en estado roto
 
 
 async def guardar_timezone(telefono: str, offset_minutos: int):
