@@ -123,6 +123,13 @@ async def verificar_proactividad(proveedor):
         logger.error(f"Error en verificar_proactividad: {e}")
 
 
+async def _obtener_ubicacion_usuario(telefono: str) -> dict:
+    """Retorna ubicación del usuario (ciudad, pais, industria) con defaults vacíos."""
+    from agent.memory import obtener_ubicacion
+    ub = await obtener_ubicacion(telefono)
+    return ub or {"ciudad": None, "pais": None, "industria": None}
+
+
 async def _evaluar_disparadores(usuario: dict, ahora_local: datetime, offset_min: int) -> str | None:
     """
     Evalúa todos los disparadores en orden de prioridad.
@@ -184,6 +191,16 @@ async def _evaluar_disparadores(usuario: dict, ahora_local: datetime, offset_min
             await guardar_proactividad(telefono, ultimo_weekly_review=datetime.utcnow())
             return msg
 
+    # ── 6. Alerta de lluvia + recordatorio presencial ─────────────────────────
+    msg_lluvia = await _disparador_lluvia(telefono, nombre, offset_min)
+    if msg_lluvia:
+        return msg_lluvia
+
+    # ── 7. Noticias de la industria (máx 1 por semana) ───────────────────────
+    msg_noticias = await _disparador_noticias(telefono, nombre, contexto)
+    if msg_noticias:
+        return msg_noticias
+
     return None
 
 
@@ -192,8 +209,9 @@ async def _evaluar_disparadores(usuario: dict, ahora_local: datetime, offset_min
 async def _generar_morning_brief(
     telefono: str, nombre: str, contexto: str, bajo_demanda: bool = False
 ) -> str | None:
-    """Genera el resumen matutino personalizado usando Claude."""
+    """Genera el resumen matutino personalizado usando Claude, incluyendo clima si está disponible."""
     from agent.memory import obtener_recordatorios_proximas_horas
+    from agent.real_world import obtener_clima, resumen_clima_str
 
     try:
         proximos = await obtener_recordatorios_proximas_horas(telefono, horas=16)
@@ -205,27 +223,36 @@ async def _generar_morning_brief(
         else:
             recordatorios_str = "(ninguno programado para hoy)"
 
-        contexto_resumido = contexto[:600] if contexto else "No disponible"
+        # Enriquecer con clima si el usuario tiene ciudad configurada
+        clima_str = ""
+        ubicacion = await _obtener_ubicacion_usuario(telefono)
+        if ubicacion.get("ciudad"):
+            pronostico = await obtener_clima(ubicacion["ciudad"])
+            if pronostico:
+                clima_str = f"Clima en {ubicacion['ciudad']}: {resumen_clima_str(pronostico)}"
 
+        contexto_resumido = contexto[:600] if contexto else "No disponible"
         saludo = "Buenos días" if not bajo_demanda else "Aquí va tu resumen"
 
         prompt = (
             f"Eres Dona, asistente personal de WhatsApp. "
-            f"Tono: cálido, directo, motivador. Máximo 120 palabras. Sin markdown pesado.\n\n"
+            f"Tono: cálido, directo, motivador. Máximo 130 palabras. Sin markdown pesado.\n\n"
             f"Genera el resumen matutino para {nombre or 'el usuario'}.\n\n"
             f"Recordatorios de hoy:\n{recordatorios_str}\n\n"
-            f"Contexto del usuario (proyectos, rutina, metas):\n{contexto_resumido}\n\n"
+            + (f"Clima de hoy: {clima_str}\n\n" if clima_str else "")
+            + f"Contexto del usuario (proyectos, rutina, metas):\n{contexto_resumido}\n\n"
             f"El mensaje debe:\n"
             f"1. Saludar con '{saludo} {nombre or ''}' y el día de la semana\n"
-            f"2. Mencionar el recordatorio más importante si hay alguno\n"
-            f"3. Una motivación corta alineada con sus metas\n"
-            f"4. Terminar con una pregunta de acción concreta\n"
-            f"5. Emojis con moderación (máx 3)"
+            f"2. Mencionar el clima brevemente si hay algo relevante (lluvia, temperatura extrema)\n"
+            f"3. Mencionar el recordatorio más importante si hay alguno\n"
+            f"4. Una motivación corta alineada con sus metas\n"
+            f"5. Terminar con una pregunta de acción concreta\n"
+            f"6. Emojis con moderación (máx 3)"
         )
 
         response = await _claude.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=200,
+            max_tokens=220,
             messages=[{"role": "user", "content": prompt}],
         )
         return response.content[0].text if response.content else None
@@ -383,6 +410,114 @@ async def _generar_weekly_review(telefono: str, nombre: str, contexto: str) -> s
 
 
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+async def _disparador_lluvia(telefono: str, nombre: str, offset_min: int) -> str | None:
+    """
+    Alerta si hay lluvia en las próximas horas y el usuario tiene recordatorios que
+    podrían implicar salir (p. ej. textos como "reunión", "cita", "ir a").
+    """
+    from agent.memory import obtener_recordatorios_proximas_horas
+    from agent.real_world import obtener_clima
+
+    try:
+        ubicacion = await _obtener_ubicacion_usuario(telefono)
+        if not ubicacion.get("ciudad"):
+            return None
+
+        pronostico = await obtener_clima(ubicacion["ciudad"])
+        if not pronostico:
+            return None
+
+        llueve = any(p["llueve"] for p in pronostico)
+        if not llueve:
+            return None
+
+        # Revisar si hay recordatorios próximos que suenen presenciales
+        proximos = await obtener_recordatorios_proximas_horas(telefono, horas=6)
+        _KEYWORDS_PRESENCIAL = {"reunión", "reunion", "cita", "ir a", "visita", "entrevista", "evento"}
+        presenciales = [
+            r for r in proximos
+            if any(kw in r["mensaje"].lower() for kw in _KEYWORDS_PRESENCIAL)
+        ]
+        if not presenciales:
+            return None
+
+        r = presenciales[0]
+        hora_str = _hora_local_str(r["fecha_hora"], offset_min)
+        ciudad = ubicacion["ciudad"]
+        lluvia_icono = next((p["icono"] for p in pronostico if p["llueve"]), "🌧️")
+
+        return (
+            f"{lluvia_icono} {nombre}, hay lluvia prevista en {ciudad} "
+            f"cerca de las {hora_str}, cuando tienes: _{r['mensaje']}_\n\n"
+            f"¿Quieres salir antes o proponer cambiarla a virtual?"
+        )
+
+    except Exception as e:
+        logger.debug(f"Proactividad _disparador_lluvia ({telefono}): {e}")
+        return None
+
+
+async def _disparador_noticias(telefono: str, nombre: str, contexto: str) -> str | None:
+    """
+    Busca noticias relevantes para la industria del usuario.
+    Máximo 1 vez por semana, y solo artículos no enviados antes.
+    """
+    from agent.memory import (
+        obtener_proactividad, guardar_proactividad,
+        ya_enviada_noticia, marcar_noticia_enviada,
+    )
+    from agent.real_world import obtener_noticias, extraer_industria
+
+    try:
+        # No repetir si ya se envió esta semana
+        config = await obtener_proactividad(telefono)
+        ultimo_news = config.get("ultimo_conflict_check") if config else None  # reutilizamos campo
+
+        ubicacion = await _obtener_ubicacion_usuario(telefono)
+        pais = ubicacion.get("pais") or "México"
+
+        # Obtener o inferir industria
+        industria = ubicacion.get("industria")
+        if not industria and contexto:
+            industria = await extraer_industria(contexto)
+            if industria:
+                from agent.memory import guardar_ubicacion
+                await guardar_ubicacion(telefono, industria=industria)
+
+        if not industria:
+            return None
+
+        articulos = await obtener_noticias(industria, pais)
+        if not articulos:
+            return None
+
+        # Tomar el primer artículo no enviado aún
+        articulo = None
+        for a in articulos:
+            if not await ya_enviada_noticia(telefono, a["url_hash"]):
+                articulo = a
+                break
+
+        if not articulo:
+            return None
+
+        await marcar_noticia_enviada(telefono, articulo["url_hash"])
+
+        resumen = articulo.get("resumen") or ""
+        resumen_corto = resumen[:120] + "..." if len(resumen) > 120 else resumen
+
+        return (
+            f"📰 {nombre}, vi esta noticia sobre *{industria}* que podría interesarte:\n\n"
+            f"_{articulo['titulo']}_\n"
+            + (f"{resumen_corto}\n\n" if resumen_corto else "\n")
+            + f"¿Quieres que te haga un resumen o la analizamos juntos?"
+        )
+
+    except Exception as e:
+        logger.debug(f"Proactividad _disparador_noticias ({telefono}): {e}")
+        return None
+
 
 def _hora_local_str(fecha_utc: datetime, offset_min: int = 0) -> str:
     """Convierte datetime UTC a string legible en hora local del usuario."""

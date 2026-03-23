@@ -84,6 +84,27 @@ class Recordatorio(Base):
     ultimo_envio: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
 
+class UsuarioUbicacion(Base):
+    """Ciudad, país e industria del usuario — capturados en onboarding."""
+    __tablename__ = "usuario_ubicacion"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    ciudad: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    pais: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    industria: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Inferida del contexto
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class NoticiaEnviada(Base):
+    """Registro de artículos enviados por usuario — para no repetir."""
+    __tablename__ = "noticias_enviadas"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    url_hash: Mapped[str] = mapped_column(String(32))   # MD5 del URL
+    enviada_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class UsuarioEstadoEmocional(Base):
     """Estado emocional actual del usuario — se actualiza en cada mensaje."""
     __tablename__ = "usuario_estado_emocional"
@@ -463,6 +484,60 @@ def _calcular_proxima_ocurrencia(
     except Exception as e:
         logger.error(f"Error calculando próxima ocurrencia: {e}")
         return None
+
+
+async def obtener_ubicacion(telefono: str) -> dict | None:
+    """Retorna ciudad, país e industria del usuario, o None si no existe."""
+    async with async_session() as session:
+        query = select(UsuarioUbicacion).where(UsuarioUbicacion.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if not r:
+            return None
+        return {"ciudad": r.ciudad, "pais": r.pais, "industria": r.industria}
+
+
+async def guardar_ubicacion(telefono: str, ciudad: str | None = None, pais: str | None = None, industria: str | None = None):
+    """Guarda o actualiza la ubicación del usuario."""
+    async with async_session() as session:
+        query = select(UsuarioUbicacion).where(UsuarioUbicacion.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if r:
+            if ciudad is not None:
+                r.ciudad = ciudad
+            if pais is not None:
+                r.pais = pais
+            if industria is not None:
+                r.industria = industria
+            r.actualizado = datetime.utcnow()
+        else:
+            session.add(UsuarioUbicacion(
+                telefono=telefono, ciudad=ciudad, pais=pais, industria=industria,
+                actualizado=datetime.utcnow()
+            ))
+        await session.commit()
+
+
+async def ya_enviada_noticia(telefono: str, url_hash: str) -> bool:
+    """Retorna True si el artículo ya fue enviado a este usuario (en los últimos 7 días)."""
+    async with async_session() as session:
+        desde = datetime.utcnow() - timedelta(days=7)
+        query = (
+            select(NoticiaEnviada)
+            .where(NoticiaEnviada.telefono == telefono)
+            .where(NoticiaEnviada.url_hash == url_hash)
+            .where(NoticiaEnviada.enviada_en >= desde)
+        )
+        result = await session.execute(query)
+        return result.scalar_one_or_none() is not None
+
+
+async def marcar_noticia_enviada(telefono: str, url_hash: str):
+    """Registra que un artículo fue enviado al usuario."""
+    async with async_session() as session:
+        session.add(NoticiaEnviada(telefono=telefono, url_hash=url_hash, enviada_en=datetime.utcnow()))
+        await session.commit()
 
 
 async def guardar_estado_emocional(telefono: str, estado: str, intensidad: int):

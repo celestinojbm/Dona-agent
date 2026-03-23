@@ -31,6 +31,15 @@ Voy a hacerte algunas preguntas en los próximos días. Cada cosa que compartas 
 MENSAJE_PEDIR_NOMBRE = """\
 Genial! Antes de empezar — ¿cómo te llamas? 😊"""
 
+MENSAJE_PEDIR_CIUDAD = """\
+Perfecto {nombre}! Una última cosa antes de empezar:
+
+¿En qué ciudad y país vives? Esto me permite avisarte del clima cuando tengas reuniones presenciales 🌍
+
+(Escribe algo como "Ciudad de México, México" o "Bogotá, Colombia". Si prefieres omitirlo, escribe *omitir*)"""
+
+_PALABRAS_OMITIR = {"omitir", "no", "skip", "saltar", "después", "despues", "no quiero"}
+
 # Mensajes de cada paso: (fase, paso) → texto
 MENSAJES = {
     # ── Fase 1: Fundación ─────────────────────────────────────────────────────
@@ -193,9 +202,18 @@ async def procesar_mensaje_onboarding(telefono: str, texto: str) -> str | None:
     # ── Fase 0, paso 1: capturar nombre ──────────────────────────────────────
     if fase == 0 and paso == 1:
         nombre_capturado = _extraer_nombre(texto)
-        await guardar_onboarding(telefono, fase=1, paso=0, nombre=nombre_capturado)
-        primer_mensaje = MENSAJES[(1, 0)].format(nombre=nombre_capturado)
-        return primer_mensaje
+        await guardar_onboarding(telefono, fase=0, paso=2, nombre=nombre_capturado)
+        return MENSAJE_PEDIR_CIUDAD.format(nombre=nombre_capturado)
+
+    # ── Fase 0, paso 2: capturar ciudad ──────────────────────────────────────
+    if fase == 0 and paso == 2:
+        nombre = estado.get("nombre") or ""
+        if texto.strip().lower() not in _PALABRAS_OMITIR:
+            ciudad, pais = _extraer_ciudad_pais(texto)
+            from agent.memory import guardar_ubicacion
+            await guardar_ubicacion(telefono, ciudad=ciudad, pais=pais)
+        await guardar_onboarding(telefono, fase=1, paso=0)
+        return MENSAJES[(1, 0)].format(nombre=nombre)
 
     # ── Fases 1-3: procesar respuesta y avanzar ───────────────────────────────
     if fase in (1, 2, 3):
@@ -287,6 +305,19 @@ async def iniciar_siguiente_fase(telefono: str, proveedor) -> bool:
 
 
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+def _extraer_ciudad_pais(texto: str) -> tuple[str, str]:
+    """
+    Extrae ciudad y país de un texto libre.
+    Ej: "Ciudad de México, México" → ("Ciudad de México", "México")
+    Ej: "Bogotá"                   → ("Bogotá", "")
+    """
+    texto = texto.strip()
+    if "," in texto:
+        partes = texto.split(",", 1)
+        return partes[0].strip().title(), partes[1].strip().title()
+    return texto.title(), ""
+
 
 def _extraer_nombre(texto: str) -> str:
     """
