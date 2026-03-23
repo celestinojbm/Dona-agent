@@ -209,16 +209,24 @@ class UsuarioMiroFish(Base):
 
 
 async def _migrar_columnas(conn):
-    """Agrega columnas nuevas a tablas existentes (seguro si ya existen)."""
+    """
+    Aplica migraciones incrementales: renombra columnas legacy y agrega columnas nuevas.
+    Cada sentencia es idempotente — el except silencia errores de "ya existe / no existe".
+    """
     migraciones = [
+        # ── Correcciones de nombre legacy ────────────────────────────────────────
+        # La columna fue creada como 'rol' (español) por versiones anteriores de create_all
+        "ALTER TABLE mensajes RENAME COLUMN rol TO role",
+        # ── Columnas nuevas ───────────────────────────────────────────────────────
         "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual VARCHAR(100)",
         "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual_expira TIMESTAMP",
     ]
     for sql in migraciones:
         try:
             await conn.execute(text(sql))
+            logger.info(f"[DB] Migración OK: {sql[:60]}")
         except Exception:
-            pass  # La columna ya existe — ignorar
+            pass  # Ya aplicada o no aplica — ignorar
 
 
 async def inicializar_db():
