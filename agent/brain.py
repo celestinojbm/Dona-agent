@@ -226,11 +226,21 @@ def construir_contexto_tiempo(timestamp_mensaje: int = 0, offset_guardado: int |
     )
 
 
-def cargar_system_prompt(timestamp_mensaje: int = 0, offset_guardado: int | None = None) -> str:
-    """Lee el system prompt e inyecta el contexto de tiempo."""
+def cargar_system_prompt(
+    timestamp_mensaje: int = 0,
+    offset_guardado: int | None = None,
+    tono_emocional: str = "",
+    contexto_emocional: str = "",
+) -> str:
+    """Lee el system prompt e inyecta contexto de tiempo y estado emocional."""
     config = cargar_config_prompts()
     base = config.get("system_prompt", "Eres Dona, una asistente personal útil. Responde en español.")
-    return f"{base}\n\n{construir_contexto_tiempo(timestamp_mensaje, offset_guardado)}"
+    partes = [base, construir_contexto_tiempo(timestamp_mensaje, offset_guardado)]
+    if tono_emocional:
+        partes.append(f"## Tono para este mensaje\n{tono_emocional}")
+    if contexto_emocional:
+        partes.append(contexto_emocional)
+    return "\n\n".join(partes)
 
 
 def obtener_mensaje_error() -> str:
@@ -260,11 +270,55 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     if not mensaje or len(mensaje.strip()) < 2:
         return obtener_mensaje_fallback()
 
-    # Cargar offset de zona horaria guardado para este usuario
-    from agent.memory import obtener_timezone
-    offset_guardado = await obtener_timezone(telefono) if telefono else None
+    # ── Detección emocional (paralela con carga de timezone) ─────────────────
+    from agent.memory import obtener_timezone, obtener_onboarding, obtener_estado_emocional
+    from agent.emotion import (
+        detectar_emocion, obtener_instrucciones_tono,
+        obtener_contexto_emocional_str, MENSAJE_CRISIS,
+    )
 
-    system_prompt = cargar_system_prompt(timestamp_mensaje, offset_guardado)
+    async def _none():
+        return None
+
+    offset_guardado, estado_onboarding = await asyncio.gather(
+        obtener_timezone(telefono) if telefono else _none(),
+        obtener_onboarding(telefono) if telefono else _none(),
+    )
+
+    contexto_usuario = estado_onboarding.get("contexto", "") if estado_onboarding else ""
+    nombre_usuario = estado_onboarding.get("nombre", "") if estado_onboarding else ""
+
+    # Detectar emoción (rápido, usa Haiku; falla silenciosamente)
+    emotion = await detectar_emocion(mensaje, contexto_usuario)
+
+    # Crisis: respuesta inmediata sin pasar por el flujo normal
+    if emotion.get("state") == "crisis":
+        return MENSAJE_CRISIS
+
+    # Guardar estado emocional en background
+    if telefono:
+        asyncio.create_task(
+            _guardar_emocion_background(telefono, emotion)
+        )
+
+    # Construir instrucciones de tono emocional
+    tono_emocional = obtener_instrucciones_tono(emotion, nombre_usuario)
+
+    # Contexto emocional reciente (si aplica)
+    estado_previo = await obtener_estado_emocional(telefono) if telefono else None
+    ctx_emocional = ""
+    if estado_previo:
+        ctx_emocional = obtener_contexto_emocional_str(
+            estado_previo["estado"],
+            estado_previo["intensidad"],
+            estado_previo["actualizado"],
+        )
+
+    system_prompt = cargar_system_prompt(
+        timestamp_mensaje, offset_guardado,
+        tono_emocional=tono_emocional,
+        contexto_emocional=ctx_emocional,
+    )
 
     # Construir lista de mensajes (historial + mensaje actual)
     mensajes = [{"role": m["role"], "content": m["content"]} for m in historial]
@@ -486,6 +540,19 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
     )
 
     return _extraer_texto(respuesta_final)
+
+
+async def _guardar_emocion_background(telefono: str, emotion: dict):
+    """Guarda el estado emocional en background sin bloquear la respuesta."""
+    from agent.memory import guardar_estado_emocional
+    try:
+        await guardar_estado_emocional(
+            telefono,
+            emotion.get("state", "neutral"),
+            emotion.get("intensity", 1),
+        )
+    except Exception as e:
+        logger.debug(f"Error guardando emoción: {e}")
 
 
 async def _ejecutar_simulacion_background(

@@ -84,6 +84,28 @@ class Recordatorio(Base):
     ultimo_envio: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
 
+class UsuarioEstadoEmocional(Base):
+    """Estado emocional actual del usuario — se actualiza en cada mensaje."""
+    __tablename__ = "usuario_estado_emocional"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    estado: Mapped[str] = mapped_column(String(20), default="neutral")
+    intensidad: Mapped[int] = mapped_column(Integer, default=1)
+    actualizado: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ultimo_aviso_sobrecarga: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class EventoEmocional(Base):
+    """Historial de estados emocionales — para detectar patrones de sobrecarga."""
+    __tablename__ = "eventos_emocionales"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    estado: Mapped[str] = mapped_column(String(20))
+    intensidad: Mapped[int] = mapped_column(Integer, default=1)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class UsuarioOnboarding(Base):
     """Estado del onboarding conversacional por usuario."""
     __tablename__ = "usuario_onboarding"
@@ -441,6 +463,81 @@ def _calcular_proxima_ocurrencia(
     except Exception as e:
         logger.error(f"Error calculando próxima ocurrencia: {e}")
         return None
+
+
+async def guardar_estado_emocional(telefono: str, estado: str, intensidad: int):
+    """Guarda el estado emocional actual del usuario."""
+    async with async_session() as session:
+        query = select(UsuarioEstadoEmocional).where(UsuarioEstadoEmocional.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        ahora = datetime.utcnow()
+        if r:
+            r.estado = estado
+            r.intensidad = intensidad
+            r.actualizado = ahora
+        else:
+            session.add(UsuarioEstadoEmocional(
+                telefono=telefono, estado=estado, intensidad=intensidad, actualizado=ahora
+            ))
+        # Guardar evento en historial
+        session.add(EventoEmocional(
+            telefono=telefono, estado=estado, intensidad=intensidad, timestamp=ahora
+        ))
+        await session.commit()
+
+
+async def obtener_estado_emocional(telefono: str) -> dict | None:
+    """Retorna el estado emocional actual del usuario."""
+    async with async_session() as session:
+        query = select(UsuarioEstadoEmocional).where(UsuarioEstadoEmocional.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if not r:
+            return None
+        return {
+            "estado": r.estado,
+            "intensidad": r.intensidad,
+            "actualizado": r.actualizado,
+            "ultimo_aviso_sobrecarga": r.ultimo_aviso_sobrecarga,
+        }
+
+
+async def contar_eventos_estres_recientes(telefono: str, horas: int = 24) -> int:
+    """Cuenta eventos de estrés/agotamiento (intensidad ≥ 2) en las últimas N horas."""
+    async with async_session() as session:
+        desde = datetime.utcnow() - timedelta(hours=horas)
+        query = (
+            select(EventoEmocional)
+            .where(EventoEmocional.telefono == telefono)
+            .where(EventoEmocional.estado.in_(["stress", "exhaustion"]))
+            .where(EventoEmocional.intensidad >= 2)
+            .where(EventoEmocional.timestamp >= desde)
+        )
+        result = await session.execute(query)
+        return len(result.scalars().all())
+
+
+async def ya_avisado_sobrecarga_hoy(telefono: str) -> bool:
+    """Retorna True si ya se envió un aviso de sobrecarga hoy (UTC)."""
+    async with async_session() as session:
+        query = select(UsuarioEstadoEmocional).where(UsuarioEstadoEmocional.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if not r or not r.ultimo_aviso_sobrecarga:
+            return False
+        return r.ultimo_aviso_sobrecarga.date() >= datetime.utcnow().date()
+
+
+async def marcar_aviso_sobrecarga(telefono: str):
+    """Registra que se envió un aviso de sobrecarga hoy."""
+    async with async_session() as session:
+        query = select(UsuarioEstadoEmocional).where(UsuarioEstadoEmocional.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if r:
+            r.ultimo_aviso_sobrecarga = datetime.utcnow()
+            await session.commit()
 
 
 async def obtener_onboarding(telefono: str) -> dict | None:

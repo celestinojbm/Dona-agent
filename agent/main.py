@@ -21,6 +21,10 @@ from agent.memory import (
 )
 from agent.onboarding import procesar_mensaje_onboarding, es_onboarding_activo
 from agent.proactivity import es_comando_proactividad, manejar_comando_proactividad
+from agent.memory import (
+    contar_eventos_estres_recientes, ya_avisado_sobrecarga_hoy, marcar_aviso_sobrecarga,
+    incrementar_mensajes_proactivos,
+)
 from agent.providers import obtener_proveedor
 from agent.scheduler import iniciar_scheduler, detener_scheduler
 from agent.transcriber import procesar_audio_whapi
@@ -177,6 +181,12 @@ async def procesar_webhook(request: Request):
 
             logger.info(f"Respuesta a {msg.telefono}: {respuesta}")
 
+            # Verificar sobrecarga crónica en background
+            import asyncio as _asyncio
+            _asyncio.create_task(
+                _verificar_sobrecarga(msg.telefono, proveedor)
+            )
+
         return {"status": "ok"}
 
     except Exception as e:
@@ -197,6 +207,39 @@ def _tiene_contexto_relevante(texto: str) -> bool:
     """Retorna True si el mensaje contiene información social/profesional relevante."""
     texto_lower = texto.lower()
     return len(texto) > 30 and any(kw in texto_lower for kw in _KEYWORDS_CONTEXTO)
+
+
+async def _verificar_sobrecarga(telefono: str, proveedor):
+    """
+    Detecta sobrecarga crónica: 3+ eventos de estrés/agotamiento (intensidad ≥2) en 24h.
+    Envía un mensaje de cuidado proactivo si se detecta y no se ha enviado hoy.
+    Cuenta dentro del límite diario de mensajes proactivos.
+    """
+    try:
+        count = await contar_eventos_estres_recientes(telefono, horas=24)
+        if count < 3:
+            return
+        if await ya_avisado_sobrecarga_hoy(telefono):
+            return
+
+        from agent.memory import obtener_onboarding
+        estado = await obtener_onboarding(telefono)
+        nombre = estado.get("nombre", "") if estado else ""
+
+        mensaje = (
+            f"{nombre + ', h' if nombre else 'H'}e notado que llevas un día muy intenso. 💙\n\n"
+            "Está bien no poder con todo. ¿Hay algo que pueda quitarte del plato "
+            "o simplemente necesitas que te escuche?"
+        )
+
+        enviado = await proveedor.enviar_mensaje(telefono, mensaje)
+        if enviado:
+            await marcar_aviso_sobrecarga(telefono)
+            await incrementar_mensajes_proactivos(telefono)
+            logger.info(f"Aviso de sobrecarga enviado a {telefono}")
+
+    except Exception as e:
+        logger.debug(f"_verificar_sobrecarga error ({telefono}): {e}")
 
 
 async def _actualizar_memoria_mirofish(telefono: str, texto: str):
