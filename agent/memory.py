@@ -63,7 +63,8 @@ class TimezoneUsuario(Base):
     __tablename__ = "timezone_usuarios"
 
     telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
-    offset_minutos: Mapped[int] = mapped_column(Integer, default=0)  # ej: -240 para UTC-4
+    offset_minutos: Mapped[int] = mapped_column(Integer, default=0)   # fallback legacy
+    timezone_nombre: Mapped[str | None] = mapped_column(String(60), nullable=True)  # IANA tz (DST-aware)
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -215,11 +216,12 @@ async def _migrar_columnas(conn):
     """
     migraciones = [
         # ── Correcciones de nombre legacy ────────────────────────────────────────
-        # La columna fue creada como 'rol' (español) por versiones anteriores de create_all
         "ALTER TABLE mensajes RENAME COLUMN rol TO role",
         # ── Columnas nuevas ───────────────────────────────────────────────────────
         "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual VARCHAR(100)",
         "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual_expira TIMESTAMP",
+        # Soporte DST: nombre IANA de timezone (ej: "America/New_York")
+        "ALTER TABLE timezone_usuarios ADD COLUMN timezone_nombre VARCHAR(60)",
     ]
     for sql in migraciones:
         try:
@@ -278,31 +280,53 @@ async def inicializar_db():
         raise
 
 
-async def guardar_timezone(telefono: str, offset_minutos: int):
-    """Guarda o actualiza el offset de zona horaria de un usuario."""
+async def guardar_timezone(telefono: str, offset_minutos: int, timezone_nombre: str | None = None):
+    """
+    Guarda la zona horaria del usuario.
+    Si se provee timezone_nombre (IANA, ej: 'America/New_York'), se usa para cálculo DST.
+    offset_minutos se mantiene como fallback legacy.
+    """
     async with async_session() as session:
         query = select(TimezoneUsuario).where(TimezoneUsuario.telefono == telefono)
         result = await session.execute(query)
         registro = result.scalar_one_or_none()
         if registro:
             registro.offset_minutos = offset_minutos
+            if timezone_nombre:
+                registro.timezone_nombre = timezone_nombre
             registro.actualizado = datetime.utcnow()
         else:
             session.add(TimezoneUsuario(
                 telefono=telefono,
                 offset_minutos=offset_minutos,
+                timezone_nombre=timezone_nombre,
                 actualizado=datetime.utcnow()
             ))
         await session.commit()
 
 
 async def obtener_timezone(telefono: str) -> int | None:
-    """Retorna el offset en minutos guardado para este usuario, o None si no existe."""
+    """
+    Retorna el offset ACTUAL en minutos considerando DST.
+    Si hay timezone_nombre (IANA), computa el offset real para hoy.
+    Si solo hay offset_minutos (legacy), lo retorna como fallback.
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
     async with async_session() as session:
         query = select(TimezoneUsuario).where(TimezoneUsuario.telefono == telefono)
         result = await session.execute(query)
         registro = result.scalar_one_or_none()
-        return registro.offset_minutos if registro else None
+        if not registro:
+            return None
+        if registro.timezone_nombre:
+            try:
+                tz = ZoneInfo(registro.timezone_nombre)
+                offset_actual = int(datetime.now(tz).utcoffset().total_seconds() / 60)
+                return offset_actual
+            except (ZoneInfoNotFoundError, Exception):
+                pass  # fallback al offset fijo
+        return registro.offset_minutos
 
 
 async def guardar_mensaje(telefono: str, role: str, content: str):

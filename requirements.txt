@@ -8,6 +8,7 @@ pyyaml>=6.0.1
 aiosqlite>=0.19.0
 asyncpg>=0.29.0
 psycopg2-binary>=2.9.0
+tzdata>=2023.3
 python-multipart>=0.0.6
 APScheduler>=3.10.0,<4.0
 groq>=0.4.0

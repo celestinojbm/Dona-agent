@@ -214,11 +214,11 @@ async def procesar_mensaje_onboarding(telefono: str, texto: str) -> str | None:
             ciudad, pais = _extraer_ciudad_pais(texto)
             from agent.memory import guardar_ubicacion, guardar_timezone
             await guardar_ubicacion(telefono, ciudad=ciudad, pais=pais)
-            # Inferir timezone desde la ciudad para que Dona nunca tenga que pregunnarla
-            offset = await _inferir_offset_desde_ciudad(ciudad, pais)
-            if offset is not None:
-                await guardar_timezone(telefono, offset)
-                logger.info(f"Timezone inferida en onboarding para {telefono}: UTC{offset // 60:+d} ({ciudad})")
+            # Inferir timezone IANA para soporte DST — una sola vez, en background no bloqueante
+            iana_nombre, offset_actual = await _inferir_timezone_desde_ciudad(ciudad, pais)
+            if iana_nombre and offset_actual is not None:
+                await guardar_timezone(telefono, offset_actual, timezone_nombre=iana_nombre)
+                logger.info(f"Timezone guardada: {iana_nombre} (UTC{offset_actual // 60:+d}) para {telefono}")
             confirmacion = f"¡Perfecto! Registré *{ciudad}* 📍\n\n"
         else:
             confirmacion = "¡Listo! Omitiremos la ubicación por ahora.\n\n"
@@ -393,33 +393,41 @@ def _extraer_nombre(texto: str) -> str:
     return primera.strip(".,!?¡¿").title()
 
 
-async def _inferir_offset_desde_ciudad(ciudad: str, pais: str) -> int | None:
+async def _inferir_timezone_desde_ciudad(ciudad: str, pais: str) -> tuple[str | None, int | None]:
     """
-    Infiere el offset UTC estándar (en minutos) de una ciudad usando Haiku.
+    Infiere el nombre de timezone IANA de una ciudad usando Haiku.
+    Retorna (iana_nombre, offset_fallback).
     Se llama UNA sola vez al final del onboarding — nunca bloquea al usuario.
-    Retorna None si falla (el sistema usa el timezone por defecto de la env var).
+    El nombre IANA permite calcular correctamente el DST en cualquier momento futuro.
     """
     import os
     from anthropic import AsyncAnthropic
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    from datetime import datetime
 
     try:
         texto_ciudad = f"{ciudad}, {pais}" if pais else ciudad
         cliente = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         resp = await cliente.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=10,
+            max_tokens=25,
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Offset UTC estándar en minutos de '{texto_ciudad}'. "
-                    "Solo el número entero. Ejemplos: -300, -360, -240, 60, 120"
+                    f"IANA timezone name for '{texto_ciudad}'. "
+                    "Reply with ONLY the name. Examples: America/New_York, America/Chicago, "
+                    "America/Mexico_City, America/Bogota, Europe/Madrid, America/Los_Angeles"
                 ),
             }],
         )
-        return int(resp.content[0].text.strip())
+        iana_nombre = resp.content[0].text.strip()
+        # Verificar que es un nombre IANA válido y calcular offset actual (con DST)
+        tz = ZoneInfo(iana_nombre)
+        offset_actual = int(datetime.now(tz).utcoffset().total_seconds() / 60)
+        return iana_nombre, offset_actual
     except Exception as e:
-        logger.debug(f"_inferir_offset_desde_ciudad ({ciudad}): {e}")
-        return None
+        logger.debug(f"_inferir_timezone_desde_ciudad ({ciudad}): {e}")
+        return None, None
 
 
 async def _construir_grafo_onboarding(telefono: str, contexto: str):

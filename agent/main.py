@@ -157,6 +157,7 @@ async def procesar_webhook(request: Request):
 
         for msg in mensajes:
             if msg.es_propio:
+                logger.debug(f"[SKIP] Mensaje propio ignorado: {msg.telefono}")
                 continue
 
             # Si es una nota de voz, transcribirla primero
@@ -174,15 +175,16 @@ async def procesar_webhook(request: Request):
                 logger.info(f"Nota de voz transcrita: \"{texto_transcrito}\"")
 
             if not msg.texto:
+                logger.warning(f"[SKIP] Mensaje sin texto ignorado silenciosamente: tel={msg.telefono} audio_id={msg.audio_id}")
                 continue
 
-            logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
+            logger.info(f"Mensaje de {msg.telefono}: {msg.texto[:120]}")
 
             # ── Comandos de proactividad ("dona pausa", "dona resumen", etc.) ──
             if es_comando_proactividad(msg.texto):
                 respuesta_cmd = await manejar_comando_proactividad(msg.telefono, msg.texto)
                 await proveedor.enviar_mensaje(msg.telefono, respuesta_cmd)
-                logger.info(f"Comando proactividad '{msg.texto}' → {msg.telefono}")
+                logger.info(f"[CMD] Proactividad '{msg.texto}' → {msg.telefono}")
                 continue
 
             # ── Onboarding: interceptar si el usuario está en el flujo ────────
@@ -190,12 +192,12 @@ async def procesar_webhook(request: Request):
                 respuesta_onboarding = await procesar_mensaje_onboarding(msg.telefono, msg.texto)
                 if respuesta_onboarding is not None:
                     await proveedor.enviar_mensaje(msg.telefono, respuesta_onboarding)
-                    logger.info(f"Onboarding → {msg.telefono}: {respuesta_onboarding[:60]}...")
+                    logger.info(f"[ONBOARDING] → {msg.telefono}: {respuesta_onboarding[:60]}...")
                     continue  # No pasar al flujo normal de Dona
+                else:
+                    logger.info(f"[ONBOARDING] Mensaje fuera de flujo, pasa a Claude: '{msg.texto[:60]}'")
 
-            # ── Bug fix: capturar ciudad si el usuario no tiene una configurada ─
-            # Si el mensaje es corto (≤4 palabras) y parece un nombre de ciudad,
-            # guardarlo como ciudad base sin pasar el mensaje a Claude.
+            # ── Detección de ciudad base (solo si el usuario no tiene ninguna) ─
             ub = await obtener_ubicacion(msg.telefono)
             if not ub or not ub.get("ciudad"):
                 if len(msg.texto.strip().split()) <= 4:
@@ -207,8 +209,10 @@ async def procesar_webhook(request: Request):
                             f"Perfecto, guardé *{ciudad_detectada}* como tu ciudad 🌍\n"
                             f"A partir de mañana incluiré el clima en tu resumen matutino.",
                         )
-                        logger.info(f"Ciudad base guardada para {msg.telefono}: {ciudad_detectada}")
+                        logger.info(f"[CIUDAD] Ciudad base guardada: {ciudad_detectada} ({msg.telefono})")
                         continue
+                    else:
+                        logger.debug(f"[CIUDAD] Texto corto '{msg.texto[:30]}' no detectado como ciudad")
 
             # ── Detección de viaje (ciudad temporal con expiración) ───────────
             # Pre-filtro barato antes de llamar al LLM — solo si hay keywords de viaje
