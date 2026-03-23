@@ -100,6 +100,20 @@ class UsuarioOnboarding(Base):
     registrado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class UsuarioProactividad(Base):
+    """Configuración y estado del motor de proactividad por usuario."""
+    __tablename__ = "usuario_proactividad"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    proactive_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    morning_brief_hour: Mapped[int] = mapped_column(Integer, default=8)  # Hora local preferida (0-23)
+    mensajes_hoy: Mapped[int] = mapped_column(Integer, default=0)        # Contador diario
+    ultimo_reset: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)      # Cuándo se reseteó el contador
+    ultimo_morning_brief: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ultimo_weekly_review: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ultimo_conflict_check: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class UsuarioMiroFish(Base):
     """Estado MiroFish por usuario — project_id y graph_id del grafo de conocimiento."""
     __tablename__ = "usuario_mirofish"
@@ -495,6 +509,134 @@ async def obtener_usuarios_onboarding_pendientes() -> list[dict]:
                 "contexto": r.contexto,
             }
             for r in registros
+        ]
+
+
+async def obtener_proactividad(telefono: str) -> dict | None:
+    """Retorna el estado de proactividad del usuario, o None si no existe."""
+    async with async_session() as session:
+        query = select(UsuarioProactividad).where(UsuarioProactividad.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if not r:
+            return None
+        return {
+            "proactive_enabled": r.proactive_enabled,
+            "morning_brief_hour": r.morning_brief_hour,
+            "mensajes_hoy": r.mensajes_hoy,
+            "ultimo_reset": r.ultimo_reset,
+            "ultimo_morning_brief": r.ultimo_morning_brief,
+            "ultimo_weekly_review": r.ultimo_weekly_review,
+            "ultimo_conflict_check": r.ultimo_conflict_check,
+        }
+
+
+async def guardar_proactividad(telefono: str, **kwargs):
+    """Crea o actualiza el estado de proactividad de un usuario."""
+    async with async_session() as session:
+        query = select(UsuarioProactividad).where(UsuarioProactividad.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        if r:
+            for key, val in kwargs.items():
+                setattr(r, key, val)
+        else:
+            nuevo = UsuarioProactividad(telefono=telefono)
+            for key, val in kwargs.items():
+                setattr(nuevo, key, val)
+            session.add(nuevo)
+        await session.commit()
+
+
+async def incrementar_mensajes_proactivos(telefono: str):
+    """Incrementa el contador diario de mensajes proactivos, reseteando si es un día nuevo."""
+    async with async_session() as session:
+        query = select(UsuarioProactividad).where(UsuarioProactividad.telefono == telefono)
+        result = await session.execute(query)
+        r = result.scalar_one_or_none()
+        ahora = datetime.utcnow()
+
+        if not r:
+            session.add(UsuarioProactividad(
+                telefono=telefono,
+                mensajes_hoy=1,
+                ultimo_reset=ahora,
+            ))
+        else:
+            # Resetear contador si es un día nuevo (UTC)
+            if r.ultimo_reset is None or r.ultimo_reset.date() < ahora.date():
+                r.mensajes_hoy = 1
+                r.ultimo_reset = ahora
+            else:
+                r.mensajes_hoy = (r.mensajes_hoy or 0) + 1
+        await session.commit()
+
+
+async def obtener_usuarios_proactividad_activos() -> list[dict]:
+    """
+    Retorna todos los usuarios con onboarding completado (fase=4) y proactividad habilitada.
+    """
+    async with async_session() as session:
+        # JOIN entre onboarding y proactividad (o usuarios sin registro en proactividad aún)
+        query_onboarding = (
+            select(UsuarioOnboarding)
+            .where(UsuarioOnboarding.fase == 4)
+        )
+        result = await session.execute(query_onboarding)
+        usuarios_completados = result.scalars().all()
+
+        activos = []
+        for u in usuarios_completados:
+            # Obtener config de proactividad (puede no existir → defaults)
+            q2 = select(UsuarioProactividad).where(UsuarioProactividad.telefono == u.telefono)
+            r2 = await session.execute(q2)
+            prov = r2.scalar_one_or_none()
+
+            enabled = prov.proactive_enabled if prov else True
+            if not enabled:
+                continue
+
+            # Resetear contador diario si es un día nuevo
+            ahora = datetime.utcnow()
+            mensajes_hoy = 0
+            if prov:
+                if prov.ultimo_reset is None or prov.ultimo_reset.date() < ahora.date():
+                    mensajes_hoy = 0
+                else:
+                    mensajes_hoy = prov.mensajes_hoy or 0
+
+            activos.append({
+                "telefono": u.telefono,
+                "nombre": u.nombre,
+                "contexto_onboarding": u.contexto,
+                "morning_brief_hour": prov.morning_brief_hour if prov else 8,
+                "mensajes_hoy": mensajes_hoy,
+                "ultimo_morning_brief": prov.ultimo_morning_brief if prov else None,
+                "ultimo_weekly_review": prov.ultimo_weekly_review if prov else None,
+                "ultimo_conflict_check": prov.ultimo_conflict_check if prov else None,
+            })
+
+        return activos
+
+
+async def obtener_recordatorios_proximas_horas(telefono: str, horas: int) -> list[dict]:
+    """Retorna recordatorios activos que vencen en las próximas N horas."""
+    async with async_session() as session:
+        ahora = datetime.utcnow()
+        limite = ahora + timedelta(hours=horas)
+        query = (
+            select(Recordatorio)
+            .where(Recordatorio.telefono == telefono)
+            .where(Recordatorio.cancelado == False)
+            .where(Recordatorio.enviado == False)
+            .where(Recordatorio.fecha_hora >= ahora)
+            .where(Recordatorio.fecha_hora <= limite)
+            .order_by(Recordatorio.fecha_hora)
+        )
+        result = await session.execute(query)
+        return [
+            {"id": r.id, "mensaje": r.mensaje, "fecha_hora": r.fecha_hora}
+            for r in result.scalars().all()
         ]
 
 

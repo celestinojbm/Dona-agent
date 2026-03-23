@@ -20,6 +20,7 @@ from agent.memory import (
     obtener_mirofish_estado, guardar_mirofish_estado,
 )
 from agent.onboarding import procesar_mensaje_onboarding, es_onboarding_activo
+from agent.proactivity import es_comando_proactividad, manejar_comando_proactividad
 from agent.providers import obtener_proveedor
 from agent.scheduler import iniciar_scheduler, detener_scheduler
 from agent.transcriber import procesar_audio_whapi
@@ -136,6 +137,13 @@ async def procesar_webhook(request: Request):
                 continue
 
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
+
+            # ── Comandos de proactividad ("dona pausa", "dona resumen", etc.) ──
+            if es_comando_proactividad(msg.texto):
+                respuesta_cmd = await manejar_comando_proactividad(msg.telefono, msg.texto)
+                await proveedor.enviar_mensaje(msg.telefono, respuesta_cmd)
+                logger.info(f"Comando proactividad '{msg.texto}' → {msg.telefono}")
+                continue
 
             # ── Onboarding: interceptar si el usuario está en el flujo ────────
             if await es_onboarding_activo(msg.telefono):
