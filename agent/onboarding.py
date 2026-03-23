@@ -212,8 +212,13 @@ async def procesar_mensaje_onboarding(telefono: str, texto: str) -> str | None:
         nombre = estado.get("nombre") or ""
         if texto.strip().lower() not in _PALABRAS_OMITIR:
             ciudad, pais = _extraer_ciudad_pais(texto)
-            from agent.memory import guardar_ubicacion
+            from agent.memory import guardar_ubicacion, guardar_timezone
             await guardar_ubicacion(telefono, ciudad=ciudad, pais=pais)
+            # Inferir timezone desde la ciudad para que Dona nunca tenga que pregunnarla
+            offset = await _inferir_offset_desde_ciudad(ciudad, pais)
+            if offset is not None:
+                await guardar_timezone(telefono, offset)
+                logger.info(f"Timezone inferida en onboarding para {telefono}: UTC{offset // 60:+d} ({ciudad})")
             confirmacion = f"¡Perfecto! Registré *{ciudad}* 📍\n\n"
         else:
             confirmacion = "¡Listo! Omitiremos la ubicación por ahora.\n\n"
@@ -386,6 +391,35 @@ def _extraer_nombre(texto: str) -> str:
     # Tomar primera palabra
     primera = texto.split()[0]
     return primera.strip(".,!?¡¿").title()
+
+
+async def _inferir_offset_desde_ciudad(ciudad: str, pais: str) -> int | None:
+    """
+    Infiere el offset UTC estándar (en minutos) de una ciudad usando Haiku.
+    Se llama UNA sola vez al final del onboarding — nunca bloquea al usuario.
+    Retorna None si falla (el sistema usa el timezone por defecto de la env var).
+    """
+    import os
+    from anthropic import AsyncAnthropic
+
+    try:
+        texto_ciudad = f"{ciudad}, {pais}" if pais else ciudad
+        cliente = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        resp = await cliente.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=10,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Offset UTC estándar en minutos de '{texto_ciudad}'. "
+                    "Solo el número entero. Ejemplos: -300, -360, -240, 60, 120"
+                ),
+            }],
+        )
+        return int(resp.content[0].text.strip())
+    except Exception as e:
+        logger.debug(f"_inferir_offset_desde_ciudad ({ciudad}): {e}")
+        return None
 
 
 async def _construir_grafo_onboarding(telefono: str, contexto: str):
