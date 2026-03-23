@@ -191,13 +191,15 @@ async def procesar_mensaje_onboarding(telefono: str, texto: str) -> str | None:
     if paso == 99:
         return None  # Flujo normal mientras espera el día siguiente
 
-    # ── Fase 0: bienvenida — esperando "sí" ──────────────────────────────────
+    # ── Fase 0: bienvenida — esperando respuesta ─────────────────────────────
+    # Aceptamos cualquier mensaje como confirmación implícita — si el usuario
+    # responde, está listo. Solo el "no" explícito detiene el flujo.
     if fase == 0 and paso == 0:
-        if texto.strip().lower() in _CONFIRMACIONES:
-            await guardar_onboarding(telefono, fase=0, paso=1)
-            return MENSAJE_PEDIR_NOMBRE
-        else:
-            return MENSAJE_BIENVENIDA
+        _RECHAZOS = {"no", "no quiero", "ahora no", "luego", "después", "despues", "ahorita no"}
+        if texto.strip().lower() in _RECHAZOS:
+            return "Entendido 😊 Escríbeme cuando quieras empezar."
+        await guardar_onboarding(telefono, fase=0, paso=1)
+        return MENSAJE_PEDIR_NOMBRE
 
     # ── Fase 0, paso 1: capturar nombre ──────────────────────────────────────
     if fase == 0 and paso == 1:

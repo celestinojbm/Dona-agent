@@ -107,6 +107,39 @@ async def webhook_verificacion(request: Request):
     return {"status": "ok"}
 
 
+@app.get("/admin/onboarding")
+async def admin_onboarding_estado(telefono: str, token: str = ""):
+    """
+    Diagnóstico de onboarding en producción.
+    Uso: /admin/onboarding?telefono=521234567890&token=ADMIN_TOKEN
+    """
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if not admin_token or token != admin_token:
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.memory import obtener_onboarding, obtener_ubicacion
+    estado = await obtener_onboarding(telefono)
+    ubicacion = await obtener_ubicacion(telefono)
+    return {
+        "telefono": telefono,
+        "onboarding": estado,
+        "ubicacion": ubicacion,
+    }
+
+
+@app.post("/admin/onboarding/reset")
+async def admin_onboarding_reset(telefono: str, fase: int = 0, paso: int = 0, token: str = ""):
+    """
+    Resetea el estado de onboarding de un usuario.
+    Uso: POST /admin/onboarding/reset?telefono=521234567890&fase=0&paso=2&token=ADMIN_TOKEN
+    """
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if not admin_token or token != admin_token:
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.memory import guardar_onboarding
+    await guardar_onboarding(telefono, fase=fase, paso=paso)
+    return {"status": "ok", "telefono": telefono, "fase": fase, "paso": paso}
+
+
 @app.post("/debug")
 async def debug_handler(request: Request):
     """Captura el body crudo de cualquier request — para diagnosticar Whapi."""
