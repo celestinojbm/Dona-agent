@@ -14,8 +14,19 @@ from groq import AsyncGroq
 
 logger = logging.getLogger("agentkit")
 
-# Cliente de Groq para Whisper
-groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+# Cliente de Groq para Whisper — inicializado de forma lazy para no crashear si
+# GROQ_API_KEY no está configurada al arrancar el servidor.
+_groq_client: AsyncGroq | None = None
+
+def _obtener_groq_client() -> AsyncGroq | None:
+    """Devuelve el cliente Groq, creándolo la primera vez que se necesita."""
+    global _groq_client
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return None
+    if _groq_client is None:
+        _groq_client = AsyncGroq(api_key=api_key)
+    return _groq_client
 
 
 async def descargar_audio_whapi(audio_id: str, token: str) -> bytes | None:
@@ -58,10 +69,6 @@ async def transcribir_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") ->
     Returns:
         Texto transcrito, o None si falló
     """
-    if not os.getenv("GROQ_API_KEY"):
-        logger.warning("GROQ_API_KEY no configurada — transcripción no disponible")
-        return None
-
     # Determinar extensión según mime type
     if "ogg" in mime_type or "opus" in mime_type:
         extension = "ogg"
@@ -73,6 +80,11 @@ async def transcribir_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") ->
         extension = "wav"
     else:
         extension = "ogg"  # WhatsApp usa OGG por defecto
+
+    groq_client = _obtener_groq_client()
+    if not groq_client:
+        logger.warning("GROQ_API_KEY no configurada — transcripción no disponible")
+        return None
 
     try:
         archivo = io.BytesIO(audio_bytes)
