@@ -11,6 +11,7 @@ import json
 import yaml
 import asyncio
 import logging
+import urllib.parse
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from anthropic import AsyncAnthropic
@@ -130,6 +131,75 @@ TOOLS = [
                 }
             },
             "required": ["escenario"]
+        }
+    },
+    {
+        "name": "conectar_google_calendar",
+        "description": (
+            "Genera y devuelve el enlace de autorización para que el usuario conecte "
+            "su Google Calendar con Dona. "
+            "Úsala cuando el usuario pida agendar un evento en su calendario real y "
+            "no esté conectado aún, o cuando pida conectar Google Calendar explícitamente. "
+            "Presenta el enlace claramente para que el usuario lo abra en su navegador."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "gestionar_calendario",
+        "description": (
+            "Interactúa con el Google Calendar real del usuario (solo si ya lo autorizó). "
+            "Permite listar los eventos de hoy o crear nuevos eventos. "
+            "Úsala cuando el usuario pregunte qué tiene hoy, quiera ver su agenda, "
+            "o pida agendar algo con fecha y hora concretas. "
+            "Si el usuario no está conectado, usa primero conectar_google_calendar."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "accion": {
+                    "type": "string",
+                    "enum": ["listar_hoy", "crear_evento"],
+                    "description": (
+                        "'listar_hoy' → muestra los eventos del día actual. "
+                        "'crear_evento' → crea un nuevo evento (requiere titulo, inicio_iso, fin_iso)."
+                    )
+                },
+                "titulo": {
+                    "type": "string",
+                    "description": "Título del evento a crear. Solo para accion='crear_evento'."
+                },
+                "inicio_iso": {
+                    "type": "string",
+                    "description": (
+                        "Fecha y hora de inicio en ISO 8601 con offset de zona horaria. "
+                        "Usa el offset del usuario de la sección 'TIEMPOS ABSOLUTOS'. "
+                        "Ejemplo: '2026-03-24T15:00:00-04:00'. "
+                        "Solo para accion='crear_evento'."
+                    )
+                },
+                "fin_iso": {
+                    "type": "string",
+                    "description": (
+                        "Fecha y hora de fin en ISO 8601 con offset de zona horaria. "
+                        "Si el usuario no especifica duración, asume 1 hora después del inicio. "
+                        "Ejemplo: '2026-03-24T16:00:00-04:00'. "
+                        "Solo para accion='crear_evento'."
+                    )
+                },
+                "descripcion": {
+                    "type": "string",
+                    "description": "Descripción adicional del evento (opcional)."
+                },
+                "lugar": {
+                    "type": "string",
+                    "description": "Ubicación o enlace del evento (opcional)."
+                }
+            },
+            "required": ["accion"]
         }
     },
     {
@@ -515,6 +585,108 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
             except Exception as e:
                 resultado = f"Error cancelando recordatorio: {e}"
                 logger.error(f"Error cancelando recordatorio: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── conectar_google_calendar ──────────────────────────────
+        elif bloque.name == "conectar_google_calendar":
+            try:
+                import agent.google_calendar as gc
+                if not gc.esta_disponible():
+                    resultado = (
+                        "Google Calendar no está configurado en este servidor. "
+                        "El administrador debe agregar GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET."
+                    )
+                else:
+                    base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+                    link = (
+                        f"{base_url}/auth/google/login"
+                        f"?telefono={urllib.parse.quote(telefono)}"
+                    )
+                    resultado = (
+                        f"Enlace de conexión generado: {link}\n"
+                        "El usuario debe abrirlo en su navegador para autorizar el acceso."
+                    )
+                    logger.info(f"[GOOGLE] Enlace OAuth generado para {telefono}")
+            except Exception as e:
+                resultado = f"Error generando enlace de Google Calendar: {e}"
+                logger.error(f"conectar_google_calendar error: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── gestionar_calendario ──────────────────────────────────
+        elif bloque.name == "gestionar_calendario":
+            try:
+                import agent.google_calendar as gc
+                accion = bloque.input.get("accion", "")
+
+                # Verificar que el usuario tiene Google Calendar conectado
+                token = await gc._obtener_token_valido(telefono)
+                if not token:
+                    resultado = (
+                        "El usuario no tiene Google Calendar conectado todavía. "
+                        "Usa la herramienta conectar_google_calendar para ofrecerle el enlace de autorización."
+                    )
+                elif accion == "listar_hoy":
+                    eventos = await gc.listar_eventos_hoy(telefono, offset_min=offset_guardado or 0)
+                    if not eventos:
+                        resultado = "No hay eventos en Google Calendar para hoy."
+                    else:
+                        lineas = []
+                        for e in eventos:
+                            # Extraer la hora del inicio (formato ISO con offset)
+                            inicio_raw = e["inicio"]
+                            if "T" in inicio_raw:
+                                hora_str = inicio_raw.split("T")[1][:5]   # "15:00"
+                            else:
+                                hora_str = "todo el día"
+                            linea = f"- {hora_str}: {e['titulo']}"
+                            if e["lugar"]:
+                                linea += f" ({e['lugar']})"
+                            lineas.append(linea)
+                        resultado = "Eventos de hoy en Google Calendar:\n" + "\n".join(lineas)
+                    logger.info(f"[GOOGLE] Eventos listados para {telefono}: {len(eventos)}")
+
+                elif accion == "crear_evento":
+                    titulo = bloque.input.get("titulo", "Evento")
+                    inicio_iso = bloque.input.get("inicio_iso", "")
+                    fin_iso = bloque.input.get("fin_iso", "")
+                    descripcion = bloque.input.get("descripcion", "")
+                    lugar = bloque.input.get("lugar", "")
+
+                    if not inicio_iso or not fin_iso:
+                        resultado = (
+                            "Se necesita inicio_iso y fin_iso para crear el evento. "
+                            "Usa el offset del usuario del system prompt para construirlos."
+                        )
+                    else:
+                        evento = await gc.crear_evento(
+                            telefono, titulo, inicio_iso, fin_iso, descripcion, lugar
+                        )
+                        if evento:
+                            link_str = f"\nVer en calendario: {evento['link']}" if evento.get("link") else ""
+                            resultado = (
+                                f"Evento '{evento['titulo']}' creado en Google Calendar.{link_str}"
+                            )
+                        else:
+                            resultado = (
+                                "No se pudo crear el evento en Google Calendar. "
+                                "Verifica que el usuario tenga permisos activos."
+                            )
+                else:
+                    resultado = f"Acción desconocida: '{accion}'. Opciones: listar_hoy, crear_evento."
+
+            except Exception as e:
+                resultado = f"Error en gestionar_calendario: {e}"
+                logger.error(f"gestionar_calendario error para {telefono}: {e}")
 
             resultados_herramientas.append({
                 "type": "tool_result",

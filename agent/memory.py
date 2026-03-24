@@ -209,6 +209,18 @@ class UsuarioMiroFish(Base):
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class UsuarioGoogleAuth(Base):
+    """Tokens OAuth 2.0 de Google Calendar por usuario."""
+    __tablename__ = "usuario_google_auth"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    access_token: Mapped[str] = mapped_column(Text)
+    refresh_token: Mapped[str] = mapped_column(Text, default="")  # para refrescar sin re-autorizar
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # cuándo vence el access_token
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)         # email de Google (solo para display)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class MemoriaLargoPlazo(Base):
     """
     Resumen comprimido del historial de conversación del usuario.
@@ -1242,3 +1254,53 @@ async def obtener_ultimo_id_mensaje(telefono: str) -> int:
         result = await session.execute(query)
         row = result.scalar_one_or_none()
         return row or 0
+
+
+# ─── GOOGLE CALENDAR AUTH ─────────────────────────────────────────────────────
+
+async def guardar_google_auth(
+    telefono: str,
+    access_token: str,
+    refresh_token: str,
+    expires_at: datetime,
+    email: str = "",
+):
+    """Guarda o actualiza los tokens de OAuth de Google Calendar del usuario."""
+    async with async_session() as session:
+        query = select(UsuarioGoogleAuth).where(UsuarioGoogleAuth.telefono == telefono)
+        result = await session.execute(query)
+        registro = result.scalar_one_or_none()
+        if registro:
+            registro.access_token = access_token
+            if refresh_token:                       # no sobreescribir con vacío
+                registro.refresh_token = refresh_token
+            registro.expires_at = expires_at
+            if email:
+                registro.email = email
+            registro.actualizado = datetime.utcnow()
+        else:
+            session.add(UsuarioGoogleAuth(
+                telefono=telefono,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_at=expires_at,
+                email=email,
+                actualizado=datetime.utcnow(),
+            ))
+        await session.commit()
+
+
+async def obtener_google_auth(telefono: str) -> dict | None:
+    """Retorna los tokens de Google Calendar del usuario, o None si no está conectado."""
+    async with async_session() as session:
+        query = select(UsuarioGoogleAuth).where(UsuarioGoogleAuth.telefono == telefono)
+        result = await session.execute(query)
+        registro = result.scalar_one_or_none()
+        if not registro:
+            return None
+        return {
+            "access_token": registro.access_token,
+            "refresh_token": registro.refresh_token,
+            "expires_at": registro.expires_at,
+            "email": registro.email or "",
+        }

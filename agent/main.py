@@ -11,7 +11,7 @@ import logging
 import httpx
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse, RedirectResponse
 from dotenv import load_dotenv
 
 from agent.brain import generar_respuesta
@@ -139,6 +139,136 @@ async def admin_onboarding_reset(telefono: str, fase: int = 0, paso: int = 0, to
     from agent.memory import guardar_onboarding
     await guardar_onboarding(telefono, fase=fase, paso=paso)
     return {"status": "ok", "telefono": telefono, "fase": fase, "paso": paso}
+
+
+@app.get("/auth/google/login")
+async def google_oauth_login(telefono: str):
+    """
+    Inicia el flujo OAuth de Google Calendar para el usuario dado.
+    Redirige al usuario a la pantalla de autorización de Google.
+    Uso: GET /auth/google/login?telefono=521234567890
+    """
+    from agent.google_calendar import esta_disponible, generar_url_oauth
+    if not esta_disponible():
+        raise HTTPException(
+            status_code=503,
+            detail="Google Calendar no está configurado (faltan GOOGLE_CLIENT_ID/SECRET)"
+        )
+    url = generar_url_oauth(telefono)
+    logger.info(f"[GOOGLE] Iniciando OAuth para {telefono}")
+    return RedirectResponse(url)
+
+
+@app.get("/auth/google/callback")
+async def google_oauth_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+):
+    """
+    Callback de Google OAuth.
+    Google redirige aquí tras la autorización del usuario.
+    Intercambia el código por tokens, los guarda y confirma por WhatsApp.
+    """
+    import asyncio as _asyncio
+    from agent.google_calendar import intercambiar_codigo, decodificar_state
+
+    if error:
+        logger.warning(f"[GOOGLE] OAuth rechazado: {error}")
+        return HTMLResponse(_html_oauth_resultado(exito=False, mensaje=f"Acceso denegado: {error}"))
+
+    if not code or not state:
+        return HTMLResponse(_html_oauth_resultado(exito=False, mensaje="Parámetros inválidos."))
+
+    try:
+        telefono = decodificar_state(state)
+    except Exception:
+        return HTMLResponse(_html_oauth_resultado(exito=False, mensaje="State inválido."))
+
+    exito, email = await intercambiar_codigo(code, telefono)
+
+    if not exito:
+        return HTMLResponse(_html_oauth_resultado(
+            exito=False,
+            mensaje="Error al conectar con Google. Por favor intenta de nuevo."
+        ))
+
+    # Notificar al usuario por WhatsApp en background (no bloquear la respuesta HTML)
+    _asyncio.create_task(_notificar_google_conectado(telefono, email))
+
+    logger.info(f"[GOOGLE] OAuth completado para {telefono} ({email})")
+    return HTMLResponse(_html_oauth_resultado(exito=True, email=email))
+
+
+def _html_oauth_resultado(exito: bool, email: str = "", mensaje: str = "") -> str:
+    """Página HTML mínima que se muestra al usuario tras el flujo OAuth."""
+    if exito:
+        email_str = f" ({email})" if email else ""
+        return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Google Calendar conectado</title>
+  <style>
+    body {{ font-family: -apple-system, sans-serif; text-align: center;
+           padding: 48px 24px; background: #f9fafb; color: #111; }}
+    .card {{ background: white; border-radius: 16px; padding: 40px;
+             max-width: 400px; margin: 0 auto; box-shadow: 0 2px 16px #0001; }}
+    h1 {{ font-size: 2rem; margin-bottom: 8px; }}
+    p {{ color: #555; line-height: 1.6; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>✅ ¡Listo!</h1>
+    <p>Google Calendar conectado correctamente{email_str}.</p>
+    <p>Ya puedes cerrar esta pestaña y volver a WhatsApp.<br>
+       Dona ahora puede leer y crear eventos en tu calendario.</p>
+  </div>
+</body>
+</html>"""
+    else:
+        return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Error</title>
+  <style>
+    body {{ font-family: -apple-system, sans-serif; text-align: center;
+           padding: 48px 24px; background: #f9fafb; color: #111; }}
+    .card {{ background: white; border-radius: 16px; padding: 40px;
+             max-width: 400px; margin: 0 auto; box-shadow: 0 2px 16px #0001; }}
+    h1 {{ font-size: 2rem; margin-bottom: 8px; }}
+    p {{ color: #555; line-height: 1.6; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>❌ Error</h1>
+    <p>{mensaje or "No se pudo conectar Google Calendar."}</p>
+    <p>Por favor cierra esta pestaña y pídele a Dona el enlace de nuevo.</p>
+  </div>
+</body>
+</html>"""
+
+
+async def _notificar_google_conectado(telefono: str, email: str):
+    """Envía un WhatsApp de confirmación cuando el usuario conecta Google Calendar."""
+    try:
+        email_str = f" ({email})" if email else ""
+        mensaje = (
+            f"¡Tu Google Calendar está conectado{email_str}! 🗓️\n\n"
+            "Ahora puedo:\n"
+            "• Ver tus eventos del día — *\"qué tengo hoy?\"*\n"
+            "• Crear eventos directamente — *\"agéndame reunión mañana a las 3pm\"*\n\n"
+            "Todo se sincroniza con tu Google Calendar real."
+        )
+        await proveedor.enviar_mensaje(telefono, mensaje)
+    except Exception as e:
+        logger.error(f"_notificar_google_conectado error para {telefono}: {e}")
 
 
 @app.post("/debug")
