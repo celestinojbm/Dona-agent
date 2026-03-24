@@ -209,6 +209,21 @@ class UsuarioMiroFish(Base):
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class MemoriaLargoPlazo(Base):
+    """
+    Resumen comprimido del historial de conversación del usuario.
+    Se regenera con Haiku cada 20 mensajes nuevos para mantener contexto
+    histórico sin necesidad de pasar cientos de mensajes al LLM principal.
+    """
+    __tablename__ = "memoria_largo_plazo"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    resumen_texto: Mapped[str] = mapped_column(Text, default="")
+    # ID del último mensaje de la tabla `mensajes` ya incorporado al resumen
+    ultimo_mensaje_id: Mapped[int] = mapped_column(Integer, default=0)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 async def _migrar_columnas(conn):
     """
     Aplica migraciones incrementales: renombra columnas legacy y agrega columnas nuevas.
@@ -1158,3 +1173,72 @@ async def limpiar_historial(telefono: str):
         for msg in mensajes:
             await session.delete(msg)
         await session.commit()
+
+
+# ─── MEMORIA A LARGO PLAZO ────────────────────────────────────────────────────
+
+async def obtener_memoria_largo_plazo(telefono: str) -> dict | None:
+    """Retorna el resumen de memoria acumulada del usuario, o None si aún no existe."""
+    async with async_session() as session:
+        query = select(MemoriaLargoPlazo).where(MemoriaLargoPlazo.telefono == telefono)
+        result = await session.execute(query)
+        registro = result.scalar_one_or_none()
+        if not registro:
+            return None
+        return {
+            "resumen_texto": registro.resumen_texto,
+            "ultimo_mensaje_id": registro.ultimo_mensaje_id,
+            "actualizado": registro.actualizado,
+        }
+
+
+async def guardar_memoria_largo_plazo(telefono: str, resumen_texto: str, ultimo_mensaje_id: int):
+    """Guarda o actualiza el resumen de memoria a largo plazo del usuario."""
+    async with async_session() as session:
+        query = select(MemoriaLargoPlazo).where(MemoriaLargoPlazo.telefono == telefono)
+        result = await session.execute(query)
+        registro = result.scalar_one_or_none()
+        if registro:
+            registro.resumen_texto = resumen_texto
+            registro.ultimo_mensaje_id = ultimo_mensaje_id
+            registro.actualizado = datetime.utcnow()
+        else:
+            session.add(MemoriaLargoPlazo(
+                telefono=telefono,
+                resumen_texto=resumen_texto,
+                ultimo_mensaje_id=ultimo_mensaje_id,
+                actualizado=datetime.utcnow(),
+            ))
+        await session.commit()
+
+
+async def obtener_mensajes_desde_id(telefono: str, desde_id: int, limite: int = 40) -> list[dict]:
+    """
+    Recupera mensajes con ID estrictamente mayor a `desde_id`.
+    Usado por el generador de resúmenes para saber qué hay de nuevo desde el último ciclo.
+    """
+    async with async_session() as session:
+        query = (
+            select(Mensaje)
+            .where(Mensaje.telefono == telefono)
+            .where(Mensaje.id > desde_id)
+            .order_by(Mensaje.id.asc())
+            .limit(limite)
+        )
+        result = await session.execute(query)
+        mensajes = result.scalars().all()
+        return [{"id": m.id, "role": m.role, "content": m.content} for m in mensajes]
+
+
+async def obtener_ultimo_id_mensaje(telefono: str) -> int:
+    """Retorna el ID del mensaje más reciente del usuario (0 si no hay ninguno)."""
+    async with async_session() as session:
+        query = (
+            select(Mensaje.id)
+            .where(Mensaje.telefono == telefono)
+            .order_by(Mensaje.id.desc())
+            .limit(1)
+        )
+        result = await session.execute(query)
+        row = result.scalar_one_or_none()
+        return row or 0

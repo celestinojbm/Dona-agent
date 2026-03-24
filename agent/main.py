@@ -31,6 +31,7 @@ from agent.memory import (
 from agent.providers import obtener_proveedor
 from agent.scheduler import iniciar_scheduler, detener_scheduler
 from agent.transcriber import procesar_audio_whapi
+from agent.memory_summary import actualizar_resumen_si_necesario
 
 load_dotenv()
 
@@ -250,6 +251,11 @@ async def procesar_webhook(request: Request):
                 _verificar_sobrecarga(msg.telefono, proveedor)
             )
 
+            # Actualizar resumen de memoria a largo plazo si hay 20+ mensajes nuevos
+            _asyncio.create_task(
+                _actualizar_memoria_largo_plazo_si_necesario(msg.telefono)
+            )
+
             # Registrar interacción para aprendizaje continuo (background)
             _asyncio.create_task(
                 _registrar_interaccion_aprendizaje(msg.telefono, len(msg.texto))
@@ -358,6 +364,20 @@ async def _registrar_interaccion_aprendizaje(telefono: str, longitud_mensaje: in
         )
     except Exception as e:
         logger.debug(f"_registrar_interaccion_aprendizaje ({telefono}): {e}")
+
+
+async def _actualizar_memoria_largo_plazo_si_necesario(telefono: str):
+    """
+    Verifica si hay ≥20 mensajes nuevos desde el último resumen y, si es así,
+    genera un nuevo resumen consolidado con Haiku.
+    Corre en background — silencioso, sin interrumpir la respuesta principal.
+    """
+    try:
+        actualizado = await actualizar_resumen_si_necesario(telefono)
+        if actualizado:
+            logger.info(f"[MEMORIA] Resumen largo plazo actualizado para {telefono}")
+    except Exception as e:
+        logger.debug(f"_actualizar_memoria_largo_plazo_si_necesario ({telefono}): {e}")
 
 
 async def _detectar_y_guardar_viaje(telefono: str, texto: str):

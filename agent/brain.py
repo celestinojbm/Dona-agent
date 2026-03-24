@@ -247,11 +247,19 @@ def cargar_system_prompt(
     tono_emocional: str = "",
     contexto_emocional: str = "",
     perfil_aprendizaje: str = "",
+    memoria_largo_plazo: str = "",
 ) -> str:
-    """Lee el system prompt e inyecta contexto de tiempo, estado emocional y perfil de aprendizaje."""
+    """Lee el system prompt e inyecta contexto de tiempo, memoria histórica, estado emocional y perfil de aprendizaje."""
     config = cargar_config_prompts()
     base = config.get("system_prompt", "Eres Dona, una asistente personal útil. Responde en español.")
     partes = [base, construir_contexto_tiempo(timestamp_mensaje, offset_guardado)]
+    if memoria_largo_plazo and memoria_largo_plazo != "Sin contexto acumulado aún.":
+        partes.append(
+            f"## Memoria histórica del usuario\n"
+            f"{memoria_largo_plazo}\n"
+            f"Usa este contexto para personalizar tus respuestas y recordar hechos importantes. "
+            f"Nunca menciones que tienes un 'resumen' o 'memoria' — úsalo de forma natural."
+        )
     if perfil_aprendizaje:
         partes.append(
             f"## Perfil de aprendizaje (comportamiento real observado)\n"
@@ -294,7 +302,10 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         return obtener_mensaje_fallback()
 
     # ── Detección emocional (paralela con carga de timezone) ─────────────────
-    from agent.memory import obtener_timezone, obtener_onboarding, obtener_estado_emocional, obtener_perfil_aprendizaje
+    from agent.memory import (
+        obtener_timezone, obtener_onboarding, obtener_estado_emocional,
+        obtener_perfil_aprendizaje, obtener_memoria_largo_plazo,
+    )
     from agent.emotion import (
         detectar_emocion, obtener_instrucciones_tono,
         obtener_contexto_emocional_str, MENSAJE_CRISIS,
@@ -303,11 +314,14 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     async def _none():
         return None
 
-    offset_guardado, estado_onboarding, perfil_aprendizaje = await asyncio.gather(
+    offset_guardado, estado_onboarding, perfil_aprendizaje, memoria_lp = await asyncio.gather(
         obtener_timezone(telefono) if telefono else _none(),
         obtener_onboarding(telefono) if telefono else _none(),
         obtener_perfil_aprendizaje(telefono) if telefono else _none(),
+        obtener_memoria_largo_plazo(telefono) if telefono else _none(),
     )
+
+    resumen_memoria = memoria_lp["resumen_texto"] if memoria_lp else ""
 
     contexto_usuario = estado_onboarding.get("contexto", "") if estado_onboarding else ""
     nombre_usuario = estado_onboarding.get("nombre", "") if estado_onboarding else ""
@@ -343,6 +357,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         tono_emocional=tono_emocional,
         contexto_emocional=ctx_emocional,
         perfil_aprendizaje=perfil_aprendizaje or "",
+        memoria_largo_plazo=resumen_memoria,
     )
 
     # Construir lista de mensajes (historial + mensaje actual)
