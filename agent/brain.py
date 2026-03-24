@@ -110,10 +110,11 @@ TOOLS = [
     {
         "name": "simular_escenario",
         "description": (
-            "Analiza cómo distintas personas o entidades en la vida del usuario reaccionarían "
-            "ante un escenario hipotético. Úsala cuando el usuario pregunta '¿qué pasaría si...?', "
-            "'simula que...', 'cómo reaccionaría X si...', o pide predecir consecuencias sociales "
-            "de una decisión. El análisis toma 1-2 minutos y el resultado llega por este chat."
+            "Analiza qué pasaría si el usuario tomara una decisión o enfrentara una situación específica, "
+            "considerando cómo reaccionarían las personas y entidades relevantes en su vida. "
+            "Úsala cuando el usuario pregunta '¿qué pasaría si...?', '¿cómo reaccionaría X si...?', "
+            "'ayúdame a pensar las consecuencias de...', o pide analizar el impacto de una decisión. "
+            "El análisis toma 1-2 minutos y el resultado llega por este chat."
         ),
         "input_schema": {
             "type": "object",
@@ -121,7 +122,7 @@ TOOLS = [
                 "escenario": {
                     "type": "string",
                     "description": (
-                        "Descripción detallada del escenario a simular en lenguaje natural. "
+                        "Descripción detallada de la situación o decisión a analizar, en lenguaje natural. "
                         "Incluye el contexto y las personas/organizaciones relevantes si las conoces. "
                         "Ejemplo: '¿Qué pasaría si cancelo el contrato con Carlos y le digo "
                         "que el proyecto se retrasó por problemas técnicos?'"
@@ -527,7 +528,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 import agent.mirofish_client as mf
                 if not mf._disponible():
                     resultado = (
-                        "La función de simulación no está disponible en este momento "
+                        "Esta función de análisis no está disponible en este momento "
                         "(MIROFISH_BASE_URL no configurado)."
                     )
                 else:
@@ -537,9 +538,9 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
 
                     if not project_id or not graph_id:
                         resultado = (
-                            "Aún no tengo suficiente contexto sobre tu vida para simular escenarios. "
+                            "Aún no tengo suficiente contexto sobre tu vida para analizar este tipo de situaciones. "
                             "Sigue usando Dona con mensajes sobre tu trabajo, personas y proyectos. "
-                            "En unos días podré hacer simulaciones para ti."
+                            "En unos días podré ayudarte a pensar las consecuencias de tus decisiones."
                         )
                     else:
                         escenario = bloque.input["escenario"]
@@ -553,10 +554,10 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                                 proveedor=proveedor,
                             )
                         )
-                        resultado = "Simulación iniciada. El análisis toma 1-2 minutos — el resultado llega por este chat."
+                        resultado = "Analizando tu situación. Esto toma 1-2 minutos — el resultado llega por este chat."
                         logger.info(f"Simulación MiroFish iniciada en background para {telefono}")
             except Exception as e:
-                resultado = f"Error al iniciar la simulación: {e}"
+                resultado = f"Error al iniciar el análisis: {e}"
                 logger.error(f"Error simular_escenario: {e}")
 
             resultados_herramientas.append({
@@ -620,13 +621,13 @@ async def _ejecutar_simulacion_background(
             # WhatsApp tiene límite práctico ~4000 chars por mensaje
             if len(reporte) > 3800:
                 reporte = reporte[:3800] + "\n\n_(reporte truncado por límite de WhatsApp)_"
-            mensaje_resultado = f"*Análisis de escenario completado:*\n\n{reporte}"
+            mensaje_resultado = f"*Aquí está el análisis:*\n\n{reporte}"
             await proveedor.enviar_mensaje(telefono, mensaje_resultado)
             logger.info(f"MiroFish background: resultado enviado a {telefono}")
         elif proveedor:
             await proveedor.enviar_mensaje(
                 telefono,
-                "No pude completar el análisis del escenario. Por favor intenta de nuevo."
+                "No pude completar el análisis. Por favor intenta de nuevo."
             )
     except Exception as e:
         logger.error(f"MiroFish background error para {telefono}: {e}")
@@ -634,7 +635,7 @@ async def _ejecutar_simulacion_background(
             try:
                 await proveedor.enviar_mensaje(
                     telefono,
-                    "Hubo un error al analizar el escenario. Intenta de nuevo más tarde."
+                    "Hubo un error al procesar el análisis. Intenta de nuevo más tarde."
                 )
             except Exception:
                 pass
