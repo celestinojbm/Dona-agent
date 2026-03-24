@@ -104,8 +104,9 @@ async def intercambiar_codigo(code: str, telefono: str) -> tuple[bool, str]:
             })
 
             if resp.status_code != 200:
-                logger.error(f"Google token exchange: {resp.status_code} {resp.text[:300]}")
-                return False, ""
+                error_detail = resp.text[:500]
+                logger.error(f"Google token exchange: {resp.status_code} {error_detail}")
+                return False, f"[DEBUG] Google {resp.status_code}: {error_detail}"
 
             tokens = resp.json()
             access_token = tokens["access_token"]

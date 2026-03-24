@@ -191,7 +191,7 @@ async def google_oauth_callback(
     if not exito:
         return HTMLResponse(_html_oauth_resultado(
             exito=False,
-            mensaje="Error al conectar con Google. Por favor intenta de nuevo."
+            mensaje=email if email else "Error al conectar con Google. Por favor intenta de nuevo."
         ))
 
     # Notificar al usuario por WhatsApp en background (no bloquear la respuesta HTML)
