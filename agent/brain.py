@@ -385,14 +385,33 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     async def _none():
         return None
 
-    offset_guardado, estado_onboarding, perfil_aprendizaje, memoria_lp = await asyncio.gather(
+    # return_exceptions=True evita que un fallo de DB silencioso apague todas las respuestas.
+    # Sin esto, si una tabla nueva no existe en Supabase, la excepción sale de aquí sin capturar,
+    # llega al except externo de procesar_webhook, y Dona nunca envía nada al usuario.
+    _resultados_db = await asyncio.gather(
         obtener_timezone(telefono) if telefono else _none(),
         obtener_onboarding(telefono) if telefono else _none(),
         obtener_perfil_aprendizaje(telefono) if telefono else _none(),
         obtener_memoria_largo_plazo(telefono) if telefono else _none(),
+        return_exceptions=True,
     )
 
-    resumen_memoria = memoria_lp["resumen_texto"] if memoria_lp else ""
+    def _unwrap(r, default=None):
+        """Devuelve default si el resultado es una excepción (error de DB no fatal)."""
+        return default if isinstance(r, BaseException) else r
+
+    offset_guardado    = _unwrap(_resultados_db[0])
+    estado_onboarding  = _unwrap(_resultados_db[1])
+    perfil_aprendizaje = _unwrap(_resultados_db[2])
+    memoria_lp         = _unwrap(_resultados_db[3])
+
+    # Loguear cualquier error de DB para poder diagnosticarlo sin crashear
+    _nombres_db = ["timezone", "onboarding", "perfil_aprendizaje", "memoria_largo_plazo"]
+    for _i, _r in enumerate(_resultados_db):
+        if isinstance(_r, BaseException):
+            logger.error(f"[BRAIN] Error cargando {_nombres_db[_i]} de DB: {type(_r).__name__}: {_r}")
+
+    resumen_memoria = memoria_lp["resumen_texto"] if isinstance(memoria_lp, dict) else ""
 
     contexto_usuario = estado_onboarding.get("contexto", "") if estado_onboarding else ""
     nombre_usuario = estado_onboarding.get("nombre", "") if estado_onboarding else ""

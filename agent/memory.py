@@ -31,7 +31,7 @@ _ES_POSTGRES = DATABASE_URL.startswith("postgresql+asyncpg://")
 if _ES_POSTGRES:
     engine = create_async_engine(
         DATABASE_URL,
-        echo=True,   # temporal — ver SQL exacto en logs de Render
+        echo=False,
         connect_args={
             "ssl": "require",
             "statement_cache_size": 0,  # requerido para PgBouncer
@@ -249,6 +249,29 @@ async def _migrar_columnas(conn):
         "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual_expira TIMESTAMP",
         # Soporte DST: nombre IANA de timezone (ej: "America/New_York")
         "ALTER TABLE timezone_usuarios ADD COLUMN timezone_nombre VARCHAR(60)",
+
+        # ── Tablas nuevas (idempotentes — IF NOT EXISTS) ──────────────────────────
+        # Estas CREATE TABLE se agregan aquí como respaldo explícito porque create_all
+        # puede fallar silenciosamente en Supabase con PgBouncer (transaction mode).
+        # Se ejecutan en cada arranque; IF NOT EXISTS las hace seguras de repetir.
+        """
+        CREATE TABLE IF NOT EXISTS memoria_largo_plazo (
+            telefono    VARCHAR(50) PRIMARY KEY,
+            resumen_texto TEXT        NOT NULL DEFAULT '',
+            ultimo_mensaje_id INTEGER NOT NULL DEFAULT 0,
+            actualizado TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS usuario_google_auth (
+            telefono      VARCHAR(50) PRIMARY KEY,
+            access_token  TEXT        NOT NULL DEFAULT '',
+            refresh_token TEXT        NOT NULL DEFAULT '',
+            expires_at    TIMESTAMP,
+            email         VARCHAR(200),
+            actualizado   TIMESTAMP
+        )
+        """,
     ]
     for sql in migraciones:
         try:
