@@ -319,6 +319,7 @@ async def procesar_webhook(request: Request):
                 logger.info(f"Nota de voz transcrita: \"{texto_transcrito}\"")
 
             # Si es una imagen, procesarla con visión
+            _es_imagen = False
             if msg.image_id and not msg.texto:
                 logger.info(f"Procesando imagen de {msg.telefono}...")
                 from agent.vision import procesar_imagen
@@ -330,6 +331,7 @@ async def procesar_webhook(request: Request):
                     )
                     continue
                 msg.texto = texto_imagen
+                _es_imagen = True  # Marcar para no avanzar el onboarding
                 logger.info(f"Imagen procesada: \"{texto_imagen[:80]}\"")
 
             if not msg.texto:
@@ -356,7 +358,7 @@ async def procesar_webhook(request: Request):
                 logger.error(f"[ONBOARDING] Error verificando estado: {_e_ob}")
                 _onboarding_activo = False
 
-            if _onboarding_activo:
+            if _onboarding_activo and not _es_imagen:
                 try:
                     respuesta_onboarding = await procesar_mensaje_onboarding(msg.telefono, msg.texto)
                 except Exception as _e_ob2:
@@ -368,6 +370,8 @@ async def procesar_webhook(request: Request):
                     continue  # No pasar al flujo normal de Dona
                 else:
                     logger.info(f"[ONBOARDING] Mensaje fuera de flujo, pasa a Claude: '{msg.texto[:60]}'")
+            elif _onboarding_activo and _es_imagen:
+                logger.info(f"[ONBOARDING] Imagen recibida durante onboarding — pasa a Claude sin avanzar estado")
 
             # ── Detección de ciudad base (solo si el usuario no tiene ninguna) ─
             try:
