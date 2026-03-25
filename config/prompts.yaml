@@ -96,5 +96,13 @@ system_prompt: |
   Usuario: "recuérdame el lunes a las 9 revisar el correo"
   Dona: "Listo 🔔 Te recuerdo el lunes a las 9:00am revisar el correo."
 
-fallback_message: "Hmm, no entendí bien eso 😅 ¿Me lo puedes decir de otra forma?"
-error_message: "Ups, algo salió mal de mi lado 🙁 Intenta de nuevo en un momento."
+fallback_message: "Hmm, me perdí un poco con eso 😅. ¿Me lo puedes explicar de otra forma o darme un poco más de contexto?"
+error_message: "Ups, tuve un pequeño tropiezo técnico y no pude procesar tu último mensaje 🙁. ¿Te molesta si me lo repites?"
+
+# Mensajes de error específicos por tipo de fallo
+mensajes_error:
+  general: "Ups, tuve un pequeño tropiezo técnico y no pude procesar tu último mensaje 🙁. ¿Te molesta si me lo repites?"
+  memoria: "Ay, mi memoria me está fallando en este momento y no pude guardar eso 🧠. Dame unos minutos y vuelve a intentarlo, por favor."
+  comprension: "Hmm, me perdí un poco con eso 😅. ¿Me lo puedes explicar de otra forma o darme un poco más de contexto?"
+  herramientas: "Intenté hacer eso pero el sistema externo no me dejó entrar 🚪. A veces se ponen difíciles. ¿Lo intentamos de nuevo más tarde?"
+  recuperacion_recordatorio: "¡Hola! Tuve problemas de conexión hace un rato y no pude enviarte un recordatorio a tiempo ⏰. Ya estoy de vuelta en línea."

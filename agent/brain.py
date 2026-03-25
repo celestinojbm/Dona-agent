@@ -345,14 +345,19 @@ def cargar_system_prompt(
     return "\n\n".join(partes)
 
 
-def obtener_mensaje_error() -> str:
+def obtener_mensaje_error(tipo: str = "general") -> str:
+    """
+    Retorna el mensaje de error apropiado según el tipo de fallo.
+    Tipos: 'general', 'memoria', 'comprension', 'herramientas', 'recuperacion_recordatorio'
+    """
     config = cargar_config_prompts()
-    return config.get("error_message", "Ups, algo salió mal de mi lado 🙁 Intenta de nuevo en un momento.")
-
+    mensajes = config.get("mensajes_error", {})
+    fallback_general = "Ups, tuve un pequeño tropiezo técnico y no pude procesar tu último mensaje 🙁. ¿Te molesta si me lo repites?"
+    return mensajes.get(tipo, mensajes.get("general", fallback_general))
 
 def obtener_mensaje_fallback() -> str:
     config = cargar_config_prompts()
-    return config.get("fallback_message", "Hmm, no entendí bien eso 😅 ¿Me lo puedes decir de otra forma?")
+    return config.get("fallback_message", "Hmm, me perdí un poco con eso 😅. ¿Me lo puedes explicar de otra forma o darme un poco más de contexto?")
 
 
 async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str = "", timestamp_mensaje: int = 0, proveedor=None) -> str:
@@ -479,8 +484,8 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         return _extraer_texto(response)
 
     except Exception as e:
-        logger.error(f"Error Claude API: {e}")
-        return obtener_mensaje_error()
+        logger.error(f"Error Claude API: {type(e).__name__}: {e}")
+        return obtener_mensaje_error("general")
 
 
 async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str, offset_guardado: int | None, proveedor=None) -> str:

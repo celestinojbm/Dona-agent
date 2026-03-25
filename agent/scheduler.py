@@ -57,11 +57,9 @@ async def _verificar_y_enviar_recordatorios(proveedor):
 
                 # Si venía con fallos previos, notificar que el canal se recuperó
                 if r.intentos_fallidos and r.intentos_fallidos > 0:
-                    aviso = (
-                        "✅ El recordatorio que había fallado antes acaba de enviarse correctamente. "
-                        "El canal está funcionando de nuevo."
-                    )
                     try:
+                        from agent.brain import obtener_mensaje_error
+                        aviso = obtener_mensaje_error("recuperacion_recordatorio")
                         await proveedor.enviar_mensaje(r.telefono, aviso)
                     except Exception:
                         pass  # El aviso es best-effort
