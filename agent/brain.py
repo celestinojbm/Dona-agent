@@ -433,7 +433,12 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     tono_emocional = obtener_instrucciones_tono(emotion, nombre_usuario)
 
     # Contexto emocional reciente (si aplica)
-    estado_previo = await obtener_estado_emocional(telefono) if telefono else None
+    # Envuelto en try/except: si la DB falla aquí, no debe silenciar la respuesta de Dona.
+    try:
+        estado_previo = await obtener_estado_emocional(telefono) if telefono else None
+    except Exception as _e_emo:
+        logger.error(f"[BRAIN] Error cargando estado_emocional de DB: {type(_e_emo).__name__}: {_e_emo}")
+        estado_previo = None
     ctx_emocional = ""
     if estado_previo:
         ctx_emocional = obtener_contexto_emocional_str(
