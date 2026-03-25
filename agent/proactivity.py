@@ -273,7 +273,7 @@ async def _generar_morning_brief(
         )
 
         response = await _claude.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-6",
             max_tokens=220,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -378,7 +378,7 @@ async def _disparador_conflict(telefono: str, nombre: str, contexto: str) -> str
         )
 
         response = await _claude.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-6",
             max_tokens=150,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -420,7 +420,7 @@ async def _generar_weekly_review(telefono: str, nombre: str, contexto: str) -> s
         )
 
         response = await _claude.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-6",
             max_tokens=220,
             messages=[{"role": "user", "content": prompt}],
         )

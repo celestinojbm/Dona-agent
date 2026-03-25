@@ -457,7 +457,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     try:
         # Primera llamada a Claude — puede responder con texto o con tool_use
         response = await client.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-6",
             max_tokens=1024,
             system=system_prompt,
             messages=mensajes,
@@ -764,7 +764,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
     ]
 
     respuesta_final = await client.messages.create(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-6",
         max_tokens=1024,
         system=system_prompt,
         messages=mensajes_con_tool,
