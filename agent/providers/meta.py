@@ -24,6 +24,10 @@ logger = logging.getLogger("agentkit")
 # Tipos de mensaje de audio que WhatsApp puede enviar
 TIPOS_AUDIO = {"audio", "voice"}
 
+# Tipos de mensaje de imagen/documento que WhatsApp puede enviar
+TIPOS_IMAGEN = {"image", "sticker"}
+TIPOS_DOCUMENTO = {"document"}
+
 
 class ProveedorMeta(ProveedorWhatsApp):
     """Proveedor de WhatsApp usando la Cloud API oficial de Meta."""
@@ -109,6 +113,45 @@ class ProveedorMeta(ProveedorWhatsApp):
                                 audio_id=audio_id,
                                 audio_mime=mime_type,
                             ))
+
+                        elif tipo in TIPOS_IMAGEN:
+                            image_data = msg.get("image") or msg.get("sticker") or {}
+                            if not isinstance(image_data, dict):
+                                image_data = {}
+                            image_id = image_data.get("id", "")
+                            caption = image_data.get("caption", "")
+                            logger.info(f"[META] Imagen de {telefono}: image_id={image_id}")
+                            if image_id:
+                                mensajes.append(MensajeEntrante(
+                                    telefono=telefono,
+                                    texto="",
+                                    mensaje_id=mensaje_id,
+                                    es_propio=False,
+                                    timestamp=timestamp,
+                                    image_id=image_id,
+                                    image_caption=caption,
+                                ))
+
+                        elif tipo in TIPOS_DOCUMENTO:
+                            doc_data = msg.get("document") or {}
+                            if not isinstance(doc_data, dict):
+                                doc_data = {}
+                            doc_id = doc_data.get("id", "")
+                            filename = doc_data.get("filename", "documento")
+                            caption = doc_data.get("caption", "")
+                            logger.info(f"[META] Documento de {telefono}: doc_id={doc_id} filename={filename}")
+                            # Tratar documentos como mensaje de texto descriptivo
+                            if doc_id:
+                                texto_doc = f"[El usuario envió un documento: {filename}]"
+                                if caption:
+                                    texto_doc += f" con el mensaje: {caption}"
+                                mensajes.append(MensajeEntrante(
+                                    telefono=telefono,
+                                    texto=texto_doc,
+                                    mensaje_id=mensaje_id,
+                                    es_propio=False,
+                                    timestamp=timestamp,
+                                ))
 
                         else:
                             logger.debug(f"[META] Tipo de mensaje ignorado: {tipo}")

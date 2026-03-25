@@ -82,6 +82,68 @@ async def _verificar_y_enviar_recordatorios(proveedor):
         logger.error(f"Error en scheduler de recordatorios ({type(e).__name__}): {e}")
 
 
+async def _verificar_recordatorios_google_calendar(proveedor):
+    """
+    Job que corre cada 5 minutos.
+    Verifica si algún usuario con Google Calendar conectado tiene un evento
+    que comienza en los próximos 30 minutos y le envía un recordatorio proactivo.
+    Evita enviar el mismo recordatorio dos veces usando un registro en memoria.
+    """
+    try:
+        import agent.google_calendar as gc
+        from agent.memory import obtener_todos_con_google_calendar, obtener_timezone
+
+        usuarios = await obtener_todos_con_google_calendar()
+        if not usuarios:
+            return
+
+        for telefono in usuarios:
+            try:
+                offset_min = await obtener_timezone(telefono) or 0
+                proximos = await gc.obtener_proximos_eventos(
+                    telefono,
+                    offset_min=offset_min,
+                    minutos_anticipacion=30,
+                )
+
+                for evento in proximos:
+                    # Crear clave única para evitar recordatorio duplicado
+                    clave = f"gcal_reminder_{telefono}_{evento['id']}"
+                    if clave in _recordatorios_gcal_enviados:
+                        continue
+
+                    minutos = evento['minutos_restantes']
+                    titulo = evento['titulo']
+                    lugar = evento.get('lugar', '')
+
+                    if minutos <= 5:
+                        tiempo_str = "en menos de 5 minutos"
+                    elif minutos <= 15:
+                        tiempo_str = f"en {minutos} minutos"
+                    else:
+                        tiempo_str = f"en {minutos} minutos"
+
+                    mensaje = f"📅 Recordatorio: *{titulo}* comienza {tiempo_str}."
+                    if lugar:
+                        mensaje += f"\n📍 {lugar}"
+
+                    enviado = await proveedor.enviar_mensaje(telefono, mensaje)
+                    if enviado:
+                        _recordatorios_gcal_enviados.add(clave)
+                        logger.info(f"[GCAL] Recordatorio enviado a {telefono}: '{titulo}' en {minutos} min")
+
+            except Exception as e_user:
+                logger.debug(f"[GCAL] Error verificando eventos para {telefono}: {e_user}")
+
+    except Exception as e:
+        logger.error(f"Error en scheduler de Google Calendar ({type(e).__name__}): {e}")
+
+
+# Registro en memoria de recordatorios de Google Calendar ya enviados (evita duplicados)
+# Se limpia al reiniciar el servidor — comportamiento correcto para recordatorios del día
+_recordatorios_gcal_enviados: set = set()
+
+
 async def _verificar_avance_onboarding(proveedor):
     """
     Job que corre cada hora.
@@ -127,6 +189,14 @@ def iniciar_scheduler(proveedor):
         replace_existing=True,
     )
     scheduler.add_job(
+        _verificar_recordatorios_google_calendar,
+        trigger="interval",
+        minutes=5,
+        args=[proveedor],
+        id="verificar_recordatorios_gcal",
+        replace_existing=True,
+    )
+    scheduler.add_job(
         actualizar_perfiles_todos,
         trigger="cron",
         day_of_week="sun",
@@ -136,7 +206,7 @@ def iniciar_scheduler(proveedor):
         replace_existing=True,
     )
     scheduler.start()
-    logger.info("Scheduler iniciado — recordatorios cada minuto, onboarding y proactividad cada hora, aprendizaje los domingos")
+    logger.info("Scheduler iniciado — recordatorios cada minuto, Google Calendar cada 5 min, onboarding y proactividad cada hora, aprendizaje los domingos")
 
 
 def detener_scheduler():

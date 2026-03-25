@@ -336,3 +336,259 @@ async def crear_evento(
     except Exception as e:
         logger.error(f"crear_evento error para {telefono}: {e}")
         return None
+
+
+async def editar_evento(
+    telefono: str,
+    evento_id: str,
+    titulo: str | None = None,
+    inicio_iso: str | None = None,
+    fin_iso: str | None = None,
+    descripcion: str | None = None,
+    lugar: str | None = None,
+) -> dict | None:
+    """
+    Edita un evento existente en Google Calendar del usuario (PATCH parcial).
+
+    Args:
+        telefono:    Número del usuario
+        evento_id:   ID del evento en Google Calendar
+        titulo:      Nuevo título (opcional)
+        inicio_iso:  Nueva hora de inicio ISO 8601 (opcional)
+        fin_iso:     Nueva hora de fin ISO 8601 (opcional)
+        descripcion: Nueva descripción (opcional)
+        lugar:       Nuevo lugar (opcional)
+
+    Returns:
+        Dict con id, titulo y link del evento actualizado, o None si falló.
+    """
+    token = await _obtener_token_valido(telefono)
+    if not token:
+        return None
+
+    body: dict = {}
+    if titulo is not None:
+        body["summary"] = titulo
+    if inicio_iso is not None:
+        body["start"] = {"dateTime": inicio_iso}
+    if fin_iso is not None:
+        body["end"] = {"dateTime": fin_iso}
+    if descripcion is not None:
+        body["description"] = descripcion
+    if lugar is not None:
+        body["location"] = lugar
+
+    if not body:
+        logger.warning(f"editar_evento: no hay cambios para el evento {evento_id}")
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.patch(
+                f"{_CALENDAR_API}/calendars/primary/events/{evento_id}",
+                json=body,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+            )
+
+            if resp.status_code != 200:
+                logger.error(f"Google Calendar patch: {resp.status_code} {resp.text[:300]}")
+                return None
+
+            evento = resp.json()
+            logger.info(f"Evento {evento_id} editado en Google Calendar para {telefono}")
+            return {
+                "id": evento.get("id", evento_id),
+                "titulo": evento.get("summary", titulo or ""),
+                "link": evento.get("htmlLink", ""),
+            }
+
+    except Exception as e:
+        logger.error(f"editar_evento error para {telefono}: {e}")
+        return None
+
+
+async def eliminar_evento(telefono: str, evento_id: str) -> bool:
+    """
+    Elimina un evento de Google Calendar del usuario.
+
+    Args:
+        telefono:  Número del usuario
+        evento_id: ID del evento en Google Calendar
+
+    Returns:
+        True si se eliminó correctamente, False si falló.
+    """
+    token = await _obtener_token_valido(telefono)
+    if not token:
+        return False
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.delete(
+                f"{_CALENDAR_API}/calendars/primary/events/{evento_id}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            # Google devuelve 204 No Content al eliminar exitosamente
+            if resp.status_code in (200, 204):
+                logger.info(f"Evento {evento_id} eliminado de Google Calendar para {telefono}")
+                return True
+            else:
+                logger.error(f"Google Calendar delete: {resp.status_code} {resp.text[:200]}")
+                return False
+
+    except Exception as e:
+        logger.error(f"eliminar_evento error para {telefono}: {e}")
+        return False
+
+
+async def listar_eventos_rango(
+    telefono: str,
+    inicio_iso: str,
+    fin_iso: str,
+    max_resultados: int = 20,
+) -> list[dict]:
+    """
+    Retorna eventos de Google Calendar en un rango de fechas específico.
+
+    Args:
+        telefono:       Número del usuario
+        inicio_iso:     Inicio del rango en ISO 8601 con offset
+        fin_iso:        Fin del rango en ISO 8601 con offset
+        max_resultados: Máximo de eventos a retornar (default 20)
+
+    Returns:
+        Lista de dicts con id, titulo, inicio, fin, descripcion, lugar.
+    """
+    token = await _obtener_token_valido(telefono)
+    if not token:
+        return []
+
+    params = {
+        "calendarId": "primary",
+        "timeMin": inicio_iso,
+        "timeMax": fin_iso,
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "maxResults": max_resultados,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{_CALENDAR_API}/calendars/primary/events",
+                params=params,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            if resp.status_code != 200:
+                logger.error(f"Google Calendar list rango: {resp.status_code} {resp.text[:200]}")
+                return []
+
+            items = resp.json().get("items", [])
+            eventos = []
+            for item in items:
+                start = item.get("start", {})
+                end = item.get("end", {})
+                eventos.append({
+                    "id": item.get("id", ""),
+                    "titulo": item.get("summary", "(sin título)"),
+                    "inicio": start.get("dateTime", start.get("date", "")),
+                    "fin": end.get("dateTime", end.get("date", "")),
+                    "descripcion": item.get("description", ""),
+                    "lugar": item.get("location", ""),
+                })
+            return eventos
+
+    except Exception as e:
+        logger.error(f"listar_eventos_rango error para {telefono}: {e}")
+        return []
+
+
+async def obtener_proximos_eventos(
+    telefono: str,
+    offset_min: int = 0,
+    minutos_anticipacion: int = 30,
+    ventana_horas: int = 24,
+) -> list[dict]:
+    """
+    Retorna eventos que comienzan en los próximos `minutos_anticipacion` minutos.
+    Usado por el scheduler para enviar recordatorios proactivos.
+
+    Args:
+        telefono:             Número del usuario
+        offset_min:           Offset de zona horaria del usuario en minutos
+        minutos_anticipacion: Cuántos minutos antes del evento enviar el recordatorio
+        ventana_horas:        Cuántas horas hacia adelante buscar eventos
+
+    Returns:
+        Lista de eventos que comienzan pronto (dentro del margen de anticipación).
+    """
+    token = await _obtener_token_valido(telefono)
+    if not token:
+        return []
+
+    ahora_utc = datetime.now(timezone.utc)
+    fin_ventana = ahora_utc + timedelta(hours=ventana_horas)
+
+    # Buscar eventos en la próxima ventana
+    params = {
+        "calendarId": "primary",
+        "timeMin": ahora_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "timeMax": fin_ventana.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "maxResults": 10,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{_CALENDAR_API}/calendars/primary/events",
+                params=params,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            if resp.status_code != 200:
+                return []
+
+            items = resp.json().get("items", [])
+            proximos = []
+
+            for item in items:
+                start = item.get("start", {})
+                inicio_str = start.get("dateTime", "")
+                if not inicio_str:
+                    continue  # Eventos de todo el día — omitir
+
+                try:
+                    # Parsear el inicio del evento
+                    inicio_dt = datetime.fromisoformat(inicio_str)
+                    if inicio_dt.tzinfo is None:
+                        inicio_dt = inicio_dt.replace(tzinfo=timezone.utc)
+
+                    # Calcular cuántos minutos faltan
+                    minutos_restantes = (inicio_dt - ahora_utc).total_seconds() / 60
+
+                    # Solo incluir si está dentro del margen de anticipación
+                    if 0 <= minutos_restantes <= minutos_anticipacion:
+                        proximos.append({
+                            "id": item.get("id", ""),
+                            "titulo": item.get("summary", "(sin título)"),
+                            "inicio": inicio_str,
+                            "fin": item.get("end", {}).get("dateTime", ""),
+                            "descripcion": item.get("description", ""),
+                            "lugar": item.get("location", ""),
+                            "minutos_restantes": int(minutos_restantes),
+                        })
+                except Exception:
+                    continue
+
+            return proximos
+
+    except Exception as e:
+        logger.error(f"obtener_proximos_eventos error para {telefono}: {e}")
+        return []

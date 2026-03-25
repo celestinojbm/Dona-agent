@@ -162,11 +162,18 @@ TOOLS = [
             "properties": {
                 "accion": {
                     "type": "string",
-                    "enum": ["listar_hoy", "crear_evento"],
+                    "enum": ["listar_hoy", "listar_rango", "crear_evento", "editar_evento", "eliminar_evento"],
                     "description": (
                         "'listar_hoy' → muestra los eventos del día actual. "
-                        "'crear_evento' → crea un nuevo evento (requiere titulo, inicio_iso, fin_iso)."
+                        "'listar_rango' → muestra eventos en un rango de fechas (requiere inicio_iso y fin_iso). "
+                        "'crear_evento' → crea un nuevo evento (requiere titulo, inicio_iso, fin_iso). "
+                        "'editar_evento' → edita un evento existente (requiere evento_id y los campos a cambiar). "
+                        "'eliminar_evento' → elimina un evento (requiere evento_id)."
                     )
+                },
+                "evento_id": {
+                    "type": "string",
+                    "description": "ID del evento en Google Calendar. Requerido para editar_evento y eliminar_evento. Obtenerlo de listar_hoy o listar_rango."
                 },
                 "titulo": {
                     "type": "string",
@@ -708,8 +715,66 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                                 "No se pudo crear el evento en Google Calendar. "
                                 "Verifica que el usuario tenga permisos activos."
                             )
+                elif accion == "listar_rango":
+                    inicio_iso = bloque.input.get("inicio_iso", "")
+                    fin_iso = bloque.input.get("fin_iso", "")
+                    if not inicio_iso or not fin_iso:
+                        resultado = "Se necesita inicio_iso y fin_iso para listar eventos en un rango."
+                    else:
+                        eventos = await gc.listar_eventos_rango(telefono, inicio_iso, fin_iso)
+                        if not eventos:
+                            resultado = "No hay eventos en Google Calendar para ese rango de fechas."
+                        else:
+                            lineas = []
+                            for e in eventos:
+                                inicio_raw = e["inicio"]
+                                if "T" in inicio_raw:
+                                    fecha_hora = inicio_raw.split("T")
+                                    fecha_str = fecha_hora[0]
+                                    hora_str = fecha_hora[1][:5]
+                                    linea = f"- {fecha_str} {hora_str}: {e['titulo']} (id: {e['id']})"
+                                else:
+                                    linea = f"- {inicio_raw}: {e['titulo']} (id: {e['id']})"
+                                if e["lugar"]:
+                                    linea += f" ({e['lugar']})"
+                                lineas.append(linea)
+                            resultado = f"Eventos en el rango solicitado:\n" + "\n".join(lineas)
+                    logger.info(f"[GOOGLE] Eventos rango listados para {telefono}")
+
+                elif accion == "editar_evento":
+                    evento_id = bloque.input.get("evento_id", "")
+                    if not evento_id:
+                        resultado = "Se necesita evento_id para editar el evento. Usa listar_hoy o listar_rango para obtener los IDs."
+                    else:
+                        evento_editado = await gc.editar_evento(
+                            telefono,
+                            evento_id,
+                            titulo=bloque.input.get("titulo"),
+                            inicio_iso=bloque.input.get("inicio_iso"),
+                            fin_iso=bloque.input.get("fin_iso"),
+                            descripcion=bloque.input.get("descripcion"),
+                            lugar=bloque.input.get("lugar"),
+                        )
+                        if evento_editado:
+                            resultado = f"Evento '{evento_editado['titulo']}' actualizado en Google Calendar."
+                        else:
+                            resultado = "No se pudo editar el evento. Verifica que el ID sea correcto."
+                    logger.info(f"[GOOGLE] Evento editado para {telefono}: {evento_id}")
+
+                elif accion == "eliminar_evento":
+                    evento_id = bloque.input.get("evento_id", "")
+                    if not evento_id:
+                        resultado = "Se necesita evento_id para eliminar el evento. Usa listar_hoy o listar_rango para obtener los IDs."
+                    else:
+                        eliminado = await gc.eliminar_evento(telefono, evento_id)
+                        if eliminado:
+                            resultado = f"Evento eliminado de Google Calendar correctamente."
+                        else:
+                            resultado = "No se pudo eliminar el evento. Verifica que el ID sea correcto."
+                    logger.info(f"[GOOGLE] Evento eliminado para {telefono}: {evento_id}")
+
                 else:
-                    resultado = f"Acción desconocida: '{accion}'. Opciones: listar_hoy, crear_evento."
+                    resultado = f"Acción desconocida: '{accion}'. Opciones: listar_hoy, listar_rango, crear_evento, editar_evento, eliminar_evento."
 
             except Exception as e:
                 resultado = f"Error en gestionar_calendario: {e}"

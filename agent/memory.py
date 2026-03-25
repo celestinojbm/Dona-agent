@@ -1334,3 +1334,14 @@ async def obtener_google_auth(telefono: str) -> dict | None:
             "expires_at": registro.expires_at,
             "email": registro.email or "",
         }
+
+
+async def obtener_todos_con_google_calendar() -> list[str]:
+    """
+    Retorna la lista de teléfonos de todos los usuarios que tienen Google Calendar conectado.
+    Usado por el scheduler para verificar recordatorios proactivos de eventos próximos.
+    """
+    async with async_session() as session:
+        query = select(UsuarioGoogleAuth.telefono)
+        result = await session.execute(query)
+        return [row[0] for row in result.fetchall()]

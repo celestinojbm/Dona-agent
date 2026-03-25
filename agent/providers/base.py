@@ -21,6 +21,8 @@ class MensajeEntrante:
     timestamp: int = field(default=0)       # Timestamp Unix UTC del mensaje (de WhatsApp)
     audio_id: str = field(default="")       # ID del audio en Whapi (si es nota de voz)
     audio_mime: str = field(default="")     # Tipo MIME del audio
+    image_id: str = field(default="")       # Media ID de la imagen (Meta API)
+    image_caption: str = field(default="") # Caption/texto adjunto a la imagen
 
 
 class ProveedorWhatsApp(ABC):

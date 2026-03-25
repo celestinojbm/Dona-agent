@@ -30,7 +30,7 @@ from agent.memory import (
 )
 from agent.providers import obtener_proveedor
 from agent.scheduler import iniciar_scheduler, detener_scheduler
-from agent.transcriber import procesar_audio_whapi
+from agent.transcriber import procesar_audio_whapi, procesar_audio_meta
 from agent.memory_summary import actualizar_resumen_si_necesario
 
 load_dotenv()
@@ -302,9 +302,13 @@ async def procesar_webhook(request: Request):
 
             # Si es una nota de voz, transcribirla primero
             if msg.audio_id and not msg.texto:
-                token = os.getenv("WHAPI_TOKEN", "")
-                logger.info(f"Transcribiendo nota de voz de {msg.telefono}...")
-                texto_transcrito = await procesar_audio_whapi(msg.audio_id, msg.audio_mime, token)
+                _proveedor_nombre = os.getenv("WHATSAPP_PROVIDER", "whapi").lower()
+                logger.info(f"Transcribiendo nota de voz de {msg.telefono} (proveedor: {_proveedor_nombre})...")
+                if _proveedor_nombre == "meta":
+                    texto_transcrito = await procesar_audio_meta(msg.audio_id, msg.audio_mime)
+                else:
+                    token = os.getenv("WHAPI_TOKEN", "")
+                    texto_transcrito = await procesar_audio_whapi(msg.audio_id, msg.audio_mime, token)
                 if not texto_transcrito:
                     await proveedor.enviar_mensaje(
                         msg.telefono,
@@ -313,6 +317,20 @@ async def procesar_webhook(request: Request):
                     continue
                 msg.texto = texto_transcrito
                 logger.info(f"Nota de voz transcrita: \"{texto_transcrito}\"")
+
+            # Si es una imagen, procesarla con visión
+            if msg.image_id and not msg.texto:
+                logger.info(f"Procesando imagen de {msg.telefono}...")
+                from agent.vision import procesar_imagen
+                texto_imagen = await procesar_imagen(msg.image_id, msg.image_caption)
+                if not texto_imagen:
+                    await proveedor.enviar_mensaje(
+                        msg.telefono,
+                        "No pude analizar la imagen 😅 ¿Puedes describirla o escribir lo que necesitas?"
+                    )
+                    continue
+                msg.texto = texto_imagen
+                logger.info(f"Imagen procesada: \"{texto_imagen[:80]}\"")
 
             if not msg.texto:
                 logger.warning(f"[SKIP] Mensaje sin texto ignorado silenciosamente: tel={msg.telefono} audio_id={msg.audio_id}")
