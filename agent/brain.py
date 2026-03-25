@@ -345,19 +345,14 @@ def cargar_system_prompt(
     return "\n\n".join(partes)
 
 
-def obtener_mensaje_error(tipo: str = "general") -> str:
-    """
-    Retorna el mensaje de error apropiado según el tipo de fallo.
-    Tipos: 'general', 'memoria', 'comprension', 'herramientas', 'recuperacion_recordatorio'
-    """
+def obtener_mensaje_error() -> str:
     config = cargar_config_prompts()
-    mensajes = config.get("mensajes_error", {})
-    fallback_general = "Ups, tuve un pequeño tropiezo técnico y no pude procesar tu último mensaje 🙁. ¿Te molesta si me lo repites?"
-    return mensajes.get(tipo, mensajes.get("general", fallback_general))
+    return config.get("error_message", "Ups, algo salió mal de mi lado 🙁 Intenta de nuevo en un momento.")
+
 
 def obtener_mensaje_fallback() -> str:
     config = cargar_config_prompts()
-    return config.get("fallback_message", "Hmm, me perdí un poco con eso 😅. ¿Me lo puedes explicar de otra forma o darme un poco más de contexto?")
+    return config.get("fallback_message", "Hmm, no entendí bien eso 😅 ¿Me lo puedes decir de otra forma?")
 
 
 async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str = "", timestamp_mensaje: int = 0, proveedor=None) -> str:
@@ -421,8 +416,12 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     contexto_usuario = estado_onboarding.get("contexto", "") if estado_onboarding else ""
     nombre_usuario = estado_onboarding.get("nombre", "") if estado_onboarding else ""
 
-    # Detectar emoción (rápido, usa Haiku; falla silenciosamente)
-    emotion = await detectar_emocion(mensaje, contexto_usuario)
+    # Detectar emoción (usa Haiku — puede fallar por timeout de API o de red)
+    try:
+        emotion = await detectar_emocion(mensaje, contexto_usuario)
+    except Exception as e:
+        logger.error(f"[BRAIN] detectar_emocion falló, continuando sin detección emocional: {type(e).__name__}: {e}")
+        emotion = {}
 
     # Crisis: respuesta inmediata sin pasar por el flujo normal
     if emotion.get("state") == "crisis":
@@ -437,12 +436,11 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     # Construir instrucciones de tono emocional
     tono_emocional = obtener_instrucciones_tono(emotion, nombre_usuario)
 
-    # Contexto emocional reciente (si aplica)
-    # Envuelto en try/except: si la DB falla aquí, no debe silenciar la respuesta de Dona.
+    # Contexto emocional reciente (consulta DB — puede fallar con PgBouncer)
     try:
         estado_previo = await obtener_estado_emocional(telefono) if telefono else None
-    except Exception as _e_emo:
-        logger.error(f"[BRAIN] Error cargando estado_emocional de DB: {type(_e_emo).__name__}: {_e_emo}")
+    except Exception as e:
+        logger.error(f"[BRAIN] obtener_estado_emocional falló: {type(e).__name__}: {e}")
         estado_previo = None
     ctx_emocional = ""
     if estado_previo:
@@ -467,7 +465,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     try:
         # Primera llamada a Claude — puede responder con texto o con tool_use
         response = await client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-4-5",
             max_tokens=1024,
             system=system_prompt,
             messages=mensajes,
@@ -484,8 +482,8 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         return _extraer_texto(response)
 
     except Exception as e:
-        logger.error(f"Error Claude API: {type(e).__name__}: {e}")
-        return obtener_mensaje_error("general")
+        logger.error(f"Error Claude API: {e}")
+        return obtener_mensaje_error()
 
 
 async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str, offset_guardado: int | None, proveedor=None) -> str:
@@ -774,7 +772,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
     ]
 
     respuesta_final = await client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-4-5",
         max_tokens=1024,
         system=system_prompt,
         messages=mensajes_con_tool,
