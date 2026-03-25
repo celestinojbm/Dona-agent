@@ -140,8 +140,10 @@ async def intercambiar_codigo(code: str, telefono: str) -> tuple[bool, str]:
             return True, email
 
     except Exception as e:
-        logger.error(f"intercambiar_codigo error para {telefono}: {e}")
-        return False, ""
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"intercambiar_codigo error para {telefono}: {e}\n{tb}")
+        return False, f"[DEBUG] {type(e).__name__}: {str(e)[:300]}"
 
 
 async def _obtener_token_valido(telefono: str) -> str | None:
