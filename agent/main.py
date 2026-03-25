@@ -283,10 +283,19 @@ async def debug_handler(request: Request):
 
 async def procesar_webhook(request: Request):
     """Lógica compartida: parsea el mensaje, llama a Claude y responde."""
+    import asyncio as _asyncio
+
+    # ── Parseo del webhook (único punto que puede fallar antes de tener telefono) ──
     try:
         mensajes = await proveedor.parsear_webhook(request)
+    except Exception as _e_parse:
+        logger.error(f"[WEBHOOK] Error parseando payload: {type(_e_parse).__name__}: {_e_parse}", exc_info=True)
+        return {"status": "error", "detail": "parse_error"}
 
-        for msg in mensajes:
+    for msg in mensajes:
+        # ── Cada mensaje se procesa de forma independiente ────────────────────
+        # Un fallo en un mensaje NO debe bloquear los mensajes siguientes.
+        try:
             if msg.es_propio:
                 logger.debug(f"[SKIP] Mensaje propio ignorado: {msg.telefono}")
                 continue
@@ -313,14 +322,28 @@ async def procesar_webhook(request: Request):
 
             # ── Comandos de proactividad ("dona pausa", "dona resumen", etc.) ──
             if es_comando_proactividad(msg.texto):
-                respuesta_cmd = await manejar_comando_proactividad(msg.telefono, msg.texto)
+                try:
+                    respuesta_cmd = await manejar_comando_proactividad(msg.telefono, msg.texto)
+                except Exception as _e_cmd:
+                    logger.error(f"[CMD] Error en comando proactividad: {_e_cmd}")
+                    respuesta_cmd = "Hubo un problema procesando ese comando. Intenta de nuevo."
                 await proveedor.enviar_mensaje(msg.telefono, respuesta_cmd)
                 logger.info(f"[CMD] Proactividad '{msg.texto}' → {msg.telefono}")
                 continue
 
             # ── Onboarding: interceptar si el usuario está en el flujo ────────
-            if await es_onboarding_activo(msg.telefono):
-                respuesta_onboarding = await procesar_mensaje_onboarding(msg.telefono, msg.texto)
+            try:
+                _onboarding_activo = await es_onboarding_activo(msg.telefono)
+            except Exception as _e_ob:
+                logger.error(f"[ONBOARDING] Error verificando estado: {_e_ob}")
+                _onboarding_activo = False
+
+            if _onboarding_activo:
+                try:
+                    respuesta_onboarding = await procesar_mensaje_onboarding(msg.telefono, msg.texto)
+                except Exception as _e_ob2:
+                    logger.error(f"[ONBOARDING] Error procesando mensaje: {_e_ob2}")
+                    respuesta_onboarding = None
                 if respuesta_onboarding is not None:
                     await proveedor.enviar_mensaje(msg.telefono, respuesta_onboarding)
                     logger.info(f"[ONBOARDING] → {msg.telefono}: {respuesta_onboarding[:60]}...")
@@ -329,30 +352,38 @@ async def procesar_webhook(request: Request):
                     logger.info(f"[ONBOARDING] Mensaje fuera de flujo, pasa a Claude: '{msg.texto[:60]}'")
 
             # ── Detección de ciudad base (solo si el usuario no tiene ninguna) ─
-            ub = await obtener_ubicacion(msg.telefono)
-            if not ub or not ub.get("ciudad"):
-                if len(msg.texto.strip().split()) <= 4:
-                    ciudad_detectada = await es_ciudad_suelta(msg.texto)
-                    if ciudad_detectada:
-                        await guardar_ubicacion(msg.telefono, ciudad=ciudad_detectada)
-                        await proveedor.enviar_mensaje(
-                            msg.telefono,
-                            f"Perfecto, guardé *{ciudad_detectada}* como tu ciudad 🌍\n"
-                            f"A partir de mañana incluiré el clima en tu resumen matutino.",
-                        )
-                        logger.info(f"[CIUDAD] Ciudad base guardada: {ciudad_detectada} ({msg.telefono})")
-                        continue
-                    else:
-                        logger.debug(f"[CIUDAD] Texto corto '{msg.texto[:30]}' no detectado como ciudad")
+            try:
+                ub = await obtener_ubicacion(msg.telefono)
+                if not ub or not ub.get("ciudad"):
+                    if len(msg.texto.strip().split()) <= 4:
+                        ciudad_detectada = await es_ciudad_suelta(msg.texto)
+                        if ciudad_detectada:
+                            await guardar_ubicacion(msg.telefono, ciudad=ciudad_detectada)
+                            await proveedor.enviar_mensaje(
+                                msg.telefono,
+                                f"Perfecto, guardé *{ciudad_detectada}* como tu ciudad 🌍\n"
+                                f"A partir de mañana incluiré el clima en tu resumen matutino.",
+                            )
+                            logger.info(f"[CIUDAD] Ciudad base guardada: {ciudad_detectada} ({msg.telefono})")
+                            continue
+                        else:
+                            logger.debug(f"[CIUDAD] Texto corto '{msg.texto[:30]}' no detectado como ciudad")
+            except Exception as _e_ciudad:
+                logger.error(f"[CIUDAD] Error detectando ciudad: {_e_ciudad}")
+                # No es fatal — continuar al flujo normal
 
             # ── Detección de viaje (ciudad temporal con expiración) ───────────
-            # Pre-filtro barato antes de llamar al LLM — solo si hay keywords de viaje
             if parece_viaje(msg.texto):
-                import asyncio as _asyncio
                 _asyncio.create_task(_detectar_y_guardar_viaje(msg.telefono, msg.texto))
 
-            # ── Flujo normal de Dona ──────────────────────────────────────────
-            historial = await obtener_historial(msg.telefono)
+            # ── Historial de conversación ─────────────────────────────────────
+            try:
+                historial = await obtener_historial(msg.telefono)
+            except Exception as _e_hist:
+                logger.error(f"[WEBHOOK] Error cargando historial para {msg.telefono}: {_e_hist}")
+                historial = []  # Continuar sin historial antes que no responder
+
+            # ── Generar respuesta con Claude ──────────────────────────────────
             respuesta = await generar_respuesta(
                 msg.texto, historial,
                 telefono=msg.telefono,
@@ -360,42 +391,45 @@ async def procesar_webhook(request: Request):
                 proveedor=proveedor,
             )
 
-            # Actualizar memoria de grafo MiroFish en background si el mensaje tiene contexto relevante
-            import asyncio as _asyncio
+            # ── Guardar mensajes en DB (no fatal si falla) ────────────────────
+            try:
+                await guardar_mensaje(msg.telefono, "user", msg.texto)
+                await guardar_mensaje(msg.telefono, "assistant", respuesta)
+            except Exception as _e_save:
+                logger.error(f"[WEBHOOK] Error guardando mensajes en DB: {_e_save}")
+                # No es fatal — la respuesta ya se generó, hay que enviarla
+
+            # ── Enviar respuesta al usuario ───────────────────────────────────
+            enviado = await proveedor.enviar_mensaje(msg.telefono, respuesta)
+            if not enviado:
+                logger.error(f"[WEBHOOK] Fallo al enviar respuesta a {msg.telefono} — proveedor retornó False")
+            else:
+                logger.info(f"Respuesta a {msg.telefono}: {respuesta[:120]}")
+
+            # ── Tareas de background (no bloquean la respuesta) ───────────────
             import agent.mirofish_client as _mf
             if _mf._disponible() and _tiene_contexto_relevante(msg.texto):
-                _asyncio.create_task(
-                    _actualizar_memoria_mirofish(msg.telefono, msg.texto)
-                )
+                _asyncio.create_task(_actualizar_memoria_mirofish(msg.telefono, msg.texto))
 
-            await guardar_mensaje(msg.telefono, "user", msg.texto)
-            await guardar_mensaje(msg.telefono, "assistant", respuesta)
+            _asyncio.create_task(_verificar_sobrecarga(msg.telefono, proveedor))
+            _asyncio.create_task(_actualizar_memoria_largo_plazo_si_necesario(msg.telefono))
+            _asyncio.create_task(_registrar_interaccion_aprendizaje(msg.telefono, len(msg.texto)))
 
-            await proveedor.enviar_mensaje(msg.telefono, respuesta)
-
-            logger.info(f"Respuesta a {msg.telefono}: {respuesta}")
-
-            # Verificar sobrecarga crónica en background
-            import asyncio as _asyncio
-            _asyncio.create_task(
-                _verificar_sobrecarga(msg.telefono, proveedor)
+        except Exception as _e_msg:
+            # Fallo inesperado procesando este mensaje — loguear y seguir con el siguiente
+            logger.error(
+                f"[WEBHOOK] Error inesperado procesando mensaje de {getattr(msg, 'telefono', '?')}: "
+                f"{type(_e_msg).__name__}: {_e_msg}",
+                exc_info=True
             )
+            # Intentar enviar mensaje de error al usuario como último recurso
+            try:
+                from agent.brain import obtener_mensaje_error
+                await proveedor.enviar_mensaje(getattr(msg, 'telefono', ''), obtener_mensaje_error())
+            except Exception:
+                pass  # Si esto también falla, no hay más que hacer
 
-            # Actualizar resumen de memoria a largo plazo si hay 20+ mensajes nuevos
-            _asyncio.create_task(
-                _actualizar_memoria_largo_plazo_si_necesario(msg.telefono)
-            )
-
-            # Registrar interacción para aprendizaje continuo (background)
-            _asyncio.create_task(
-                _registrar_interaccion_aprendizaje(msg.telefono, len(msg.texto))
-            )
-
-        return {"status": "ok"}
-
-    except Exception as e:
-        logger.error(f"Error en webhook ({type(e).__name__}): {e}", exc_info=True)
-        return {"status": "error", "detail": type(e).__name__}
+    return {"status": "ok"}
 
 
 # Palabras clave que indican contexto relevante para el grafo de memoria MiroFish

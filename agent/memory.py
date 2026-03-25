@@ -381,18 +381,21 @@ async def obtener_timezone(telefono: str) -> int | None:
 
 async def guardar_mensaje(telefono: str, role: str, content: str):
     """Guarda un mensaje en el historial de conversación."""
-    async with async_session() as session:
-        mensaje = Mensaje(
-            telefono=telefono,
-            role=role,
-            content=content,
-            timestamp=datetime.utcnow()
-        )
-        session.add(mensaje)
-        await session.commit()
+    try:
+        async with async_session() as session:
+            mensaje = Mensaje(
+                telefono=telefono,
+                role=role,
+                content=content,
+                timestamp=datetime.utcnow()
+            )
+            session.add(mensaje)
+            await session.commit()
+    except Exception as e:
+        logger.error(f"[DB] Error guardando mensaje de {telefono}: {type(e).__name__}: {e}")
 
 
-async def obtener_historial(telefono: str, limite: int = 20) -> list[dict]:
+async def obtener_historial(telefono: str, limite: int = 20) -> list[dict]:  # noqa: C901
     """
     Recupera los últimos N mensajes de una conversación.
 
@@ -403,23 +406,27 @@ async def obtener_historial(telefono: str, limite: int = 20) -> list[dict]:
     Returns:
         Lista de diccionarios con role y content
     """
-    async with async_session() as session:
-        query = (
-            select(Mensaje)
-            .where(Mensaje.telefono == telefono)
-            .order_by(Mensaje.timestamp.desc())
-            .limit(limite)
-        )
-        result = await session.execute(query)
-        mensajes = result.scalars().all()
+    try:
+        async with async_session() as session:
+            query = (
+                select(Mensaje)
+                .where(Mensaje.telefono == telefono)
+                .order_by(Mensaje.timestamp.desc())
+                .limit(limite)
+            )
+            result = await session.execute(query)
+            mensajes = result.scalars().all()
 
-        # Invertir para orden cronológico (los más recientes están primero)
-        mensajes.reverse()
+            # Invertir para orden cronológico (los más recientes están primero)
+            mensajes.reverse()
 
-        return [
-            {"role": msg.role, "content": msg.content}
-            for msg in mensajes
-        ]
+            return [
+                {"role": msg.role, "content": msg.content}
+                for msg in mensajes
+            ]
+    except Exception as e:
+        logger.error(f"[DB] Error obteniendo historial de {telefono}: {type(e).__name__}: {e}")
+        return []
 
 
 async def guardar_recordatorio(
