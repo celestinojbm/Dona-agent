@@ -45,6 +45,14 @@ logger = logging.getLogger("agentkit")
 proveedor = obtener_proveedor()
 PORT = int(os.getenv("PORT", 8000))
 
+# ── Deduplicación de mensajes ─────────────────────────────────────────────────
+# Whapi puede enviar el mismo evento a /webhook y /webhook/messages al mismo tiempo.
+# Este OrderedDict en memoria evita procesar el mismo mensaje_id dos veces.
+# Se limita a 1000 IDs para no crecer indefinidamente en memoria.
+import collections as _collections
+_mensajes_procesados: _collections.OrderedDict = _collections.OrderedDict()
+_MAX_IDS_DEDUP = 1000
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -299,6 +307,15 @@ async def procesar_webhook(request: Request):
             if msg.es_propio:
                 logger.debug(f"[SKIP] Mensaje propio ignorado: {msg.telefono}")
                 continue
+
+            # ── Deduplicación: ignorar si ya procesamos este mensaje_id ─────
+            if msg.mensaje_id and msg.mensaje_id in _mensajes_procesados:
+                logger.debug(f"[DEDUP] Mensaje duplicado ignorado: {msg.mensaje_id} ({msg.telefono})")
+                continue
+            if msg.mensaje_id:
+                _mensajes_procesados[msg.mensaje_id] = True
+                if len(_mensajes_procesados) > _MAX_IDS_DEDUP:
+                    _mensajes_procesados.popitem(last=False)  # Eliminar el más antiguo
 
             # Si es una nota de voz, transcribirla primero
             if msg.audio_id and not msg.texto:
