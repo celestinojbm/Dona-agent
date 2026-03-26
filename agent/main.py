@@ -149,6 +149,29 @@ async def admin_onboarding_reset(telefono: str, fase: int = 0, paso: int = 0, to
     return {"status": "ok", "telefono": telefono, "fase": fase, "paso": paso}
 
 
+@app.get("/admin/recordatorios")
+async def admin_recordatorios(telefono: str, token: str = ""):
+    """
+    Diagnóstico de recordatorios en producción.
+    Uso: /admin/recordatorios?telefono=14076936023&token=ADMIN_TOKEN
+    """
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if not admin_token or token != admin_token:
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.memory import obtener_recordatorios_activos, obtener_timezone
+    from datetime import datetime as dt, timedelta
+    activos = await obtener_recordatorios_activos(telefono)
+    offset = await obtener_timezone(telefono)
+    ahora_utc = dt.utcnow()
+    return {
+        "telefono": telefono,
+        "ahora_utc": ahora_utc.isoformat(),
+        "offset_minutos": offset,
+        "recordatorios_activos": activos,
+        "total": len(activos),
+    }
+
+
 @app.get("/auth/google/login")
 async def google_oauth_login(telefono: str):
     """

@@ -360,8 +360,12 @@ def cargar_system_prompt(
     return "\n\n".join(partes)
 
 
-def obtener_mensaje_error() -> str:
+def obtener_mensaje_error(tipo: str = "general") -> str:
+    """Retorna un mensaje de error amigable. Acepta un tipo específico de error."""
     config = cargar_config_prompts()
+    mensajes = config.get("mensajes_error", {})
+    if tipo and tipo in mensajes:
+        return mensajes[tipo]
     return config.get("error_message", "Ups, algo salió mal de mi lado 🙁 Intenta de nuevo en un momento.")
 
 
@@ -584,9 +588,21 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 )
 
                 tipo_str = "recurrente" if recurrencia else "único"
+
+                # Calcular hora local para que Claude confirme en formato legible
+                if offset_guardado is not None:
+                    hora_local = fecha_hora + timedelta(minutes=offset_guardado)
+                    hora_local_str = hora_local.strftime('%d/%m/%Y %I:%M %p').lstrip('0')
+                else:
+                    hora_local_str = fecha_hora.strftime('%d/%m/%Y %H:%M') + " UTC"
+
                 resultado = (
-                    f"Recordatorio {tipo_str} guardado. ID: {recordatorio.id}. "
-                    f"Primera ocurrencia: {fecha_hora.strftime('%Y-%m-%d %H:%M')} UTC."
+                    f"ÉXITO: Recordatorio {tipo_str} creado correctamente. "
+                    f"Mensaje: '{mensaje_recordatorio}'. "
+                    f"Hora local del usuario: {hora_local_str}. "
+                    f"INSTRUCCIÓN: Confirma al usuario que el recordatorio fue creado. "
+                    f"Usa un formato breve y claro como: 'Listo 🔔 Te recuerdo [día] a las [hora] [mensaje]'. "
+                    f"NUNCA muestres IDs internos, timestamps UTC ni detalles técnicos."
                 )
                 logger.info(f"Recordatorio #{recordatorio.id} ({tipo_str}) guardado para {telefono} — {fecha_hora}")
 
@@ -933,8 +949,17 @@ async def _ejecutar_simulacion_background(
 
 
 def _extraer_texto(response) -> str:
-    """Extrae el texto de la respuesta de Claude."""
+    """Extrae el texto de la respuesta de Claude, filtrando contenido técnico."""
+    import re
     for bloque in response.content:
         if hasattr(bloque, "text"):
-            return bloque.text
+            texto = bloque.text
+            # Filtrar líneas que parecen debug interno (IDs, timestamps UTC, etc.)
+            # Ejemplo: "Recordatorio #42 (único) guardado para 14076936023"
+            texto = re.sub(
+                r'Recordatorio\s*#\d+.*?guardado\s+para\s+\d+[^\n]*',
+                '', texto
+            ).strip()
+            if texto:
+                return texto
     return obtener_mensaje_fallback()

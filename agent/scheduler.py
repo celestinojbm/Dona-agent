@@ -7,7 +7,9 @@ Usa APScheduler con AsyncIOScheduler para correr dentro del proceso de FastAPI.
 Soporta recordatorios únicos y recurrentes (diario, semanal, dias_semana, mensual).
 """
 
+import os
 import logging
+import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from agent.memory import (
     obtener_recordatorios_pendientes,
@@ -162,6 +164,23 @@ async def _verificar_avance_onboarding(proveedor):
         logger.error(f"Error en scheduler de onboarding ({type(e).__name__}): {e}")
 
 
+async def _self_ping():
+    """
+    Self-ping para mantener vivo el servicio en Render Free Tier.
+    Render duerme los servicios gratuitos después de 15 minutos de inactividad.
+    Este job hace un GET al propio /health cada 10 minutos para evitarlo.
+    """
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "")
+    if not render_url:
+        return  # No estamos en Render o no se configuró la URL
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{render_url}/health")
+            logger.debug(f"Self-ping: {resp.status_code}")
+    except Exception as e:
+        logger.debug(f"Self-ping falló (no crítico): {type(e).__name__}")
+
+
 def iniciar_scheduler(proveedor):
     """Registra los jobs y arranca el scheduler."""
     scheduler.add_job(
@@ -205,8 +224,19 @@ def iniciar_scheduler(proveedor):
         id="actualizar_perfiles_aprendizaje",
         replace_existing=True,
     )
+    # Self-ping para mantener vivo el servicio en Render Free Tier
+    scheduler.add_job(
+        _self_ping,
+        trigger="interval",
+        minutes=10,
+        id="self_ping_keep_alive",
+        replace_existing=True,
+    )
     scheduler.start()
-    logger.info("Scheduler iniciado — recordatorios cada minuto, Google Calendar cada 5 min, onboarding y proactividad cada hora, aprendizaje los domingos")
+    logger.info(
+        "Scheduler iniciado — recordatorios cada minuto, Google Calendar cada 5 min, "
+        "onboarding y proactividad cada hora, self-ping cada 10 min, aprendizaje los domingos"
+    )
 
 
 def detener_scheduler():

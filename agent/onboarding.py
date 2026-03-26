@@ -359,6 +359,37 @@ _RESPUESTAS_TRIVIALES = {
     "👍", "🙌", "😊", "😄", "❤️", "🔥",
 }
 
+# Palabras clave que indican una ACCIÓN que debe procesarse por Claude,
+# no como respuesta al onboarding. Si el usuario pide un recordatorio,
+# tarea, evento, etc. durante el onboarding, debe pasar a Claude.
+_PALABRAS_ACCION = {
+    # Recordatorios
+    "recuérdame", "recuerdame", "recordatorio", "recuérdamelo", "recuerdamelo",
+    "avísame", "avisame", "aviso", "alarma",
+    # Tareas y notas
+    "anota", "apunta", "tarea", "pendiente", "to-do", "todo",
+    # Calendario y eventos
+    "agenda", "agéndame", "agendame", "agendar", "evento", "cita",
+    "calendario", "calendar",
+    # Listas
+    "lista de", "agrega a mi lista", "añade a mi lista",
+    # Acciones directas
+    "cancela", "elimina", "borra", "muéstrame", "muestrame",
+    # Hora y clima
+    "qué hora", "que hora", "clima", "temperatura",
+    # Consultas sobre capacidades
+    "qué puedes", "que puedes", "cómo funciona", "como funciona",
+    "ayuda",
+}
+
+# Frases de inicio que indican intención de acción
+_PREFIJOS_ACCION = [
+    "recuérdame", "recuerdame", "avísame", "avisame",
+    "anota que", "apunta que", "agéndame", "agendame",
+    "pon un", "ponme un", "crea un", "hazme un",
+    "necesito que", "quiero que", "puedes",
+]
+
 
 def _es_mensaje_fuera_de_flujo(texto: str) -> bool:
     """
@@ -368,15 +399,31 @@ def _es_mensaje_fuera_de_flujo(texto: str) -> bool:
     Devuelve True si:
     - Es una pregunta (empieza con ¿ o termina con ?)
     - Es un saludo, agradecimiento o respuesta trivial de ≤ 3 palabras
+    - Contiene palabras clave de acción (recordatorio, tarea, evento, etc.)
+    - Empieza con un prefijo de acción ("recuérdame", "anota que", etc.)
     """
     t = texto.strip()
+    t_lower = t.lower()
+
     # Preguntas directas
     if t.startswith("¿") or t.endswith("?"):
         return True
+
     # Mensajes cortos triviales (normalizar quitando signos de puntuación)
-    t_norm = t.lower().rstrip("!.,;:")
+    t_norm = t_lower.rstrip("!.,;:")
     if len(t_norm.split()) <= 3 and t_norm in _RESPUESTAS_TRIVIALES:
         return True
+
+    # Intención de acción: palabras clave en cualquier parte del mensaje
+    for palabra in _PALABRAS_ACCION:
+        if palabra in t_lower:
+            return True
+
+    # Intención de acción: prefijos que indican un comando directo
+    for prefijo in _PREFIJOS_ACCION:
+        if t_lower.startswith(prefijo):
+            return True
+
     return False
 
 
