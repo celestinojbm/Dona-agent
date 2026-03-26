@@ -5,28 +5,30 @@ Guarda fragmentos de conversación como embeddings y permite búsqueda
 semántica para recuperar contexto relevante de conversaciones pasadas.
 
 Usa text-embedding-3-small de OpenAI (1536 dimensiones, $0.02/1M tokens).
-Si no hay OPENAI_API_KEY, usa un embedding simulado para desarrollo.
+Si no hay OPENAI_API_KEY, los embeddings quedan desactivados silenciosamente.
 """
 from __future__ import annotations
 
-import asyncio
+import json
 import logging
 import os
+import unicodedata
 from typing import Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
 # ── Configuración ──────────────────────────────────────────────────────────────
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# Sanitizar la API key: eliminar cualquier carácter no-ASCII, espacios y saltos
+_raw_key = os.getenv("OPENAI_API_KEY", "")
+OPENAI_API_KEY = _raw_key.encode("ascii", errors="ignore").decode("ascii").strip()
+if _raw_key and _raw_key != OPENAI_API_KEY:
+    logger.warning("[VECTOR] OPENAI_API_KEY contenía caracteres no-ASCII — se limpiaron automáticamente")
+
 EMBEDDING_MODEL = "text-embedding-3-small"  # 1536 dims, $0.02/1M tokens
 EMBEDDING_DIMS = 1536
-
-# Tipos de mensajes que vale la pena vectorizar
-_TIPOS_RELEVANTES = {
-    "nombre", "proyecto", "meta", "objetivo", "cliente", "socio",
-    "empresa", "trabajo", "familia", "preferencia", "habito", "rutina",
-    "problema", "logro", "plan", "fecha", "lugar", "contacto"
-}
+OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
 
 # Palabras clave que indican información personal relevante
 _PALABRAS_CLAVE = [
@@ -54,41 +56,57 @@ def _es_mensaje_relevante(texto: str) -> bool:
 def _limpiar_texto(texto: str) -> str:
     """
     Normaliza el texto para evitar errores de encoding.
-    Elimina caracteres de control y reemplaza caracteres no-ASCII problemáticos
-    por su equivalente ASCII más cercano (ej: \xd8 → espacio).
+    Preserva caracteres Unicode válidos (tildes, ñ, etc.) pero elimina
+    caracteres de control y normaliza la forma Unicode.
     """
-    import unicodedata
     # Normalizar a NFC (forma compuesta) para unificar caracteres Unicode
     texto = unicodedata.normalize("NFC", texto)
     # Reemplazar saltos de línea por espacios
     texto = texto.replace("\n", " ").replace("\r", " ")
-    # Eliminar caracteres de control (0x00-0x1F excepto espacio)
-    texto = "".join(c for c in texto if ord(c) >= 0x20 or c == " ")
+    # Eliminar caracteres de control (0x00-0x1F) excepto espacio
+    texto = "".join(c for c in texto if ord(c) >= 0x20)
     return texto.strip()
 
 
 async def generar_embedding(texto: str) -> Optional[list[float]]:
     """
     Genera un embedding de 1536 dimensiones para el texto dado.
-    Usa OpenAI text-embedding-3-small.
+    Usa la API REST de OpenAI directamente con httpx para evitar
+    problemas de encoding del cliente oficial de OpenAI.
     """
     if not OPENAI_API_KEY:
         logger.warning("[VECTOR] OPENAI_API_KEY no configurada — embeddings desactivados")
         return None
 
+    texto_limpio = _limpiar_texto(texto)
+    if not texto_limpio:
+        return None
+
     try:
-        import openai
-        texto_limpio = _limpiar_texto(texto)
-        if not texto_limpio:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                OPENAI_EMBEDDINGS_URL,
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                json={
+                    "model": EMBEDDING_MODEL,
+                    "input": texto_limpio,
+                },
+            )
+
+        if response.status_code != 200:
+            error_body = response.text[:200]
+            logger.error(f"[VECTOR] OpenAI API error {response.status_code}: {error_body}")
             return None
-        client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
-        response = await client.embeddings.create(
-            model=EMBEDDING_MODEL,
-            input=texto_limpio,
-        )
-        return response.data[0].embedding
+
+        data = response.json()
+        embedding = data["data"][0]["embedding"]
+        return embedding
+
     except Exception as e:
-        logger.error(f"[VECTOR] Error generando embedding: {e}")
+        logger.error(f"[VECTOR] Error generando embedding: {type(e).__name__}: {e}")
         return None
 
 
