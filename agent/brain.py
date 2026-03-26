@@ -326,11 +326,19 @@ def cargar_system_prompt(
     contexto_emocional: str = "",
     perfil_aprendizaje: str = "",
     memoria_largo_plazo: str = "",
+    memoria_vectorial: str = "",
 ) -> str:
     """Lee el system prompt e inyecta contexto de tiempo, memoria histórica, estado emocional y perfil de aprendizaje."""
     config = cargar_config_prompts()
     base = config.get("system_prompt", "Eres Dona, una asistente personal útil. Responde en español.")
     partes = [base, construir_contexto_tiempo(timestamp_mensaje, offset_guardado)]
+    if memoria_vectorial:
+        partes.append(
+            f"## Recuerdos específicos relevantes para este mensaje\n"
+            f"{memoria_vectorial}\n"
+            f"Usa estos recuerdos de forma natural en tu respuesta. "
+            f"Nunca menciones 'memoria vectorial' ni 'base de datos' — úsalos como si los recordaras."
+        )
     if memoria_largo_plazo and memoria_largo_plazo != "Sin contexto acumulado aún.":
         partes.append(
             f"## Memoria histórica del usuario\n"
@@ -423,6 +431,24 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     contexto_usuario = estado_onboarding.get("contexto", "") if estado_onboarding else ""
     nombre_usuario = estado_onboarding.get("nombre", "") if estado_onboarding else ""
 
+    # ── Búsqueda vectorial (en paralelo con detección emocional) ─────────────────
+    from agent.vector_memory import (
+        buscar_memoria_relevante, formatear_memoria_vectorial,
+        guardar_en_memoria_vectorial,
+    )
+    try:
+        resultados_vector = await buscar_memoria_relevante(telefono, mensaje) if telefono else []
+        ctx_vectorial = await formatear_memoria_vectorial(resultados_vector)
+    except Exception as e:
+        logger.error(f"[BRAIN] buscar_memoria_relevante falló: {type(e).__name__}: {e}")
+        ctx_vectorial = ""
+
+    # Guardar el mensaje del usuario en memoria vectorial (si es relevante)
+    if telefono:
+        asyncio.create_task(
+            guardar_en_memoria_vectorial(telefono, mensaje, tipo="usuario")
+        )
+
     # Detectar emoción (usa Haiku — puede fallar por timeout de API o de red)
     try:
         emotion = await detectar_emocion(mensaje, contexto_usuario)
@@ -463,6 +489,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         contexto_emocional=ctx_emocional,
         perfil_aprendizaje=perfil_aprendizaje or "",
         memoria_largo_plazo=resumen_memoria,
+        memoria_vectorial=ctx_vectorial,
     )
 
     # Construir lista de mensajes (historial + mensaje actual)
