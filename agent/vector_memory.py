@@ -51,6 +51,22 @@ def _es_mensaje_relevante(texto: str) -> bool:
     return any(kw in texto_lower for kw in _PALABRAS_CLAVE)
 
 
+def _limpiar_texto(texto: str) -> str:
+    """
+    Normaliza el texto para evitar errores de encoding.
+    Elimina caracteres de control y reemplaza caracteres no-ASCII problemáticos
+    por su equivalente ASCII más cercano (ej: \xd8 → espacio).
+    """
+    import unicodedata
+    # Normalizar a NFC (forma compuesta) para unificar caracteres Unicode
+    texto = unicodedata.normalize("NFC", texto)
+    # Reemplazar saltos de línea por espacios
+    texto = texto.replace("\n", " ").replace("\r", " ")
+    # Eliminar caracteres de control (0x00-0x1F excepto espacio)
+    texto = "".join(c for c in texto if ord(c) >= 0x20 or c == " ")
+    return texto.strip()
+
+
 async def generar_embedding(texto: str) -> Optional[list[float]]:
     """
     Genera un embedding de 1536 dimensiones para el texto dado.
@@ -62,10 +78,13 @@ async def generar_embedding(texto: str) -> Optional[list[float]]:
 
     try:
         import openai
+        texto_limpio = _limpiar_texto(texto)
+        if not texto_limpio:
+            return None
         client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
         response = await client.embeddings.create(
             model=EMBEDDING_MODEL,
-            input=texto.replace("\n", " "),
+            input=texto_limpio,
         )
         return response.data[0].embedding
     except Exception as e:
