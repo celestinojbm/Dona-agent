@@ -380,14 +380,27 @@ _PALABRAS_ACCION = {
     # Consultas sobre capacidades
     "qué puedes", "que puedes", "cómo funciona", "como funciona",
     "ayuda",
+    # Consultas de información guardada
+    "información", "informacion", "datos de", "mi empresa", "mi negocio",
+    "mi dirección", "mi direccion", "mi teléfono", "mi telefono",
+    "mi correo", "mi email", "mi cuenta", "mi contraseña",
+    "mi número", "mi numero",
 }
 
-# Frases de inicio que indican intención de acción
+# Frases de inicio que indican intención de acción o consulta.
+# Si el mensaje empieza con alguno de estos prefijos, NO es respuesta al onboarding.
 _PREFIJOS_ACCION = [
+    # Comandos de creación
     "recuérdame", "recuerdame", "avísame", "avisame",
     "anota que", "apunta que", "agéndame", "agendame",
     "pon un", "ponme un", "crea un", "hazme un",
     "necesito que", "quiero que", "puedes",
+    # Consultas de información ("dame X", "dime X", "cuál es X")
+    "dame ", "dime ", "dame la ", "dime la ", "dime el ", "dame el ",
+    "cuál es", "cual es", "cuáles son", "cuales son",
+    "qué es", "que es", "dónde está", "donde esta",
+    "busca ", "encuentra ", "envíame", "enviame", "manda ",
+    "comparte ", "pasa me", "pásame", "pasame",
 ]
 
 
