@@ -128,11 +128,10 @@ async def guardar_en_memoria_vectorial(
         return False
 
     try:
-        from agent.memory import _get_engine
+        from agent.memory import engine
         from sqlalchemy import text
         from sqlalchemy.ext.asyncio import AsyncSession
 
-        engine = _get_engine()
         async with AsyncSession(engine) as session:
             await session.execute(
                 text("""
@@ -172,11 +171,10 @@ async def buscar_memoria_relevante(
         return []
 
     try:
-        from agent.memory import _get_engine
+        from agent.memory import engine
         from sqlalchemy import text
         from sqlalchemy.ext.asyncio import AsyncSession
 
-        engine = _get_engine()
         async with AsyncSession(engine) as session:
             result = await session.execute(
                 text("""
