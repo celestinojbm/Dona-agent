@@ -473,7 +473,7 @@ async def procesar_webhook(request: Request):
             if _mf._disponible() and _tiene_contexto_relevante(msg.texto):
                 _asyncio.create_task(_actualizar_memoria_mirofish(msg.telefono, msg.texto))
 
-            _asyncio.create_task(_verificar_sobrecarga(msg.telefono, proveedor))
+            _asyncio.create_task(_verificar_sobrecarga(msg.telefono, proveedor, msg.texto))
             _asyncio.create_task(_actualizar_memoria_largo_plazo_si_necesario(msg.telefono))
             _asyncio.create_task(_registrar_interaccion_aprendizaje(msg.telefono, len(msg.texto)))
 
@@ -509,15 +509,33 @@ def _tiene_contexto_relevante(texto: str) -> bool:
     return len(texto) > 30 and any(kw in texto_lower for kw in _KEYWORDS_CONTEXTO)
 
 
-async def _verificar_sobrecarga(telefono: str, proveedor):
+# Palabras que indican que el mensaje es una consulta analítica, no estrés real
+_KEYWORDS_ANALISIS = {
+    "qué pasaría", "que pasaria", "qué pasa si", "que pasa si",
+    "qué consecuencias", "que consecuencias", "cómo reaccionaría",
+    "como reaccionaria", "qué impacto", "que impacto",
+    "si cancelo", "si cambio", "si dejo", "si acepto", "si rechazo",
+    "analiza", "analizar", "explorar", "pensar las consecuencias",
+}
+
+
+async def _verificar_sobrecarga(telefono: str, proveedor, texto_mensaje: str = ""):
     """
-    Detecta sobrecarga crónica: 3+ eventos de estrés/agotamiento (intensidad ≥2) en 24h.
+    Detecta sobrecarga crónica: 4+ eventos de estrés/agotamiento (intensidad ≥2) en 24h.
     Envía un mensaje de cuidado proactivo si se detecta y no se ha enviado hoy.
     Cuenta dentro del límite diario de mensajes proactivos.
+    No se activa si el mensaje actual es una consulta analítica (análisis de decisiones).
     """
     try:
+        # No disparar sobrecarga si el mensaje es una consulta de análisis de consecuencias
+        if texto_mensaje:
+            texto_lower = texto_mensaje.lower()
+            if any(kw in texto_lower for kw in _KEYWORDS_ANALISIS):
+                logger.debug(f"_verificar_sobrecarga: mensaje analítico, omitiendo ({telefono})")
+                return
+
         count = await contar_eventos_estres_recientes(telefono, horas=24)
-        if count < 3:
+        if count < 4:  # Subido de 3 a 4 para reducir falsos positivos
             return
         if await ya_avisado_sobrecarga_hoy(telefono):
             return
