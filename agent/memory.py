@@ -172,6 +172,8 @@ class UsuarioProactividad(Base):
     ultimo_morning_brief: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ultimo_weekly_review: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ultimo_conflict_check: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Disparador 8: última vez que se envió un consejo estratégico (MiroFish)
+    ultimo_consejo_estrategico: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class EventoComportamiento(Base):
@@ -207,6 +209,10 @@ class UsuarioMiroFish(Base):
     project_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     graph_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Contexto acumulado pendiente de sincronizar con el grafo
+    contexto_pendiente: Mapped[str] = mapped_column(Text, default="")
+    # Número de mensajes relevantes acumulados desde la última sincronización
+    mensajes_desde_sync: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class UsuarioGoogleAuth(Base):
@@ -249,6 +255,11 @@ async def _migrar_columnas(conn):
         "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual_expira TIMESTAMP",
         # Soporte DST: nombre IANA de timezone (ej: "America/New_York")
         "ALTER TABLE timezone_usuarios ADD COLUMN timezone_nombre VARCHAR(60)",
+        # MiroFish: contexto acumulado y contador de mensajes desde última sincronización
+        "ALTER TABLE usuario_mirofish ADD COLUMN contexto_pendiente TEXT DEFAULT ''",
+        "ALTER TABLE usuario_mirofish ADD COLUMN mensajes_desde_sync INTEGER DEFAULT 0",
+        # Proactividad: campo para el disparador 8 (consejo estratégico)
+        "ALTER TABLE usuario_proactividad ADD COLUMN ultimo_consejo_estrategico TIMESTAMP",
 
         # ── Tablas nuevas (idempotentes — IF NOT EXISTS) ──────────────────────────
         # Estas CREATE TABLE se agregan aquí como respaldo explícito porque create_all
@@ -955,6 +966,7 @@ async def obtener_proactividad(telefono: str) -> dict | None:
             "ultimo_morning_brief": r.ultimo_morning_brief,
             "ultimo_weekly_review": r.ultimo_weekly_review,
             "ultimo_conflict_check": r.ultimo_conflict_check,
+            "ultimo_consejo_estrategico": r.ultimo_consejo_estrategico,
         }
 
 
@@ -1041,6 +1053,7 @@ async def obtener_usuarios_proactividad_activos() -> list[dict]:
                 "ultimo_morning_brief": prov.ultimo_morning_brief if prov else None,
                 "ultimo_weekly_review": prov.ultimo_weekly_review if prov else None,
                 "ultimo_conflict_check": prov.ultimo_conflict_check if prov else None,
+                "ultimo_consejo_estrategico": prov.ultimo_consejo_estrategico if prov else None,
             })
 
         return activos
@@ -1079,6 +1092,8 @@ async def obtener_mirofish_estado(telefono: str) -> dict | None:
             "project_id": registro.project_id,
             "graph_id": registro.graph_id,
             "actualizado": registro.actualizado,
+            "contexto_pendiente": registro.contexto_pendiente or "",
+            "mensajes_desde_sync": registro.mensajes_desde_sync or 0,
         }
 
 
@@ -1086,8 +1101,15 @@ async def guardar_mirofish_estado(
     telefono: str,
     project_id: str | None = None,
     graph_id: str | None = None,
+    contexto_pendiente: str | None = None,
+    mensajes_desde_sync: int | None = None,
+    resetear_sync: bool = False,
 ):
-    """Guarda o actualiza el estado MiroFish de un usuario."""
+    """
+    Guarda o actualiza el estado MiroFish de un usuario.
+    - resetear_sync=True: limpia contexto_pendiente y pone mensajes_desde_sync=0
+      (se usa después de una sincronización exitosa del grafo).
+    """
     async with async_session() as session:
         query = select(UsuarioMiroFish).where(UsuarioMiroFish.telefono == telefono)
         result = await session.execute(query)
@@ -1097,12 +1119,21 @@ async def guardar_mirofish_estado(
                 registro.project_id = project_id
             if graph_id is not None:
                 registro.graph_id = graph_id
+            if contexto_pendiente is not None:
+                registro.contexto_pendiente = contexto_pendiente
+            if mensajes_desde_sync is not None:
+                registro.mensajes_desde_sync = mensajes_desde_sync
+            if resetear_sync:
+                registro.contexto_pendiente = ""
+                registro.mensajes_desde_sync = 0
             registro.actualizado = datetime.utcnow()
         else:
             session.add(UsuarioMiroFish(
                 telefono=telefono,
                 project_id=project_id,
                 graph_id=graph_id,
+                contexto_pendiente=contexto_pendiente or "",
+                mensajes_desde_sync=mensajes_desde_sync or 0,
                 actualizado=datetime.utcnow(),
             ))
         await session.commit()

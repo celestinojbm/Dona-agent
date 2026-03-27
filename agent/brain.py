@@ -911,26 +911,105 @@ async def _guardar_emocion_background(telefono: str, emotion: dict):
         logger.debug(f"Error guardando emoción: {e}")
 
 
+async def _postprocesar_reporte_mirofish(reporte_raw: str, escenario: str) -> list[str]:
+    """
+    Post-procesa el reporte bruto de MiroFish con Claude para:
+    1. Traducirlo a lenguaje natural amigable para WhatsApp.
+    2. Estructurarlo en secciones accionables.
+    3. Dividirlo en máltiples mensajes si es largo (máx 1500 chars cada uno).
+    Retorna una lista de mensajes listos para enviar.
+    """
+    import anthropic as _anthropic
+    import os
+
+    try:
+        cliente = _anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        prompt = (
+            f"Eres Dona, asistente personal estratégica. "
+            f"Recibes el resultado de un análisis de consecuencias y debes presentarlo "
+            f"de forma clara, accionable y en lenguaje natural para WhatsApp.\n\n"
+            f"Escenario analizado: {escenario}\n\n"
+            f"Resultado del análisis:\n{reporte_raw[:4000]}\n\n"
+            f"Instrucciones:\n"
+            f"- Escribe en español, tono cercano y estratégico\n"
+            f"- Estructura: 1) Qué probablemente pasaría, 2) Riesgos principales, "
+            f"3) Recomendación concreta de acción\n"
+            f"- Máximo 3 secciones cortas, cada una con 2-3 oraciones\n"
+            f"- NUNCA uses las palabras 'simulación' o 'simular'\n"
+            f"- Usa 'análisis', 'proyección' o 'exploración de consecuencias'\n"
+            f"- Sin markdown pesado (no tablas, no listas de 6+ ítems)\n"
+            f"- Termina con una pregunta que invite al usuario a actuar"
+        )
+        response = await cliente.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        texto_procesado = response.content[0].text.strip() if response.content else reporte_raw
+
+        # Dividir en múltiples mensajes si supera 1500 chars
+        mensajes = []
+        if len(texto_procesado) <= 1500:
+            mensajes = [texto_procesado]
+        else:
+            # Dividir por párrafos respetando el límite
+            parrafos = texto_procesado.split("\n\n")
+            bloque_actual = ""
+            for parrafo in parrafos:
+                if len(bloque_actual) + len(parrafo) + 2 <= 1500:
+                    bloque_actual = (bloque_actual + "\n\n" + parrafo).strip()
+                else:
+                    if bloque_actual:
+                        mensajes.append(bloque_actual)
+                    bloque_actual = parrafo
+            if bloque_actual:
+                mensajes.append(bloque_actual)
+
+        return mensajes if mensajes else [texto_procesado]
+
+    except Exception as e:
+        logger.error(f"MiroFish postprocesar_reporte error: {e}")
+        # Fallback: dividir el reporte crudo en trozos de 1500 chars
+        if len(reporte_raw) <= 1500:
+            return [reporte_raw]
+        return [
+            reporte_raw[i:i+1500]
+            for i in range(0, min(len(reporte_raw), 4500), 1500)
+        ]
+
+
 async def _ejecutar_simulacion_background(
     telefono: str, project_id: str, graph_id: str, escenario: str, proveedor
 ):
     """
-    Corre el pipeline completo de simulación MiroFish y envía el resultado por WhatsApp.
+    Corre el pipeline completo de simulación MiroFish, post-procesa el reporte
+    con Claude para hacerlo legible y accionable, y lo envía por WhatsApp.
     Diseñada para ejecutarse como asyncio.create_task (fire and forget).
     """
     import agent.mirofish_client as mf
 
     try:
-        logger.info(f"MiroFish background: iniciando simulación para {telefono}")
-        reporte = await mf.pipeline_simulacion(project_id, graph_id, escenario)
+        logger.info(f"MiroFish background: iniciando análisis para {telefono}")
+        reporte_raw = await mf.pipeline_simulacion(project_id, graph_id, escenario)
 
-        if reporte and proveedor:
-            # WhatsApp tiene límite práctico ~4000 chars por mensaje
-            if len(reporte) > 3800:
-                reporte = reporte[:3800] + "\n\n_(reporte truncado por límite de WhatsApp)_"
-            mensaje_resultado = f"*Aquí está el análisis:*\n\n{reporte}"
-            await proveedor.enviar_mensaje(telefono, mensaje_resultado)
-            logger.info(f"MiroFish background: resultado enviado a {telefono}")
+        if reporte_raw and proveedor:
+            # Post-procesar con Claude para lenguaje natural y estructura accionable
+            mensajes = await _postprocesar_reporte_mirofish(reporte_raw, escenario)
+
+            # Enviar encabezado
+            await proveedor.enviar_mensaje(telefono, "*Aquí está el análisis:* 🧠")
+
+            # Enviar cada bloque con pequeña pausa para evitar spam
+            import asyncio as _asyncio_local
+            for i, bloque in enumerate(mensajes):
+                await proveedor.enviar_mensaje(telefono, bloque)
+                if i < len(mensajes) - 1:
+                    await _asyncio_local.sleep(0.8)  # Pausa entre mensajes
+
+            logger.info(
+                f"MiroFish background: análisis enviado a {telefono} "
+                f"({len(mensajes)} mensaje(s))"
+            )
         elif proveedor:
             await proveedor.enviar_mensaje(
                 telefono,

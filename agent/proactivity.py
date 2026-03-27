@@ -218,10 +218,25 @@ async def _evaluar_disparadores(usuario: dict, ahora_local: datetime, offset_min
     if msg_lluvia:
         return msg_lluvia
 
-    # ── 7. Noticias de la industria (máx 1 por semana) ───────────────────────
+     # ── 7. Noticias de la industria (máx 1 por semana) ─────────────────────
     msg_noticias = await _disparador_noticias(telefono, nombre, contexto)
     if msg_noticias:
         return msg_noticias
+
+    # ── 8. Consejera estratégica: detecta decisiones importantes pendientes (cada 12 horas) ──
+    ultimo_consejo = usuario.get("ultimo_consejo_estrategico")
+    puede_dar_consejo = (
+        ultimo_consejo is None
+        or (datetime.utcnow() - ultimo_consejo).total_seconds() >= 43200  # 12 horas
+    )
+    if puede_dar_consejo and contexto:
+        import agent.mirofish_client as _mf
+        if _mf._disponible():
+            from agent.memory import guardar_proactividad
+            await guardar_proactividad(telefono, ultimo_consejo_estrategico=datetime.utcnow())
+            msg_consejo = await _disparador_consejo_estrategico(telefono, nombre, contexto)
+            if msg_consejo:
+                return msg_consejo
 
     return None
 
@@ -545,3 +560,60 @@ def _hora_local_str(fecha_utc: datetime, offset_min: int = 0) -> str:
     """Convierte datetime UTC a string legible en hora local del usuario."""
     local = fecha_utc + timedelta(minutes=offset_min)
     return local.strftime("%d/%m %H:%M")
+
+
+async def _disparador_consejo_estrategico(telefono: str, nombre: str, contexto: str) -> str | None:
+    """
+    Disparador 8 — Consejera estratégica proactiva.
+    Usa el grafo MiroFish del usuario para detectar si hay una decisión importante
+    pendiente o un momento de alta tensión estratégica que merece atención.
+    Solo se activa si MiroFish está disponible y el usuario tiene grafo construido.
+    Se ejecuta máx cada 12 horas para no ser invasivo.
+    """
+    from agent.memory import obtener_mirofish_estado
+    import agent.mirofish_client as mf
+
+    try:
+        if not mf._disponible():
+            return None
+
+        estado = await obtener_mirofish_estado(telefono)
+        if not estado or not estado.get("graph_id"):
+            return None
+
+        # Usar el contexto acumulado del grafo si está disponible
+        ctx_grafo = estado.get("contexto_pendiente") or contexto
+        contexto_analisis = ctx_grafo[:600] if ctx_grafo else contexto[:600]
+
+        prompt = (
+            f"Eres Dona, asistente personal estratégica de {nombre or 'el usuario'}.\n\n"
+            f"Basándote en el contexto de vida y trabajo del usuario:\n{contexto_analisis}\n\n"
+            f"Detecta si hay alguna de estas situaciones activas:\n"
+            f"1. Una decisión importante que el usuario mencionó pero no ha tomado acción\n"
+            f"2. Una relación profesional o personal que podría necesitar atención\n"
+            f"3. Un proyecto con señales de riesgo (retrasos, dependencias sin resolver)\n"
+            f"4. Un momento de alta carga donde una perspectiva externa sería valiosa\n\n"
+            f"Si detectas una situación concreta y accionable, escribe un mensaje corto "
+            f"para WhatsApp (máx 70 palabras, sin markdown, tono de consejera cercana). "
+            f"El mensaje debe ofrecer ayuda específica, no genérica. "
+            f"NUNCA uses las palabras 'simulación' o 'simular'. "
+            f"Usa 'analizar', 'pensar las consecuencias' o 'explorar qué pasaría'.\n\n"
+            f"Si no hay nada concreto que amerite atención, responde exactamente: SIN_CONSEJO"
+        )
+
+        response = await _claude.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=150,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        resultado = response.content[0].text.strip() if response.content else "SIN_CONSEJO"
+        if resultado == "SIN_CONSEJO" or not resultado:
+            return None
+
+        logger.info(f"Proactividad: consejo estratégico generado para {telefono}")
+        return resultado
+
+    except Exception as e:
+        logger.error(f"Proactividad _disparador_consejo_estrategico ({telefono}): {e}")
+        return None

@@ -542,33 +542,100 @@ async def _verificar_sobrecarga(telefono: str, proveedor):
         logger.debug(f"_verificar_sobrecarga error ({telefono}): {e}")
 
 
+# Umbral de mensajes relevantes acumulados antes de re-sincronizar el grafo
+_MIROFISH_SYNC_UMBRAL_MENSAJES = 15
+# Días máximos sin sincronizar antes de forzar actualización
+_MIROFISH_SYNC_DIAS_MAX = 7
+
+
 async def _actualizar_memoria_mirofish(telefono: str, texto: str):
     """
-    Construye o actualiza el grafo de conocimiento del usuario en MiroFish.
+    Actualiza el grafo de conocimiento del usuario en MiroFish de forma inteligente.
+    Estrategia de actualización continua:
+      1. Siempre acumula el texto relevante en contexto_pendiente.
+      2. Construye el grafo inicial si el usuario no tiene ninguno.
+      3. Re-sincroniza el grafo cuando se cumple alguna condición:
+         - Se acumularon 15+ mensajes relevantes nuevos, O
+         - Han pasado 7+ días desde la última sincronización.
     Corre en background — silencioso, sin interrumpir la experiencia del usuario.
     """
     import agent.mirofish_client as mf
+    from datetime import timezone as tz
 
     try:
         estado = await obtener_mirofish_estado(telefono)
-        project_id_existente = estado.get("project_id") if estado else None
+        project_id = estado.get("project_id") if estado else None
+        graph_id = estado.get("graph_id") if estado else None
+        ctx_pendiente = (estado.get("contexto_pendiente") or "") if estado else ""
+        mensajes_count = (estado.get("mensajes_desde_sync") or 0) if estado else 0
+        ultima_sync = estado.get("actualizado") if estado else None
 
-        # Solo construir grafo nuevo si no tiene uno reciente (o no tiene ninguno)
-        # Evitar reconstruir en cada mensaje — solo si no existe grafo aún
-        if project_id_existente and estado.get("graph_id"):
-            logger.debug(f"MiroFish: usuario {telefono} ya tiene grafo, omitiendo actualización")
-            return
+        # Acumular el texto nuevo al contexto pendiente (máx 8000 chars para no saturar)
+        ctx_nuevo = (ctx_pendiente + "\n" + texto).strip()
+        if len(ctx_nuevo) > 8000:
+            ctx_nuevo = ctx_nuevo[-8000:]  # Mantener los más recientes
+        mensajes_count += 1
 
-        logger.info(f"MiroFish: construyendo grafo de memoria para {telefono}")
-        project_id, graph_id = await mf.construir_grafo_completo(
-            texto=texto,
-            telefono=telefono,
-            requerimiento="Analiza las relaciones, personas, compromisos y eventos mencionados",
+        # Guardar el contexto acumulado actualizado
+        await guardar_mirofish_estado(
+            telefono,
+            contexto_pendiente=ctx_nuevo,
+            mensajes_desde_sync=mensajes_count,
         )
 
-        if project_id:
-            await guardar_mirofish_estado(telefono, project_id=project_id, graph_id=graph_id)
-            logger.info(f"MiroFish: grafo guardado para {telefono} — project={project_id}, graph={graph_id}")
+        # Determinar si es necesario sincronizar el grafo ahora
+        dias_sin_sync = 999
+        if ultima_sync:
+            # Normalizar a UTC para comparar
+            ahora_utc = datetime.utcnow().replace(tzinfo=tz.utc)
+            sync_utc = ultima_sync.replace(tzinfo=tz.utc) if ultima_sync.tzinfo is None else ultima_sync
+            dias_sin_sync = (ahora_utc - sync_utc).days
+
+        necesita_sync = (
+            not project_id  # Primera vez — nunca ha tenido grafo
+            or not graph_id
+            or mensajes_count >= _MIROFISH_SYNC_UMBRAL_MENSAJES
+            or dias_sin_sync >= _MIROFISH_SYNC_DIAS_MAX
+        )
+
+        if not necesita_sync:
+            logger.debug(
+                f"MiroFish: acumulando contexto para {telefono} "
+                f"({mensajes_count}/{_MIROFISH_SYNC_UMBRAL_MENSAJES} mensajes, "
+                f"{dias_sin_sync}/{_MIROFISH_SYNC_DIAS_MAX} días)"
+            )
+            return
+
+        # Construir o actualizar el grafo
+        motivo = "inicial" if not project_id else f"{mensajes_count} msgs nuevos / {dias_sin_sync}d sin sync"
+        logger.info(f"MiroFish: sincronizando grafo para {telefono} (motivo: {motivo})")
+
+        requerimiento = (
+            "Analiza y actualiza las relaciones, personas clave, proyectos activos, "
+            "compromisos, metas y eventos relevantes del usuario. "
+            "Prioriza la información más reciente sobre la más antigua."
+        )
+
+        project_id_nuevo, graph_id_nuevo = await mf.construir_grafo_completo(
+            texto=ctx_nuevo,
+            telefono=telefono,
+            nombre_proyecto=f"Dona_{telefono.replace('+', '').replace('@', '_')}",
+            requerimiento=requerimiento,
+        )
+
+        if project_id_nuevo:
+            await guardar_mirofish_estado(
+                telefono,
+                project_id=project_id_nuevo,
+                graph_id=graph_id_nuevo,
+                resetear_sync=True,  # Limpia contexto_pendiente y mensajes_desde_sync
+            )
+            logger.info(
+                f"MiroFish: grafo actualizado para {telefono} — "
+                f"project={project_id_nuevo}, graph={graph_id_nuevo}"
+            )
+        else:
+            logger.warning(f"MiroFish: sincronización falló para {telefono}, se reintentará en el próximo ciclo")
 
     except Exception as e:
         logger.error(f"MiroFish _actualizar_memoria_mirofish error ({telefono}): {e}")
