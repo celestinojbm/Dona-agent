@@ -530,6 +530,12 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
     Soporta: guardar_zona_horaria, crear_recordatorio, listar_recordatorios,
              cancelar_recordatorio, simular_escenario.
     """
+    # Extraer el último mensaje real del usuario para validaciones
+    _ultimo_msg_usuario = ""
+    for m in reversed(mensajes):
+        if m.get("role") == "user" and isinstance(m.get("content"), str):
+            _ultimo_msg_usuario = m["content"].lower()
+            break
     from agent.memory import (
         guardar_recordatorio, guardar_timezone,
         obtener_recordatorios_activos, cancelar_recordatorios_por_keyword,
@@ -559,8 +565,36 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 "content": resultado
             })
 
-        # ── crear_recordatorio ────────────────────────────────────────
+           # ── crear_recordatorio ────────────────────────────────────
         elif bloque.name == "crear_recordatorio":
+            # Validación anti-fantasma: verificar que el usuario realmente pidió un recordatorio
+            _INDICADORES_RECORDATORIO = (
+                "recuérdame", "recordarme", "recuerdame", "recordatorio",
+                "avísame", "avisame", "agenda", "agéndame", "agendame",
+                "anota", "apunta", "pon", "crea", "programa",
+                "a las", "mañana", "lunes", "martes", "miércoles", "miercoles",
+                "jueves", "viernes", "sábado", "sabado", "domingo",
+                "todos los días", "cada día", "cada semana", "cada lunes",
+                "en 1 hora", "en 2 horas", "en 30 minutos", "esta tarde",
+                "esta noche", "ojo que", "no olvidar", "tengo que",
+                "debo", "necesito", "hay que",
+            )
+            if _ultimo_msg_usuario and not any(ind in _ultimo_msg_usuario for ind in _INDICADORES_RECORDATORIO):
+                logger.warning(
+                    f"RECORDATORIO BLOQUEADO para {telefono}: Claude intentó crear "
+                    f"'{bloque.input.get('mensaje_recordatorio', '?')}' pero el mensaje del usuario "
+                    f"no contiene indicadores de recordatorio. Mensaje: '{_ultimo_msg_usuario[:100]}'"
+                )
+                resultado = (
+                    "ERROR: No se creó el recordatorio porque el usuario no lo solicitó explícitamente. "
+                    "Solo crea recordatorios cuando el usuario lo pida directamente en su mensaje."
+                )
+                resultados_herramientas.append({
+                    "type": "tool_result",
+                    "tool_use_id": bloque.id,
+                    "content": resultado
+                })
+                continue
             try:
                 fecha_hora_str = bloque.input["fecha_hora_utc"]
                 fecha_hora = datetime.fromisoformat(fecha_hora_str.replace("Z", ""))
