@@ -242,59 +242,57 @@ class MemoriaLargoPlazo(Base):
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-async def _migrar_columnas(conn):
+_MIGRACIONES = [
+    # ── Correcciones de nombre legacy ────────────────────────────────────────
+    "ALTER TABLE mensajes RENAME COLUMN rol TO role",
+    # ── Columnas nuevas ───────────────────────────────────────────────
+    "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual VARCHAR(100)",
+    "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual_expira TIMESTAMP",
+    "ALTER TABLE timezone_usuarios ADD COLUMN timezone_nombre VARCHAR(60)",
+    "ALTER TABLE usuario_mirofish ADD COLUMN contexto_pendiente TEXT DEFAULT ''",
+    "ALTER TABLE usuario_mirofish ADD COLUMN mensajes_desde_sync INTEGER DEFAULT 0",
+    "ALTER TABLE usuario_proactividad ADD COLUMN ultimo_consejo_estrategico TIMESTAMP",
+    # ── Tablas nuevas (respaldo explícito) ──────────────────────────────────
     """
-    Aplica migraciones incrementales: renombra columnas legacy y agrega columnas nuevas.
-    Cada sentencia es idempotente — el except silencia errores de "ya existe / no existe".
+    CREATE TABLE IF NOT EXISTS memoria_largo_plazo (
+        telefono    VARCHAR(50) PRIMARY KEY,
+        resumen_texto TEXT        NOT NULL DEFAULT '',
+        ultimo_mensaje_id INTEGER NOT NULL DEFAULT 0,
+        actualizado TIMESTAMP
+    )
+    """,
     """
-    migraciones = [
-        # ── Correcciones de nombre legacy ────────────────────────────────────────
-        "ALTER TABLE mensajes RENAME COLUMN rol TO role",
-        # ── Columnas nuevas ───────────────────────────────────────────────────────
-        "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual VARCHAR(100)",
-        "ALTER TABLE usuario_ubicacion ADD COLUMN ciudad_actual_expira TIMESTAMP",
-        # Soporte DST: nombre IANA de timezone (ej: "America/New_York")
-        "ALTER TABLE timezone_usuarios ADD COLUMN timezone_nombre VARCHAR(60)",
-        # MiroFish: contexto acumulado y contador de mensajes desde última sincronización
-        "ALTER TABLE usuario_mirofish ADD COLUMN contexto_pendiente TEXT DEFAULT ''",
-        "ALTER TABLE usuario_mirofish ADD COLUMN mensajes_desde_sync INTEGER DEFAULT 0",
-        # Proactividad: campo para el disparador 8 (consejo estratégico)
-        "ALTER TABLE usuario_proactividad ADD COLUMN ultimo_consejo_estrategico TIMESTAMP",
+    CREATE TABLE IF NOT EXISTS usuario_google_auth (
+        telefono      VARCHAR(50) PRIMARY KEY,
+        access_token  TEXT        NOT NULL DEFAULT '',
+        refresh_token TEXT        NOT NULL DEFAULT '',
+        expires_at    TIMESTAMP,
+        email         VARCHAR(200),
+        actualizado   TIMESTAMP
+    )
+    """,
+]
 
-        # ── Tablas nuevas (idempotentes — IF NOT EXISTS) ──────────────────────────
-        # Estas CREATE TABLE se agregan aquí como respaldo explícito porque create_all
-        # puede fallar silenciosamente en Supabase con PgBouncer (transaction mode).
-        # Se ejecutan en cada arranque; IF NOT EXISTS las hace seguras de repetir.
-        """
-        CREATE TABLE IF NOT EXISTS memoria_largo_plazo (
-            telefono    VARCHAR(50) PRIMARY KEY,
-            resumen_texto TEXT        NOT NULL DEFAULT '',
-            ultimo_mensaje_id INTEGER NOT NULL DEFAULT 0,
-            actualizado TIMESTAMP
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS usuario_google_auth (
-            telefono      VARCHAR(50) PRIMARY KEY,
-            access_token  TEXT        NOT NULL DEFAULT '',
-            refresh_token TEXT        NOT NULL DEFAULT '',
-            expires_at    TIMESTAMP,
-            email         VARCHAR(200),
-            actualizado   TIMESTAMP
-        )
-        """,
-    ]
-    for sql in migraciones:
+
+async def _migrar_columnas():
+    """
+    Aplica migraciones incrementales, cada una en su PROPIA transacción.
+
+    Esto evita el problema de PgBouncer/Supabase donde un error en un ALTER TABLE
+    aborta toda la transacción y las migraciones siguientes fallan con
+    'InFailedSQLTransactionError: current transaction is aborted'.
+    """
+    for sql in _MIGRACIONES:
         try:
-            await conn.execute(text(sql))
-            logger.info(f"[DB] Migración OK: {sql[:60]}")
+            async with engine.begin() as conn:
+                await conn.execute(text(sql))
+            logger.info(f"[DB] Migración OK: {sql.strip()[:60]}")
         except Exception as e:
             err_str = str(e).lower()
-            # Errores esperados: columna/tabla ya existe, columna no existe (rename), etc.
             if any(kw in err_str for kw in ("already exists", "does not exist", "duplicate")):
-                logger.debug(f"[DB] Migración ya aplicada: {sql[:60]}")
+                logger.debug(f"[DB] Migración ya aplicada: {sql.strip()[:60]}")
             else:
-                logger.error(f"[DB] Migración FALLÓ: {sql[:80]} — {e}")
+                logger.error(f"[DB] Migración FALLÓ: {sql.strip()[:80]} — {e}")
 
 
 async def inicializar_db():
@@ -337,14 +335,14 @@ async def inicializar_db():
                 else:
                     logger.info("[DB] Todas las tablas presentes en Supabase ✓")
 
-            # Paso 3: migraciones de columnas
-            # engine.begin() hace commit automático al salir del context manager
-            await _migrar_columnas(conn)
-            logger.info("[DB] Migraciones aplicadas")
-
     except Exception as e:
-        logger.error(f"[DB] ERROR en inicializar_db: {type(e).__name__}: {e}", exc_info=True)
+        logger.error(f"[DB] ERROR en inicializar_db (create_all): {type(e).__name__}: {e}", exc_info=True)
         raise
+
+    # Paso 3: migraciones de columnas — FUERA del engine.begin() principal
+    # Cada migración corre en su propia transacción para evitar cascading failures
+    await _migrar_columnas()
+    logger.info("[DB] Migraciones aplicadas")
 
 
 async def guardar_timezone(telefono: str, offset_minutos: int, timezone_nombre: str | None = None):
