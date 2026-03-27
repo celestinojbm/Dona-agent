@@ -288,8 +288,13 @@ async def _migrar_columnas(conn):
         try:
             await conn.execute(text(sql))
             logger.info(f"[DB] Migración OK: {sql[:60]}")
-        except Exception:
-            pass  # Ya aplicada o no aplica — ignorar
+        except Exception as e:
+            err_str = str(e).lower()
+            # Errores esperados: columna/tabla ya existe, columna no existe (rename), etc.
+            if any(kw in err_str for kw in ("already exists", "does not exist", "duplicate")):
+                logger.debug(f"[DB] Migración ya aplicada: {sql[:60]}")
+            else:
+                logger.error(f"[DB] Migración FALLÓ: {sql[:80]} — {e}")
 
 
 async def inicializar_db():
@@ -333,6 +338,7 @@ async def inicializar_db():
                     logger.info("[DB] Todas las tablas presentes en Supabase ✓")
 
             # Paso 3: migraciones de columnas
+            # engine.begin() hace commit automático al salir del context manager
             await _migrar_columnas(conn)
             logger.info("[DB] Migraciones aplicadas")
 

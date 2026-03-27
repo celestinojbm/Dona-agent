@@ -141,14 +141,15 @@ TABLAS = [
     # Configuración de proactividad por usuario
     """
     CREATE TABLE IF NOT EXISTS usuario_proactividad (
-        telefono                VARCHAR(50) PRIMARY KEY,
-        proactive_enabled       BOOLEAN   NOT NULL DEFAULT TRUE,
-        morning_brief_hour      INTEGER   NOT NULL DEFAULT 8,
-        mensajes_hoy            INTEGER   NOT NULL DEFAULT 0,
-        ultimo_reset            TIMESTAMP,
-        ultimo_morning_brief    TIMESTAMP,
-        ultimo_weekly_review    TIMESTAMP,
-        ultimo_conflict_check   TIMESTAMP
+        telefono                    VARCHAR(50) PRIMARY KEY,
+        proactive_enabled           BOOLEAN   NOT NULL DEFAULT TRUE,
+        morning_brief_hour          INTEGER   NOT NULL DEFAULT 8,
+        mensajes_hoy                INTEGER   NOT NULL DEFAULT 0,
+        ultimo_reset                TIMESTAMP,
+        ultimo_morning_brief        TIMESTAMP,
+        ultimo_weekly_review        TIMESTAMP,
+        ultimo_conflict_check       TIMESTAMP,
+        ultimo_consejo_estrategico  TIMESTAMP
     )
     """,
 
@@ -180,12 +181,23 @@ TABLAS = [
     # Estado MiroFish (grafo de conocimiento)
     """
     CREATE TABLE IF NOT EXISTS usuario_mirofish (
-        telefono    VARCHAR(50) PRIMARY KEY,
-        project_id  VARCHAR(100),
-        graph_id    VARCHAR(100),
-        actualizado TIMESTAMP   NOT NULL DEFAULT NOW()
+        telefono            VARCHAR(50) PRIMARY KEY,
+        project_id          VARCHAR(100),
+        graph_id            VARCHAR(100),
+        actualizado         TIMESTAMP   NOT NULL DEFAULT NOW(),
+        contexto_pendiente  TEXT        NOT NULL DEFAULT '',
+        mensajes_desde_sync INTEGER     NOT NULL DEFAULT 0
     )
     """,
+
+    # ── Migraciones incrementales (ALTER TABLE) ──────────────────────────────
+    # Estas se ejecutan después de los CREATE TABLE para agregar columnas nuevas
+    # a tablas que ya existían. Son idempotentes gracias al IF NOT EXISTS implícito
+    # (PostgreSQL lanza error si la columna ya existe, que se captura abajo).
+    "ALTER TABLE usuario_mirofish ADD COLUMN contexto_pendiente TEXT DEFAULT ''",
+    "ALTER TABLE usuario_mirofish ADD COLUMN mensajes_desde_sync INTEGER DEFAULT 0",
+    "ALTER TABLE usuario_proactividad ADD COLUMN ultimo_consejo_estrategico TIMESTAMP",
+    "ALTER TABLE timezone_usuarios ADD COLUMN timezone_nombre VARCHAR(60)",
 ]
 
 
