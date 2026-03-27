@@ -718,3 +718,10 @@ async def webhook_handler(request: Request):
 async def webhook_messages_handler(request: Request):
     """Whapi envía aquí cuando el evento es 'messages' (agrega /messages a la URL base)."""
     return await procesar_webhook(request)
+
+@app.get("/voice/reenviar")
+@app.post("/voice/reenviar")
+async def voice_reenviar():
+    """Responde con TwiML para reenviar llamadas entrantes al número personal del administrador."""
+    twiml = '<?xml version="1.0" encoding="UTF-8"?><Response><Dial>+14076936023</Dial></Response>'
+    return PlainTextResponse(content=twiml, media_type="application/xml")
