@@ -306,3 +306,142 @@ async def pipeline_simulacion(
         return None
 
     return await esperar_reporte(report_id)
+
+
+# ─── SIMULACIONES PROGRAMADAS (SCHEDULER) ────────────────────────────────────
+
+# Escenarios predefinidos para simulaciones automáticas
+ESCENARIOS_PROGRAMADOS = [
+    {
+        "id": "optimizacion_recursos",
+        "nombre": "Optimización de Recursos",
+        "descripcion": "Analiza cómo los fundadores y el equipo pueden optimizar el uso de recursos (tiempo, dinero, infraestructura, IA) para maximizar el impacto del producto.",
+        "frecuencia": "lunes",
+        "max_rondas": 10,
+    },
+    {
+        "id": "crecimiento_usuarios",
+        "nombre": "Estrategias de Crecimiento",
+        "descripcion": "Simula cómo diferentes estrategias de adquisición de usuarios afectan el ecosistema de Dona, incluyendo retención, conversión y viralidad.",
+        "frecuencia": "miercoles",
+        "max_rondas": 10,
+    },
+    {
+        "id": "riesgos_operacionales",
+        "nombre": "Riesgos Operacionales",
+        "descripcion": "Identifica y analiza los principales riesgos técnicos, de negocio y de equipo que enfrenta Dona Control, con recomendaciones de mitigación.",
+        "frecuencia": "viernes",
+        "max_rondas": 10,
+    },
+]
+
+
+async def guardar_insight_en_zep(
+    graph_id: str,
+    escenario_id: str,
+    escenario_nombre: str,
+    contenido_reporte: str,
+) -> bool:
+    """
+    Guarda el insight de una simulación completada en el grafo de Zep via MiroFish.
+    Permite que Dona-agent recupere los insights en conversaciones futuras.
+    Retorna True si se guardó exitosamente.
+    """
+    if not _disponible():
+        return False
+    try:
+        from datetime import datetime, timezone
+        fecha = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        resumen = contenido_reporte[:2000] if len(contenido_reporte) > 2000 else contenido_reporte
+        async with httpx.AsyncClient(timeout=TIMEOUT_LARGO) as client:
+            r = await client.post(
+                f"{MIROFISH_BASE_URL}/api/graph/facts",
+                json={
+                    "graph_id": graph_id,
+                    "facts": [
+                        {
+                            "fact": f"[INSIGHT SIMULACIÓN - {fecha}] Escenario: {escenario_nombre}\n\n{resumen}",
+                            "source": f"mirofish_simulation_{escenario_id}",
+                            "metadata": {
+                                "tipo": "insight_simulacion",
+                                "escenario_id": escenario_id,
+                                "fecha": fecha,
+                            }
+                        }
+                    ]
+                },
+            )
+            if r.status_code in (200, 201):
+                logger.info(f"MiroFish: insight '{escenario_id}' guardado en grafo {graph_id}")
+                return True
+            else:
+                logger.warning(f"MiroFish guardar_insight: HTTP {r.status_code} — {r.text[:200]}")
+                return False
+    except Exception as e:
+        logger.error(f"MiroFish guardar_insight_en_zep: {e}")
+        return False
+
+
+async def pipeline_simulacion_programada(
+    project_id: str,
+    graph_id: str,
+    escenario: dict,
+    notificar_callback=None,
+) -> dict:
+    """
+    Ejecuta una simulación programada completa y guarda el insight en Zep.
+
+    Args:
+        project_id: ID del proyecto MiroFish
+        graph_id: ID del grafo Zep
+        escenario: Dict con id, nombre, descripcion, max_rondas
+        notificar_callback: Función async opcional para notificar al admin cuando termine
+
+    Returns:
+        Dict con {exito, escenario_id, reporte_resumen, error}
+    """
+    escenario_id = escenario["id"]
+    escenario_nombre = escenario["nombre"]
+    escenario_desc = escenario["descripcion"]
+    max_rondas = escenario.get("max_rondas", 10)
+
+    logger.info(f"[SCHEDULER] Iniciando simulación programada: {escenario_nombre}")
+
+    try:
+        reporte = await pipeline_simulacion(
+            project_id=project_id,
+            graph_id=graph_id,
+            escenario=escenario_desc,
+            max_rondas=max_rondas,
+        )
+
+        if not reporte:
+            logger.error(f"[SCHEDULER] Simulación '{escenario_id}' falló — sin reporte")
+            return {"exito": False, "escenario_id": escenario_id, "error": "pipeline_fallo"}
+
+        guardado = await guardar_insight_en_zep(
+            graph_id=graph_id,
+            escenario_id=escenario_id,
+            escenario_nombre=escenario_nombre,
+            contenido_reporte=reporte,
+        )
+
+        resumen = reporte[:500] if len(reporte) > 500 else reporte
+        logger.info(f"[SCHEDULER] Simulación '{escenario_id}' completada. Insight guardado: {guardado}")
+
+        if notificar_callback:
+            try:
+                await notificar_callback(escenario_nombre, resumen)
+            except Exception as e_notif:
+                logger.warning(f"[SCHEDULER] Error en notificación: {e_notif}")
+
+        return {
+            "exito": True,
+            "escenario_id": escenario_id,
+            "reporte_resumen": resumen,
+            "insight_guardado": guardado,
+        }
+
+    except Exception as e:
+        logger.error(f"[SCHEDULER] Error en simulación programada '{escenario_id}': {e}")
+        return {"exito": False, "escenario_id": escenario_id, "error": str(e)}

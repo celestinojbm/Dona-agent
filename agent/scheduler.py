@@ -232,11 +232,101 @@ def iniciar_scheduler(proveedor):
         id="self_ping_keep_alive",
         replace_existing=True,
     )
+    # ─── Simulaciones MiroFish programadas ────────────────────────────────────
+    # Lunes 2 AM — Optimización de Recursos
+    scheduler.add_job(
+        _ejecutar_simulacion_mirofish_programada,
+        trigger="cron",
+        day_of_week="mon",
+        hour=2,
+        minute=0,
+        args=["optimizacion_recursos", proveedor],
+        id="mirofish_optimizacion_recursos",
+        replace_existing=True,
+    )
+    # Miércoles 2 AM — Estrategias de Crecimiento
+    scheduler.add_job(
+        _ejecutar_simulacion_mirofish_programada,
+        trigger="cron",
+        day_of_week="wed",
+        hour=2,
+        minute=0,
+        args=["crecimiento_usuarios", proveedor],
+        id="mirofish_crecimiento_usuarios",
+        replace_existing=True,
+    )
+    # Viernes 2 AM — Riesgos Operacionales
+    scheduler.add_job(
+        _ejecutar_simulacion_mirofish_programada,
+        trigger="cron",
+        day_of_week="fri",
+        hour=2,
+        minute=0,
+        args=["riesgos_operacionales", proveedor],
+        id="mirofish_riesgos_operacionales",
+        replace_existing=True,
+    )
     scheduler.start()
     logger.info(
         "Scheduler iniciado — recordatorios cada minuto, Google Calendar cada 5 min, "
-        "onboarding y proactividad cada hora, self-ping cada 10 min, aprendizaje los domingos"
+        "onboarding y proactividad cada hora, self-ping cada 10 min, aprendizaje los domingos, "
+        "simulaciones MiroFish lunes/miércoles/viernes a las 2 AM UTC"
     )
+
+
+async def _ejecutar_simulacion_mirofish_programada(escenario_id: str, proveedor):
+    """
+    Job semanal que ejecuta una simulación MiroFish programada y guarda el insight en Zep.
+    Requiere MIROFISH_PROJECT_ID y MIROFISH_GRAPH_ID en las variables de entorno de Render.
+    """
+    try:
+        import agent.mirofish_client as mf
+
+        if not mf._disponible():
+            logger.debug("[SCHEDULER-MIROFISH] MiroFish no configurado, saltando simulación")
+            return
+
+        escenario = next((e for e in mf.ESCENARIOS_PROGRAMADOS if e["id"] == escenario_id), None)
+        if not escenario:
+            logger.error(f"[SCHEDULER-MIROFISH] Escenario '{escenario_id}' no encontrado")
+            return
+
+        project_id = os.getenv("MIROFISH_PROJECT_ID", "")
+        graph_id = os.getenv("MIROFISH_GRAPH_ID", "")
+
+        if not project_id or not graph_id:
+            logger.warning(
+                "[SCHEDULER-MIROFISH] Faltan MIROFISH_PROJECT_ID o MIROFISH_GRAPH_ID. "
+                "Agrégalos en Render → Dona-agent → Environment."
+            )
+            return
+
+        admin_telefono = os.getenv("ADMIN_WHATSAPP", "")
+
+        async def notificar_admin(nombre_escenario: str, resumen: str):
+            if admin_telefono and proveedor:
+                mensaje = (
+                    f"🧠 *Análisis MiroFish completado*\n"
+                    f"Escenario: _{nombre_escenario}_\n\n"
+                    f"{resumen[:400]}\n\n"
+                    f"_El insight ya está disponible para consultas en Dona._"
+                )
+                await proveedor.enviar_mensaje(admin_telefono, mensaje)
+
+        resultado = await mf.pipeline_simulacion_programada(
+            project_id=project_id,
+            graph_id=graph_id,
+            escenario=escenario,
+            notificar_callback=notificar_admin if admin_telefono else None,
+        )
+
+        if resultado["exito"]:
+            logger.info(f"[SCHEDULER-MIROFISH] '{escenario_id}' completado exitosamente")
+        else:
+            logger.error(f"[SCHEDULER-MIROFISH] '{escenario_id}' falló: {resultado.get('error')}")
+
+    except Exception as e:
+        logger.error(f"[SCHEDULER-MIROFISH] Error inesperado en '{escenario_id}': {e}")
 
 
 def detener_scheduler():
