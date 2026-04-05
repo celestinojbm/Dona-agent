@@ -34,11 +34,13 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 REDIRECT_URI = f"{BASE_URL}/auth/google/callback"
 
-# Alcances de Google Calendar que Dona necesita
+# Alcances de Google que Dona necesita (Calendar + Sheets + Drive)
 SCOPES = [
-    "https://www.googleapis.com/auth/calendar.events",  # leer y crear eventos
+    "https://www.googleapis.com/auth/calendar.events",   # leer y crear eventos
+    "https://www.googleapis.com/auth/spreadsheets",      # leer y escribir hojas
+    "https://www.googleapis.com/auth/drive.readonly",    # listar archivos Sheets del usuario
     "openid",
-    "https://www.googleapis.com/auth/userinfo.email",   # mostrar el email al confirmar
+    "https://www.googleapis.com/auth/userinfo.email",    # mostrar el email al confirmar
 ]
 
 _TOKEN_URL = "https://oauth2.googleapis.com/token"

@@ -171,6 +171,141 @@ TOOLS = [
         }
     },
     {
+        "name": "registrar_hoja",
+        "description": (
+            "Conecta una hoja de Google Sheets a Dona para poder leerla y actualizarla. "
+            "Úsala cuando el usuario diga 'conecta esta hoja', 'registra mi spreadsheet', "
+            "'quiero que Dona tenga acceso a esta hoja', o pegue un link de Google Sheets. "
+            "Extrae el spreadsheet_id del URL si el usuario pega el link completo. "
+            "Pide un nombre amigable si el usuario no lo especifica."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nombre": {
+                    "type": "string",
+                    "description": "Alias amigable para identificar esta hoja (ej: 'Pipeline', 'Métricas', 'Gastos')."
+                },
+                "spreadsheet_id_o_url": {
+                    "type": "string",
+                    "description": "El ID de la hoja o el URL completo de Google Sheets."
+                },
+                "hoja_nombre": {
+                    "type": "string",
+                    "description": "Nombre del tab/pestaña dentro del spreadsheet. Default: 'Sheet1'.",
+                    "default": "Sheet1"
+                },
+                "descripcion": {
+                    "type": "string",
+                    "description": "Descripción opcional del propósito de esta hoja.",
+                    "default": ""
+                }
+            },
+            "required": ["nombre", "spreadsheet_id_o_url"]
+        }
+    },
+    {
+        "name": "leer_hoja",
+        "description": (
+            "Lee datos de una hoja de Google Sheets registrada y los analiza. "
+            "Úsala cuando el usuario pregunte por datos de su hoja, pida resúmenes, "
+            "haga preguntas sobre sus datos ('¿cuántos prospectos tenemos?', "
+            "'¿cuál fue el mejor día?', '¿qué hay en mi pipeline?'). "
+            "Si el usuario no especifica nombre de hoja, pregúntale cuál quiere consultar."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nombre_hoja": {
+                    "type": "string",
+                    "description": "Alias de la hoja registrada (ej: 'Pipeline', 'Métricas')."
+                },
+                "pregunta": {
+                    "type": "string",
+                    "description": "Pregunta específica sobre los datos. Si no hay, muestra un resumen general.",
+                    "default": ""
+                },
+                "rango": {
+                    "type": "string",
+                    "description": "Rango específico a leer, ej: 'A1:E10'. Si se omite, lee las primeras 50 filas.",
+                    "default": ""
+                }
+            },
+            "required": ["nombre_hoja"]
+        }
+    },
+    {
+        "name": "agregar_fila",
+        "description": (
+            "Agrega una nueva fila al final de una hoja de Google Sheets registrada. "
+            "Úsala cuando el usuario diga 'agrega', 'registra', 'anota en mi hoja', "
+            "'crea una nueva entrada en', 'guarda esto en mi'. "
+            "Primero lee los headers de la hoja para ordenar correctamente los valores."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nombre_hoja": {
+                    "type": "string",
+                    "description": "Alias de la hoja registrada donde agregar la fila."
+                },
+                "datos": {
+                    "type": "object",
+                    "description": "Diccionario columna:valor con los datos a agregar. Las claves deben coincidir con los headers de la hoja.",
+                    "additionalProperties": {"type": "string"}
+                }
+            },
+            "required": ["nombre_hoja", "datos"]
+        }
+    },
+    {
+        "name": "actualizar_celda",
+        "description": (
+            "Busca una fila en una hoja de Google Sheets y actualiza el valor de una columna. "
+            "Úsala cuando el usuario diga 'actualiza', 'cambia', 'mueve a', 'modifica el estado de'. "
+            "Ejemplo: 'mueve a Carlos a Cerrado' → busca fila donde Nombre='Carlos', actualiza Estado='Cerrado'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nombre_hoja": {
+                    "type": "string",
+                    "description": "Alias de la hoja registrada."
+                },
+                "columna_busqueda": {
+                    "type": "string",
+                    "description": "Nombre de la columna donde buscar (ej: 'Nombre', 'Cliente')."
+                },
+                "valor_busqueda": {
+                    "type": "string",
+                    "description": "Valor a buscar en esa columna (ej: 'Carlos')."
+                },
+                "columna_actualizar": {
+                    "type": "string",
+                    "description": "Nombre de la columna a actualizar (ej: 'Estado', 'Valor')."
+                },
+                "nuevo_valor": {
+                    "type": "string",
+                    "description": "Nuevo valor a escribir (ej: 'Cerrado', '$1200')."
+                }
+            },
+            "required": ["nombre_hoja", "columna_busqueda", "valor_busqueda", "columna_actualizar", "nuevo_valor"]
+        }
+    },
+    {
+        "name": "listar_hojas",
+        "description": (
+            "Lista todas las hojas de Google Sheets que el usuario tiene registradas en Dona. "
+            "Úsala cuando el usuario pregunte 'qué hojas tengo conectadas', "
+            "'qué spreadsheets conoces', o necesites saber qué hojas hay disponibles."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
         "name": "simular_escenario",
         "description": (
             "Analiza qué pasaría si el usuario tomara una decisión o enfrentara una situación específica, "
@@ -939,6 +1074,278 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
             except Exception as e:
                 resultado = f"Error en gestionar_calendario: {e}"
                 logger.error(f"gestionar_calendario error para {telefono}: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── registrar_hoja ───────────────────────────────────────────
+        elif bloque.name == "registrar_hoja":
+            try:
+                import agent.google_sheets as gs
+                from agent.memory import registrar_hoja_db
+
+                nombre = bloque.input["nombre"]
+                raw = bloque.input["spreadsheet_id_o_url"]
+                spreadsheet_id = gs.extraer_spreadsheet_id(raw)
+                hoja_nombre = bloque.input.get("hoja_nombre") or "Sheet1"
+                descripcion = bloque.input.get("descripcion") or ""
+
+                # Verificar acceso antes de registrar
+                ok, titulo_doc, tabs = await gs.verificar_acceso_hoja(telefono, spreadsheet_id)
+
+                if not ok and titulo_doc == "sin_permiso":
+                    resultado = (
+                        "El token de Google no tiene permisos de Sheets todavía. "
+                        "INSTRUCCIÓN: Dile al usuario que debe re-autorizar Google usando "
+                        "la herramienta conectar_google_calendar para obtener acceso a Sheets."
+                    )
+                elif not ok and titulo_doc == "no_encontrada":
+                    resultado = (
+                        f"No se encontró ninguna hoja con ID '{spreadsheet_id}'. "
+                        "INSTRUCCIÓN: Dile que verifique el link y que la hoja sea accesible."
+                    )
+                elif not ok:
+                    resultado = (
+                        f"No se pudo acceder a la hoja (ID: {spreadsheet_id}). "
+                        "INSTRUCCIÓN: Pide al usuario que verifique el link."
+                    )
+                else:
+                    # Si el tab especificado no existe, avisar pero registrar igual
+                    aviso_tab = ""
+                    if tabs and hoja_nombre not in tabs:
+                        aviso_tab = f" (Nota: el tab '{hoja_nombre}' no existe — tabs disponibles: {', '.join(tabs)})"
+
+                    await registrar_hoja_db(
+                        telefono=telefono,
+                        nombre=nombre,
+                        spreadsheet_id=spreadsheet_id,
+                        hoja_nombre=hoja_nombre,
+                        descripcion=descripcion,
+                    )
+                    resultado = (
+                        f"ÉXITO: Hoja registrada. Nombre: '{nombre}', Doc: '{titulo_doc}', "
+                        f"Tab: '{hoja_nombre}'{aviso_tab}. "
+                        f"INSTRUCCIÓN: Confirma con '✓ Conecté tu hoja *{nombre}* ({titulo_doc}). "
+                        f"Ya puedo leer y actualizar datos en ella.'"
+                    )
+                    logger.info(f"Hoja registrada para {telefono}: '{nombre}' → {spreadsheet_id}")
+
+            except Exception as e:
+                resultado = f"Error registrando hoja: {e}"
+                logger.error(f"registrar_hoja error: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── leer_hoja ────────────────────────────────────────────────
+        elif bloque.name == "leer_hoja":
+            try:
+                import agent.google_sheets as gs
+                from agent.memory import obtener_hoja_db
+
+                nombre_hoja = bloque.input["nombre_hoja"]
+                pregunta = bloque.input.get("pregunta") or ""
+                rango = bloque.input.get("rango") or ""
+
+                hoja = await obtener_hoja_db(telefono, nombre_hoja)
+                if not hoja:
+                    resultado = (
+                        f"No encontré ninguna hoja registrada con el nombre '{nombre_hoja}'. "
+                        "INSTRUCCIÓN: Dile al usuario que puede ver sus hojas conectadas con 'listar_hojas', "
+                        "o registrar una nueva con 'registrar_hoja'."
+                    )
+                else:
+                    filas = await gs.leer_rango(
+                        telefono=telefono,
+                        spreadsheet_id=hoja["spreadsheet_id"],
+                        hoja_nombre=hoja["hoja_nombre"],
+                        max_filas=50,
+                        rango_extra=rango,
+                    )
+                    if not filas:
+                        resultado = (
+                            f"La hoja '{nombre_hoja}' está vacía o no se pudo leer. "
+                            "Si el token no tiene permisos de Sheets, dile al usuario que re-autorice Google."
+                        )
+                    else:
+                        headers = filas[0] if filas else []
+                        datos_str = " | ".join(headers) + "\n"
+                        for fila in filas[1:]:
+                            # Rellenar celdas vacías
+                            fila_padded = fila + [""] * (len(headers) - len(fila))
+                            datos_str += " | ".join(str(v) for v in fila_padded[:len(headers)]) + "\n"
+
+                        contexto = f"Hoja: *{nombre_hoja}* ({len(filas)-1} filas de datos)\n\n{datos_str}"
+                        if pregunta:
+                            resultado = (
+                                f"{contexto}\n\n"
+                                f"Pregunta del usuario: {pregunta}\n"
+                                f"INSTRUCCIÓN: Analiza los datos y responde la pregunta en lenguaje natural. "
+                                f"Usa formato claro con emojis si ayuda a visualizar."
+                            )
+                        else:
+                            resultado = (
+                                f"{contexto}\n\n"
+                                f"INSTRUCCIÓN: Presenta un resumen inteligente de estos datos. "
+                                f"Destaca totales, tendencias o elementos relevantes. "
+                                f"Usa formato limpio con *negrita* para valores clave."
+                            )
+                    logger.info(f"Hoja '{nombre_hoja}' leída para {telefono}: {len(filas)} filas")
+
+            except Exception as e:
+                resultado = f"Error leyendo hoja: {e}"
+                logger.error(f"leer_hoja error: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── agregar_fila ─────────────────────────────────────────────
+        elif bloque.name == "agregar_fila":
+            try:
+                import agent.google_sheets as gs
+                from agent.memory import obtener_hoja_db
+
+                nombre_hoja = bloque.input["nombre_hoja"]
+                datos = bloque.input["datos"]  # dict columna:valor
+
+                hoja = await obtener_hoja_db(telefono, nombre_hoja)
+                if not hoja:
+                    resultado = (
+                        f"No encontré la hoja '{nombre_hoja}'. "
+                        "INSTRUCCIÓN: Dile que registre la hoja primero."
+                    )
+                else:
+                    # Leer headers para ordenar los valores correctamente
+                    filas = await gs.leer_rango(
+                        telefono=telefono,
+                        spreadsheet_id=hoja["spreadsheet_id"],
+                        hoja_nombre=hoja["hoja_nombre"],
+                        max_filas=1,
+                    )
+                    if filas:
+                        headers = filas[0]
+                        # Mapear datos a valores en el orden de los headers
+                        valores = []
+                        for h in headers:
+                            # Buscar coincidencia case-insensitive
+                            val = ""
+                            for k, v in datos.items():
+                                if k.strip().lower() == h.strip().lower():
+                                    val = str(v)
+                                    break
+                            valores.append(val)
+                    else:
+                        # Sin headers — usar valores en el orden que llegaron
+                        valores = [str(v) for v in datos.values()]
+
+                    exito = await gs.agregar_fila_api(
+                        telefono=telefono,
+                        spreadsheet_id=hoja["spreadsheet_id"],
+                        hoja_nombre=hoja["hoja_nombre"],
+                        valores=valores,
+                    )
+                    if exito:
+                        resumen = ", ".join(f"{k}: {v}" for k, v in datos.items())
+                        resultado = (
+                            f"ÉXITO: Fila agregada en '{nombre_hoja}'. Datos: {resumen}. "
+                            f"INSTRUCCIÓN: Confirma brevemente con '✓ Agregué la fila en *{nombre_hoja}*'"
+                        )
+                    else:
+                        resultado = (
+                            "Error al agregar la fila. "
+                            "INSTRUCCIÓN: Dile que hubo un problema técnico y que lo intente de nuevo."
+                        )
+                    logger.info(f"Fila agregada en '{nombre_hoja}' para {telefono}")
+
+            except Exception as e:
+                resultado = f"Error agregando fila: {e}"
+                logger.error(f"agregar_fila error: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── actualizar_celda ─────────────────────────────────────────
+        elif bloque.name == "actualizar_celda":
+            try:
+                import agent.google_sheets as gs
+                from agent.memory import obtener_hoja_db
+
+                nombre_hoja = bloque.input["nombre_hoja"]
+                col_busq = bloque.input["columna_busqueda"]
+                val_busq = bloque.input["valor_busqueda"]
+                col_act = bloque.input["columna_actualizar"]
+                nuevo_val = bloque.input["nuevo_valor"]
+
+                hoja = await obtener_hoja_db(telefono, nombre_hoja)
+                if not hoja:
+                    resultado = f"No encontré la hoja '{nombre_hoja}'."
+                else:
+                    exito, descripcion = await gs.buscar_y_actualizar(
+                        telefono=telefono,
+                        spreadsheet_id=hoja["spreadsheet_id"],
+                        hoja_nombre=hoja["hoja_nombre"],
+                        columna_busqueda=col_busq,
+                        valor_busqueda=val_busq,
+                        columna_actualizar=col_act,
+                        nuevo_valor=nuevo_val,
+                    )
+                    if exito:
+                        resultado = (
+                            f"ÉXITO: {descripcion}. "
+                            f"INSTRUCCIÓN: Confirma con '✓ {descripcion}'"
+                        )
+                    else:
+                        resultado = (
+                            f"No se pudo actualizar: {descripcion}. "
+                            f"INSTRUCCIÓN: Comunica el problema al usuario."
+                        )
+                    logger.info(f"actualizar_celda en '{nombre_hoja}' para {telefono}: {descripcion}")
+
+            except Exception as e:
+                resultado = f"Error actualizando celda: {e}"
+                logger.error(f"actualizar_celda error: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── listar_hojas ─────────────────────────────────────────────
+        elif bloque.name == "listar_hojas":
+            try:
+                from agent.memory import listar_hojas_db
+
+                hojas = await listar_hojas_db(telefono)
+                if not hojas:
+                    resultado = (
+                        "El usuario no tiene hojas registradas todavía. "
+                        "INSTRUCCIÓN: Dile que puede conectar una hoja diciendo "
+                        "'Dona, conecta esta hoja: [link de Google Sheets]'"
+                    )
+                else:
+                    lineas = []
+                    for h in hojas:
+                        desc = f" — {h['descripcion']}" if h["descripcion"] else ""
+                        lineas.append(f"• *{h['nombre']}* (tab: {h['hoja_nombre']}){desc}")
+                    resultado = f"Hojas conectadas ({len(hojas)}):\n\n" + "\n".join(lineas)
+                logger.info(f"listar_hojas para {telefono}: {len(hojas)} hojas")
+
+            except Exception as e:
+                resultado = f"Error listando hojas: {e}"
+                logger.error(f"listar_hojas error: {e}")
 
             resultados_herramientas.append({
                 "type": "tool_result",

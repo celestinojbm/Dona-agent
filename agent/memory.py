@@ -1222,6 +1222,101 @@ async def buscar_notas_db(
             for row in rows
         ]
 
+# ══════════════════════════════════════════════════════════════════════════════
+# HOJAS DE CÁLCULO REGISTRADAS
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def registrar_hoja_db(
+    telefono: str,
+    nombre: str,
+    spreadsheet_id: str,
+    hoja_nombre: str = "Sheet1",
+    descripcion: str = "",
+) -> int:
+    """Registra o actualiza una hoja en hojas_registradas. Retorna el ID."""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession
+    async with AsyncSession(engine) as session:
+        # Upsert: si ya existe (telefono + nombre), actualiza
+        result = await session.execute(
+            text("""
+                INSERT INTO hojas_registradas (telefono, nombre, spreadsheet_id, hoja_nombre, descripcion)
+                VALUES (:telefono, :nombre, :spreadsheet_id, :hoja_nombre, :descripcion)
+                ON CONFLICT (telefono, nombre)
+                DO UPDATE SET
+                    spreadsheet_id = EXCLUDED.spreadsheet_id,
+                    hoja_nombre    = EXCLUDED.hoja_nombre,
+                    descripcion    = EXCLUDED.descripcion
+                RETURNING id
+            """),
+            {
+                "telefono": telefono,
+                "nombre": nombre,
+                "spreadsheet_id": spreadsheet_id,
+                "hoja_nombre": hoja_nombre,
+                "descripcion": descripcion,
+            }
+        )
+        await session.commit()
+        row = result.fetchone()
+        return row[0] if row else 0
+
+
+async def obtener_hoja_db(telefono: str, nombre: str) -> dict | None:
+    """Obtiene una hoja registrada por su nombre/alias."""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            text("""
+                SELECT id, nombre, spreadsheet_id, hoja_nombre, descripcion, created_at
+                FROM hojas_registradas
+                WHERE telefono = :telefono
+                  AND lower(nombre) = lower(:nombre)
+                LIMIT 1
+            """),
+            {"telefono": telefono, "nombre": nombre}
+        )
+        row = result.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "nombre": row[1],
+            "spreadsheet_id": row[2],
+            "hoja_nombre": row[3],
+            "descripcion": row[4] or "",
+            "created_at": row[5],
+        }
+
+
+async def listar_hojas_db(telefono: str) -> list[dict]:
+    """Lista todas las hojas registradas del usuario."""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            text("""
+                SELECT nombre, spreadsheet_id, hoja_nombre, descripcion, created_at
+                FROM hojas_registradas
+                WHERE telefono = :telefono
+                ORDER BY created_at DESC
+            """),
+            {"telefono": telefono}
+        )
+        rows = result.fetchall()
+        return [
+            {
+                "nombre": r[0],
+                "spreadsheet_id": r[1],
+                "hoja_nombre": r[2],
+                "descripcion": r[3] or "",
+                "created_at": r[4],
+            }
+            for r in rows
+        ]
+
+
 async def guardar_mirofish_estado(
     telefono: str,
     project_id: str | None = None,
