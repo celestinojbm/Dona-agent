@@ -63,7 +63,12 @@ TOOLS = [
             "properties": {
                 "mensaje_recordatorio": {
                     "type": "string",
-                    "description": "Texto del recordatorio que recibirá el usuario. Sé claro y específico."
+                    "description": (
+                        "Solo el texto del recordatorio, sin ninguna referencia temporal. "
+                        "NUNCA incluyas 'en X minutos', 'a las X', 'en 1 hora' ni similar. "
+                        "Ejemplos correctos: 'Tomar agua', 'Tomar suplementos', 'Reunión con cliente'. "
+                        "La hora ya está definida en fecha_hora_utc."
+                    )
                 },
                 "fecha_hora_utc": {
                     "type": "string",
@@ -89,6 +94,15 @@ TOOLS = [
                     "description": (
                         "Solo para recurrentes: fecha límite en ISO 8601 UTC. "
                         "Después de esta fecha se deja de enviar. Omitir si no tiene fin."
+                    )
+                },
+                "aviso_anticipado_minutos": {
+                    "type": "integer",
+                    "description": (
+                        "Minutos antes del recordatorio para enviar un aviso anticipado. "
+                        "SOLO para reuniones, citas, entrevistas, eventos que requieren preparación. "
+                        "NO usar para hábitos o acciones inmediatas: tomar agua, pastillas, ejercicio, meditar. "
+                        "Valor recomendado: 15 o 30. Omitir completamente si no aplica."
                     )
                 }
             },
@@ -313,7 +327,10 @@ def construir_contexto_tiempo(timestamp_mensaje: int = 0, offset_guardado: int |
         f"TIEMPOS ABSOLUTOS (offset {offset_str}, resta {-offset_horas}h a la hora local):\n"
         f"- '3pm hoy'    → {(ref_local.replace(hour=15, minute=0, second=0) - timedelta(seconds=offset_seg)).strftime('%Y-%m-%dT%H:%M:%S')}\n"
         f"- '9am mañana' → {(manana.replace(hour=9, minute=0, second=0) - timedelta(seconds=offset_seg)).strftime('%Y-%m-%dT%H:%M:%S')}\n"
-        f"- '8pm hoy'    → {(ref_local.replace(hour=20, minute=0, second=0) - timedelta(seconds=offset_seg)).strftime('%Y-%m-%dT%H:%M:%S')}\n\n"
+        f"- '8pm hoy'    → {(ref_local.replace(hour=20, minute=0, second=0) - timedelta(seconds=offset_seg)).strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        f"- '2am hoy'    → {(ref_local.replace(hour=2, minute=0, second=0) - timedelta(seconds=offset_seg)).strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        f"- '2:50am hoy' → {(ref_local.replace(hour=2, minute=50, second=0) - timedelta(seconds=offset_seg)).strftime('%Y-%m-%dT%H:%M:%S')}\n\n"
+        f"NOTA: Si la hora ya pasó hoy, usa la fecha de mañana ({manana.strftime('%Y-%m-%d')}).\n\n"
         f"SIEMPRE: fecha_hora_utc en ISO 8601 sin timezone. "
         f"Llama `crear_recordatorio` para cualquier recordatorio."
     )
@@ -623,6 +640,24 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
 
                 tipo_str = "recurrente" if recurrencia else "único"
 
+                # ── Aviso anticipado (solo eventos que requieren preparación, no hábitos) ──
+                aviso_anticipado_str = ""
+                aviso_min = bloque.input.get("aviso_anticipado_minutos")
+                if aviso_min and isinstance(aviso_min, int) and aviso_min > 0 and not recurrencia:
+                    fecha_aviso = fecha_hora - timedelta(minutes=aviso_min)
+                    ahora_utc = datetime.utcnow()
+                    if fecha_aviso > ahora_utc:
+                        mensaje_aviso = f"⏰ En {aviso_min} minutos: {mensaje_recordatorio}"
+                        await guardar_recordatorio(
+                            telefono=telefono,
+                            mensaje=mensaje_aviso,
+                            fecha_hora=fecha_aviso,
+                            recurrencia=None,
+                            offset_tz_minutos=offset_snap,
+                        )
+                        aviso_anticipado_str = f" Se enviará un aviso anticipado {aviso_min} minutos antes."
+                        logger.info(f"Aviso anticipado guardado para {telefono} — {fecha_aviso} ({aviso_min} min antes)")
+
                 # Calcular hora local para que Claude confirme en formato legible
                 if offset_guardado is not None:
                     hora_local = fecha_hora + timedelta(minutes=offset_guardado)
@@ -633,7 +668,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 resultado = (
                     f"ÉXITO: Recordatorio {tipo_str} creado correctamente. "
                     f"Mensaje: '{mensaje_recordatorio}'. "
-                    f"Hora local del usuario: {hora_local_str}. "
+                    f"Hora local del usuario: {hora_local_str}.{aviso_anticipado_str} "
                     f"INSTRUCCIÓN: Confirma al usuario que el recordatorio fue creado. "
                     f"Usa un formato breve y claro como: 'Listo 🔔 Te recuerdo [día] a las [hora] [mensaje]'. "
                     f"NUNCA muestres IDs internos, timestamps UTC ni detalles técnicos."
