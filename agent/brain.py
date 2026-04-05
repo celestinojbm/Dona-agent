@@ -1040,7 +1040,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 )
 
                 if not notas:
-                    resultado = "No encontré notas guardadas para esa búsqueda."
+                    resultado = "El usuario no tiene notas guardadas todavía. INSTRUCCIÓN: Dile que puede guardar notas diciendo 'anota esto' o 'guarda esta idea'."
                 else:
                     lineas = []
                     for n in notas:
@@ -1051,7 +1051,11 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
 
                 logger.info(f"Búsqueda notas para {telefono}: '{consulta}' → {len(notas)} resultados")
             except Exception as e:
-                resultado = f"Error buscando notas: {e}"
+                err_str = str(e)
+                if "notas_usuario" in err_str and ("does not exist" in err_str or "no existe" in err_str):
+                    resultado = "La función de notas aún no está configurada en este servidor. INSTRUCCIÓN: Dile al usuario que esta función estará disponible pronto."
+                else:
+                    resultado = f"Error buscando notas: {err_str}"
                 logger.error(f"Error buscar_notas: {e}")
 
             resultados_herramientas.append({

@@ -1186,12 +1186,23 @@ async def buscar_notas_db(
                 {"telefono": telefono, "limite": limite}
             )
         rows = result.fetchall()
+
+        def _parse_etiquetas(val):
+            if not val:
+                return []
+            if isinstance(val, (list, dict)):
+                return val  # asyncpg ya deserializó el JSONB
+            try:
+                return json.loads(val)
+            except Exception:
+                return []
+
         return [
             {
                 "id": row[0],
                 "titulo": row[1],
                 "contenido": row[2],
-                "etiquetas": json.loads(row[3]) if row[3] else [],
+                "etiquetas": _parse_etiquetas(row[3]),
                 "fecha": row[4].strftime("%d/%m/%Y") if row[4] else "",
                 "similitud": round(float(row[5]), 3),
             }
