@@ -83,6 +83,8 @@ TOOLS = [
                     "description": (
                         "Solo para recordatorios que se repiten. Omitir si es único. "
                         "Ejemplos: "
+                        "{\"tipo\": \"cada_hora\"} — cada hora. Usa fecha_fin_utc para limitar duración. "
+                        "{\"tipo\": \"cada_30_minutos\"} — cada 30 minutos. "
                         "{\"tipo\": \"diario\"} — todos los días a la misma hora. "
                         "{\"tipo\": \"semanal\", \"dia\": 0} — cada lunes (0=lun,1=mar,...,6=dom). "
                         "{\"tipo\": \"dias_semana\"} — lunes a viernes a la misma hora. "

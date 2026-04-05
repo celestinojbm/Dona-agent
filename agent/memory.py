@@ -640,7 +640,13 @@ def _calcular_proxima_ocurrencia(
         tipo = recurrencia.get("tipo", "")
         offset_seg = (offset_tz_minutos or 0) * 60
 
-        if tipo == "diario":
+        if tipo in ("cada_hora", "horario"):
+            return fecha_actual + timedelta(hours=1)
+
+        elif tipo == "cada_30_minutos":
+            return fecha_actual + timedelta(minutes=30)
+
+        elif tipo == "diario":
             return fecha_actual + timedelta(days=1)
 
         elif tipo == "semanal":

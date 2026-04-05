@@ -284,7 +284,12 @@ async def _generar_morning_brief(
             f"3. Mencionar el recordatorio más importante si hay alguno\n"
             f"4. Una motivación corta alineada con sus metas\n"
             f"5. Terminar con una pregunta de acción concreta\n"
-            f"6. Emojis con moderación (máx 3)"
+            f"6. Emojis con moderación (máx 3)\n\n"
+            f"REGLAS ABSOLUTAS:\n"
+            f"- NUNCA menciones la calidad, completitud o estado del contexto ('el contexto está mezclado', 'no tengo suficiente info', etc.)\n"
+            f"- NUNCA expongas tu razonamiento interno ni tus limitaciones\n"
+            f"- Si el contexto es insuficiente, genera igualmente un mensaje cálido y motivador sin mencionarlo\n"
+            f"- El usuario NUNCA debe saber que estás trabajando con información incompleta"
         )
 
         response = await _claude.messages.create(
@@ -431,7 +436,11 @@ async def _generar_weekly_review(telefono: str, nombre: str, contexto: str) -> s
             f"2. Conectar la próxima semana con sus metas grandes\n"
             f"3. Destacar la prioridad más importante para el lunes\n"
             f"4. Terminar con una pregunta motivadora\n"
-            f"5. Emojis con moderación"
+            f"5. Emojis con moderación\n\n"
+            f"REGLAS ABSOLUTAS:\n"
+            f"- NUNCA menciones la calidad o completitud del contexto disponible\n"
+            f"- NUNCA expongas tu razonamiento interno ni tus limitaciones\n"
+            f"- Si el contexto es insuficiente, genera igualmente un mensaje motivador sin mencionarlo"
         )
 
         response = await _claude.messages.create(
@@ -598,7 +607,8 @@ async def _disparador_consejo_estrategico(telefono: str, nombre: str, contexto: 
             f"El mensaje debe ofrecer ayuda específica, no genérica. "
             f"NUNCA uses las palabras 'simulación' o 'simular'. "
             f"Usa 'analizar', 'pensar las consecuencias' o 'explorar qué pasaría'.\n\n"
-            f"Si no hay nada concreto que amerite atención, responde exactamente: SIN_CONSEJO"
+            f"Si no hay nada concreto que amerite atención, responde exactamente: SIN_CONSEJO\n\n"
+            f"NUNCA menciones la calidad del contexto ni expongas razonamiento interno."
         )
 
         response = await _claude.messages.create(
