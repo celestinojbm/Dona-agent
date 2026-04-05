@@ -27,6 +27,23 @@ client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 # (en memoria: válido para Render single-worker free tier)
 _borradores_pendientes: dict[str, dict] = {}
 
+
+def _resultado_reauth_google(telefono: str) -> str:
+    """
+    Genera el resultado de tool_use para cuando el token no tiene los scopes necesarios.
+    Usa el mismo patrón que funciona para Calendar: URL como texto plano.
+    """
+    base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+    link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
+    return (
+        f"El token de Google no tiene los permisos necesarios. "
+        f"Link de re-autorización generado: {link}\n\n"
+        "INSTRUCCIÓN CRÍTICA: Muestra la URL exacta como texto plano, sin formato Markdown. "
+        "NO uses [texto](url). La URL debe aparecer directamente para que WhatsApp la haga clickeable. "
+        "Formato exacto a usar:\n"
+        f"'Para acceder a tu Gmail necesito que re-autorices Google. Abre este enlace:\n{link}'"
+    )
+
 # Herramientas que Claude puede llamar
 TOOLS = [
     {
@@ -1267,13 +1284,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 logger.info(f"leer_correos para {telefono}: {len(correos)} resultados")
 
             except gmail.GmailScopeError:
-                base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
-                link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
-                resultado = (
-                    f"El token no tiene permisos de Gmail. Link de re-autorización: {link}\n"
-                    "INSTRUCCIÓN CRÍTICA: Dile que para acceder a su Gmail necesita re-autorizar Google. "
-                    f"Muestra la URL exacta como texto plano: {link}"
-                )
+                resultado = _resultado_reauth_google(telefono)
                 logger.warning(f"Gmail scope faltante para {telefono}")
             except Exception as e:
                 resultado = f"Error revisando correos: {e}"
@@ -1312,12 +1323,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 logger.info(f"leer_correo_completo {message_id} para {telefono}")
 
             except gmail.GmailScopeError:
-                base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
-                link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
-                resultado = (
-                    f"Token sin permisos de Gmail. Re-autoriza en: {link}\n"
-                    f"INSTRUCCIÓN: Muestra la URL como texto plano."
-                )
+                resultado = _resultado_reauth_google(telefono)
             except Exception as e:
                 resultado = f"Error leyendo correo: {e}"
                 logger.error(f"leer_correo_completo error: {e}")
@@ -1427,12 +1433,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                     logger.info(f"confirmar_envio para {telefono}: exito={exito}")
 
             except gmail.GmailScopeError:
-                base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
-                link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
-                resultado = (
-                    f"Token sin permisos de Gmail. Re-autoriza en: {link}\n"
-                    f"INSTRUCCIÓN: Muestra la URL como texto plano."
-                )
+                resultado = _resultado_reauth_google(telefono)
             except Exception as e:
                 resultado = f"Error enviando correo: {e}"
                 logger.error(f"confirmar_envio_correo error: {e}")
@@ -1505,12 +1506,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                     logger.info(f"Borrador de respuesta para {telefono} → {remitente_original}")
 
             except gmail.GmailScopeError:
-                base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
-                link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
-                resultado = (
-                    f"Token sin permisos de Gmail. Re-autoriza en: {link}\n"
-                    f"INSTRUCCIÓN: Muestra la URL como texto plano."
-                )
+                resultado = _resultado_reauth_google(telefono)
             except Exception as e:
                 resultado = f"Error preparando respuesta: {e}"
                 logger.error(f"responder_correo error: {e}")
@@ -1554,12 +1550,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 logger.info(f"buscar_correos '{consulta}' para {telefono}: {len(correos)} resultados")
 
             except gmail.GmailScopeError:
-                base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
-                link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
-                resultado = (
-                    f"Token sin permisos de Gmail. Re-autoriza en: {link}\n"
-                    f"INSTRUCCIÓN: Muestra la URL como texto plano."
-                )
+                resultado = _resultado_reauth_google(telefono)
             except Exception as e:
                 resultado = f"Error buscando correos: {e}"
                 logger.error(f"buscar_correos error: {e}")
