@@ -1107,6 +1107,97 @@ async def obtener_mirofish_estado(telefono: str) -> dict | None:
         }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# NOTAS DE USUARIO
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def guardar_nota_db(
+    telefono: str,
+    titulo: str,
+    contenido: str,
+    etiquetas: list | None = None,
+    embedding: list | None = None,
+) -> int:
+    """Guarda una nota en notas_usuario. Retorna el ID creado."""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            text("""
+                INSERT INTO notas_usuario (telefono, titulo, contenido, etiquetas, embedding)
+                VALUES (:telefono, :titulo, :contenido, CAST(:etiquetas AS jsonb),
+                        CASE WHEN :embedding IS NULL THEN NULL
+                             ELSE CAST(:embedding AS vector) END)
+                RETURNING id
+            """),
+            {
+                "telefono": telefono,
+                "titulo": titulo[:200],
+                "contenido": contenido[:4000],
+                "etiquetas": json.dumps(etiquetas or []),
+                "embedding": str(embedding) if embedding else None,
+            }
+        )
+        await session.commit()
+        row = result.fetchone()
+        return row[0] if row else 0
+
+
+async def buscar_notas_db(
+    telefono: str,
+    embedding_consulta: list | None = None,
+    limite: int = 5,
+    umbral: float = 0.55,
+) -> list[dict]:
+    """
+    Busca notas por similitud vectorial (si hay embedding) o devuelve las más recientes.
+    """
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession
+    async with AsyncSession(engine) as session:
+        if embedding_consulta:
+            result = await session.execute(
+                text("""
+                    SELECT id, titulo, contenido, etiquetas, created_at,
+                           1 - (embedding <=> CAST(:embedding AS vector)) AS similitud
+                    FROM notas_usuario
+                    WHERE telefono = :telefono
+                      AND embedding IS NOT NULL
+                      AND 1 - (embedding <=> CAST(:embedding AS vector)) >= :umbral
+                    ORDER BY embedding <=> CAST(:embedding AS vector)
+                    LIMIT :limite
+                """),
+                {
+                    "telefono": telefono,
+                    "embedding": str(embedding_consulta),
+                    "umbral": umbral,
+                    "limite": limite,
+                }
+            )
+        else:
+            result = await session.execute(
+                text("""
+                    SELECT id, titulo, contenido, etiquetas, created_at, 1.0 AS similitud
+                    FROM notas_usuario
+                    WHERE telefono = :telefono
+                    ORDER BY created_at DESC
+                    LIMIT :limite
+                """),
+                {"telefono": telefono, "limite": limite}
+            )
+        rows = result.fetchall()
+        return [
+            {
+                "id": row[0],
+                "titulo": row[1],
+                "contenido": row[2],
+                "etiquetas": json.loads(row[3]) if row[3] else [],
+                "fecha": row[4].strftime("%d/%m/%Y") if row[4] else "",
+                "similitud": round(float(row[5]), 3),
+            }
+            for row in rows
+        ]
+
 async def guardar_mirofish_estado(
     telefono: str,
     project_id: str | None = None,

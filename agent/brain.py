@@ -125,6 +125,52 @@ TOOLS = [
         }
     },
     {
+        "name": "guardar_nota",
+        "description": (
+            "Guarda una nota o idea del usuario para recuperarla después. "
+            "Úsala cuando el usuario diga: 'anota esto', 'guarda esta idea', "
+            "'recuerda que...', 'apunta que...', 'escribe esto', o cuando quiera "
+            "guardar información importante. Las notas se recuperan con buscar_notas."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "contenido": {
+                    "type": "string",
+                    "description": "El contenido completo de la nota, tal como lo expresó el usuario."
+                },
+                "titulo": {
+                    "type": "string",
+                    "description": "Título breve y descriptivo (3-6 palabras). Infiere uno si el usuario no lo da."
+                },
+                "etiquetas": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Etiquetas opcionales para clasificar. Ej: ['trabajo', 'idea', 'cliente']. Omitir si no aplica."
+                }
+            },
+            "required": ["contenido", "titulo"]
+        }
+    },
+    {
+        "name": "buscar_notas",
+        "description": (
+            "Busca en las notas guardadas del usuario. "
+            "Úsala cuando pregunte por algo que anotó, diga 'qué notas tengo sobre X', "
+            "'busca mis ideas de Y', 'qué guardé sobre Z', o pida ver sus notas recientes."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "consulta": {
+                    "type": "string",
+                    "description": "Qué buscar. Puede ser temático, por proyecto o etiqueta. Usa 'recientes' para las últimas notas."
+                }
+            },
+            "required": ["consulta"]
+        }
+    },
+    {
         "name": "simular_escenario",
         "description": (
             "Analiza qué pasaría si el usuario tomara una decisión o enfrentara una situación específica, "
@@ -937,6 +983,76 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
             except Exception as e:
                 resultado = f"Error al iniciar el análisis: {e}"
                 logger.error(f"Error simular_escenario: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── guardar_nota ─────────────────────────────────────────────────
+        elif bloque.name == "guardar_nota":
+            try:
+                from agent.memory import guardar_nota_db
+                from agent.vector_memory import generar_embedding
+
+                contenido = bloque.input["contenido"]
+                titulo = bloque.input.get("titulo", "Nota")
+                etiquetas = bloque.input.get("etiquetas") or []
+
+                embedding = await generar_embedding(f"{titulo} {contenido}")
+                nota_id = await guardar_nota_db(
+                    telefono=telefono,
+                    titulo=titulo,
+                    contenido=contenido,
+                    etiquetas=etiquetas,
+                    embedding=embedding,
+                )
+                resultado = (
+                    f"ÉXITO: Nota guardada (ID {nota_id}). Título: '{titulo}'. "
+                    f"INSTRUCCIÓN: Confirma brevemente, ej: 'Guardé tu nota ✓'"
+                )
+                logger.info(f"Nota #{nota_id} guardada para {telefono}: '{titulo}'")
+            except Exception as e:
+                resultado = f"Error guardando nota: {e}"
+                logger.error(f"Error guardar_nota: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── buscar_notas ──────────────────────────────────────────────────
+        elif bloque.name == "buscar_notas":
+            try:
+                from agent.memory import buscar_notas_db
+                from agent.vector_memory import generar_embedding
+
+                consulta = bloque.input["consulta"]
+                es_reciente = "reciente" in consulta.lower()
+
+                embedding_consulta = None if es_reciente else await generar_embedding(consulta)
+                notas = await buscar_notas_db(
+                    telefono=telefono,
+                    embedding_consulta=embedding_consulta,
+                    limite=5,
+                )
+
+                if not notas:
+                    resultado = "No encontré notas guardadas para esa búsqueda."
+                else:
+                    lineas = []
+                    for n in notas:
+                        etiq = f" [{', '.join(n['etiquetas'])}]" if n['etiquetas'] else ""
+                        texto_corto = n['contenido'][:200] + ("..." if len(n['contenido']) > 200 else "")
+                        lineas.append(f"• *{n['titulo']}*{etiq} ({n['fecha']})\n  {texto_corto}")
+                    resultado = f"Notas encontradas ({len(notas)}):\n\n" + "\n\n".join(lineas)
+
+                logger.info(f"Búsqueda notas para {telefono}: '{consulta}' → {len(notas)} resultados")
+            except Exception as e:
+                resultado = f"Error buscando notas: {e}"
+                logger.error(f"Error buscar_notas: {e}")
 
             resultados_herramientas.append({
                 "type": "tool_result",
