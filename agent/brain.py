@@ -23,6 +23,10 @@ logger = logging.getLogger("agentkit")
 # Cliente de Anthropic
 client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+# Borradores de correo pendientes de confirmación — keyed by telefono
+# (en memoria: válido para Render single-worker free tier)
+_borradores_pendientes: dict[str, dict] = {}
+
 # Herramientas que Claude puede llamar
 TOOLS = [
     {
@@ -165,6 +169,146 @@ TOOLS = [
                 "consulta": {
                     "type": "string",
                     "description": "Qué buscar. Puede ser temático, por proyecto o etiqueta. Usa 'recientes' para las últimas notas."
+                }
+            },
+            "required": ["consulta"]
+        }
+    },
+    {
+        "name": "leer_correos",
+        "description": (
+            "Lista los correos no leídos del inbox de Gmail del usuario. "
+            "Úsala cuando el usuario diga 'revisa mi correo', 'tengo emails?', "
+            "'qué correos tengo sin leer', 'checa mi Gmail'. "
+            "NO marca los correos como leídos. Solo lista. "
+            "Si el usuario no tiene Gmail conectado, ofrece el enlace de autorización."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "solo_no_leidos": {
+                    "type": "boolean",
+                    "description": "True (default) para solo no leídos. False para los más recientes en general.",
+                    "default": True
+                },
+                "max_resultados": {
+                    "type": "integer",
+                    "description": "Máximo de correos a listar (default: 8, max: 15).",
+                    "default": 8
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "leer_correo_completo",
+        "description": (
+            "Lee el contenido completo de un correo específico. "
+            "Úsala cuando el usuario diga 'abre el correo de X', 'léeme el de Y', "
+            "'qué dice el correo sobre Z', 'el primero', 'el de Juan'. "
+            "Primero necesitas el ID del correo — si no lo tienes, llama leer_correos primero."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": "ID del mensaje de Gmail (obtenido de leer_correos o buscar_correos)."
+                }
+            },
+            "required": ["message_id"]
+        }
+    },
+    {
+        "name": "redactar_y_enviar_correo",
+        "description": (
+            "Redacta un correo nuevo basado en las instrucciones del usuario, muestra el borrador "
+            "y pide confirmación antes de enviar. NUNCA envía sin confirmación explícita. "
+            "Úsala cuando el usuario diga 'manda un correo a X', 'escríbele a Y', "
+            "'envíale un email a Z diciendo que...'. "
+            "Flujo: 1) redacta → 2) muestra borrador → 3) pregunta '¿Lo envío?' → 4) espera 'sí'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "destinatario": {
+                    "type": "string",
+                    "description": "Email del destinatario (ej: 'juan@empresa.com'). Si solo hay nombre, preguntar al usuario."
+                },
+                "asunto": {
+                    "type": "string",
+                    "description": "Asunto del correo."
+                },
+                "instrucciones": {
+                    "type": "string",
+                    "description": "Qué debe decir el correo, en lenguaje natural."
+                },
+                "tono": {
+                    "type": "string",
+                    "enum": ["formal", "casual", "directo"],
+                    "description": "Tono del correo. Default: 'formal'.",
+                    "default": "formal"
+                }
+            },
+            "required": ["destinatario", "asunto", "instrucciones"]
+        }
+    },
+    {
+        "name": "confirmar_envio_correo",
+        "description": (
+            "Envía el borrador de correo que está pendiente de confirmación. "
+            "Úsala ÚNICAMENTE cuando el usuario confirme explícitamente con 'sí', "
+            "'envíalo', 'dale', 'ok envíalo', 'mándalo' después de haber visto el borrador. "
+            "No la uses si no hay borrador pendiente."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "responder_correo",
+        "description": (
+            "Responde a un correo existente manteniendo el hilo (thread). "
+            "Úsala cuando el usuario diga 'respóndele', 'contéstale a X', "
+            "'dile que sí al correo de Y'. "
+            "Mismo flujo de confirmación que redactar_y_enviar_correo."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": "ID del mensaje a responder (obtenido de leer_correos)."
+                },
+                "instrucciones": {
+                    "type": "string",
+                    "description": "Qué debe decir la respuesta."
+                },
+                "tono": {
+                    "type": "string",
+                    "enum": ["formal", "casual", "directo"],
+                    "default": "formal"
+                }
+            },
+            "required": ["message_id", "instrucciones"]
+        }
+    },
+    {
+        "name": "buscar_correos",
+        "description": (
+            "Búsqueda avanzada en Gmail. "
+            "Úsala cuando el usuario diga 'busca correos de X', 'encuentra emails sobre Y', "
+            "'correos con adjunto', 'emails de esta semana de Juan'. "
+            "Traduce la consulta en lenguaje natural a query de Gmail."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "consulta": {
+                    "type": "string",
+                    "description": "Búsqueda en lenguaje natural (ej: 'correos de juan de esta semana', 'emails sobre factura con adjunto')."
                 }
             },
             "required": ["consulta"]
@@ -1078,6 +1222,347 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
             except Exception as e:
                 resultado = f"Error en gestionar_calendario: {e}"
                 logger.error(f"gestionar_calendario error para {telefono}: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── leer_correos ─────────────────────────────────────────────
+        elif bloque.name == "leer_correos":
+            try:
+                import agent.gmail as gmail
+                solo_no_leidos = bloque.input.get("solo_no_leidos", True)
+                max_res = min(bloque.input.get("max_resultados", 8), 15)
+
+                correos = await gmail.listar_correos(
+                    telefono=telefono,
+                    max_results=max_res,
+                    solo_no_leidos=solo_no_leidos,
+                )
+                if not correos:
+                    tipo = "no leídos" if solo_no_leidos else "recientes"
+                    resultado = (
+                        f"No hay correos {tipo} en el inbox. "
+                        "INSTRUCCIÓN: Comunica esto de forma amigable."
+                    )
+                else:
+                    lineas = []
+                    for i, c in enumerate(correos, 1):
+                        remitente = c["from"].split("<")[0].strip() or c["from"]
+                        lineas.append(
+                            f"{i}. *{c['subject']}*\n"
+                            f"   De: {remitente} — {c['date']}\n"
+                            f"   {c['snippet'][:100]}..."
+                        )
+                    resultado = (
+                        f"{'No leídos' if solo_no_leidos else 'Recientes'} ({len(correos)}):\n\n"
+                        + "\n\n".join(lineas)
+                        + "\n\nIDs internos (para leer_correo_completo): "
+                        + str([c["id"] for c in correos])
+                        + "\nINSTRUCCIÓN: Presenta la lista de forma clara. "
+                        + "Menciona que el usuario puede decir 'léeme el de X' o 'el primero' para leer uno completo."
+                    )
+                logger.info(f"leer_correos para {telefono}: {len(correos)} resultados")
+
+            except gmail.GmailScopeError:
+                base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+                link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
+                resultado = (
+                    f"El token no tiene permisos de Gmail. Link de re-autorización: {link}\n"
+                    "INSTRUCCIÓN CRÍTICA: Dile que para acceder a su Gmail necesita re-autorizar Google. "
+                    f"Muestra la URL exacta como texto plano: {link}"
+                )
+                logger.warning(f"Gmail scope faltante para {telefono}")
+            except Exception as e:
+                resultado = f"Error revisando correos: {e}"
+                logger.error(f"leer_correos error: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── leer_correo_completo ──────────────────────────────────────
+        elif bloque.name == "leer_correo_completo":
+            try:
+                import agent.gmail as gmail
+                message_id = bloque.input["message_id"]
+
+                correo = await gmail.leer_correo(telefono, message_id)
+                if not correo:
+                    resultado = "No se pudo leer ese correo. INSTRUCCIÓN: Dile que intente de nuevo."
+                else:
+                    remitente = correo["from"].split("<")[0].strip() or correo["from"]
+                    resultado = (
+                        f"Correo completo:\n"
+                        f"De: {correo['from']}\n"
+                        f"Asunto: {correo['subject']}\n"
+                        f"Fecha: {correo['date']}\n"
+                        f"---\n"
+                        f"{correo['cuerpo']}\n"
+                        f"---\n"
+                        f"thread_id: {correo['thread_id']}\n"
+                        f"message_id_header: {correo['message_id_header']}\n"
+                        f"INSTRUCCIÓN: Presenta el correo de forma clara. "
+                        f"Al final pregunta: '¿Quieres responderle a {remitente}?'"
+                    )
+                logger.info(f"leer_correo_completo {message_id} para {telefono}")
+
+            except gmail.GmailScopeError:
+                base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+                link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
+                resultado = (
+                    f"Token sin permisos de Gmail. Re-autoriza en: {link}\n"
+                    f"INSTRUCCIÓN: Muestra la URL como texto plano."
+                )
+            except Exception as e:
+                resultado = f"Error leyendo correo: {e}"
+                logger.error(f"leer_correo_completo error: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── redactar_y_enviar_correo ──────────────────────────────────
+        elif bloque.name == "redactar_y_enviar_correo":
+            try:
+                destinatario = bloque.input["destinatario"]
+                asunto = bloque.input["asunto"]
+                instrucciones = bloque.input["instrucciones"]
+                tono = bloque.input.get("tono", "formal")
+
+                # Redactar cuerpo del correo con Claude (llamada interna)
+                tono_desc = {
+                    "formal": "profesional y formal, usando 'usted' si es apropiado",
+                    "casual": "casual y amigable, en primera persona",
+                    "directo": "directo y conciso, sin rodeos",
+                }.get(tono, "profesional")
+
+                prompt_redactar = (
+                    f"Redacta el cuerpo de un correo electrónico con las siguientes instrucciones:\n"
+                    f"Destinatario: {destinatario}\n"
+                    f"Asunto: {asunto}\n"
+                    f"Instrucciones: {instrucciones}\n"
+                    f"Tono: {tono_desc}\n\n"
+                    f"Escribe SOLO el cuerpo del correo, sin asunto ni encabezados. "
+                    f"Sin explicaciones adicionales."
+                )
+
+                resp_redaccion = await client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=600,
+                    messages=[{"role": "user", "content": prompt_redactar}],
+                )
+                cuerpo = resp_redaccion.content[0].text.strip()
+
+                # Guardar borrador pendiente
+                _borradores_pendientes[telefono] = {
+                    "destinatario": destinatario,
+                    "asunto": asunto,
+                    "cuerpo": cuerpo,
+                    "thread_id": "",
+                    "reply_message_id": "",
+                }
+
+                resultado = (
+                    f"BORRADOR LISTO — esperando confirmación del usuario:\n\n"
+                    f"Para: {destinatario}\n"
+                    f"Asunto: {asunto}\n"
+                    f"---\n"
+                    f"{cuerpo}\n"
+                    f"---\n"
+                    f"INSTRUCCIÓN CRÍTICA: Muestra este borrador al usuario con formato claro. "
+                    f"Luego pregunta EXACTAMENTE: '¿Lo envío así o quieres cambiar algo?' "
+                    f"NO llames confirmar_envio_correo todavía. Espera respuesta del usuario."
+                )
+                logger.info(f"Borrador redactado para {telefono} → {destinatario}")
+
+            except Exception as e:
+                resultado = f"Error redactando correo: {e}"
+                logger.error(f"redactar_y_enviar_correo error: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── confirmar_envio_correo ────────────────────────────────────
+        elif bloque.name == "confirmar_envio_correo":
+            try:
+                import agent.gmail as gmail
+
+                borrador = _borradores_pendientes.get(telefono)
+                if not borrador:
+                    resultado = (
+                        "No hay ningún borrador pendiente para enviar. "
+                        "INSTRUCCIÓN: Dile al usuario que no hay un correo pendiente de confirmación."
+                    )
+                else:
+                    exito = await gmail.enviar_correo(
+                        telefono=telefono,
+                        destinatario=borrador["destinatario"],
+                        asunto=borrador["asunto"],
+                        cuerpo=borrador["cuerpo"],
+                        thread_id=borrador.get("thread_id", ""),
+                        reply_message_id=borrador.get("reply_message_id", ""),
+                    )
+                    if exito:
+                        del _borradores_pendientes[telefono]
+                        dest = borrador['destinatario']
+                        resultado = (
+                            f"ÉXITO: Correo enviado a {dest}. "
+                            f"INSTRUCCIÓN: Confirma con '✓ Listo, envié el correo a {dest}'"
+                        )
+                    else:
+                        resultado = (
+                            "Error al enviar el correo. "
+                            "INSTRUCCIÓN: Dile que hubo un problema y que lo intente de nuevo."
+                        )
+                    logger.info(f"confirmar_envio para {telefono}: exito={exito}")
+
+            except gmail.GmailScopeError:
+                base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+                link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
+                resultado = (
+                    f"Token sin permisos de Gmail. Re-autoriza en: {link}\n"
+                    f"INSTRUCCIÓN: Muestra la URL como texto plano."
+                )
+            except Exception as e:
+                resultado = f"Error enviando correo: {e}"
+                logger.error(f"confirmar_envio_correo error: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── responder_correo ──────────────────────────────────────────
+        elif bloque.name == "responder_correo":
+            try:
+                import agent.gmail as gmail
+
+                message_id = bloque.input["message_id"]
+                instrucciones = bloque.input["instrucciones"]
+                tono = bloque.input.get("tono", "formal")
+
+                # Leer el correo original para tener contexto
+                original = await gmail.leer_correo(telefono, message_id)
+                if not original:
+                    resultado = "No se pudo leer el correo original para responder."
+                else:
+                    tono_desc = {
+                        "formal": "profesional y formal",
+                        "casual": "casual y amigable",
+                        "directo": "directo y conciso",
+                    }.get(tono, "profesional")
+
+                    prompt_redactar = (
+                        f"Redacta una respuesta a este correo:\n"
+                        f"De: {original['from']}\n"
+                        f"Asunto: {original['subject']}\n"
+                        f"Contenido original: {original['cuerpo'][:500]}\n\n"
+                        f"Instrucciones para la respuesta: {instrucciones}\n"
+                        f"Tono: {tono_desc}\n\n"
+                        f"Escribe SOLO el cuerpo de la respuesta. Sin explicaciones."
+                    )
+
+                    resp_redaccion = await client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=600,
+                        messages=[{"role": "user", "content": prompt_redactar}],
+                    )
+                    cuerpo = resp_redaccion.content[0].text.strip()
+
+                    # Guardar borrador con info del thread
+                    remitente_original = original["from"]
+                    _borradores_pendientes[telefono] = {
+                        "destinatario": remitente_original,
+                        "asunto": f"Re: {original['subject']}",
+                        "cuerpo": cuerpo,
+                        "thread_id": original["thread_id"],
+                        "reply_message_id": original["message_id_header"],
+                    }
+
+                    remitente_corto = remitente_original.split("<")[0].strip() or remitente_original
+                    resultado = (
+                        f"BORRADOR DE RESPUESTA — esperando confirmación:\n\n"
+                        f"Para: {remitente_original}\n"
+                        f"Asunto: Re: {original['subject']}\n"
+                        f"---\n"
+                        f"{cuerpo}\n"
+                        f"---\n"
+                        f"INSTRUCCIÓN CRÍTICA: Muestra este borrador. "
+                        f"Pregunta: '¿Lo envío así o quieres cambiar algo?' "
+                        f"NO llames confirmar_envio_correo todavía."
+                    )
+                    logger.info(f"Borrador de respuesta para {telefono} → {remitente_original}")
+
+            except gmail.GmailScopeError:
+                base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+                link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
+                resultado = (
+                    f"Token sin permisos de Gmail. Re-autoriza en: {link}\n"
+                    f"INSTRUCCIÓN: Muestra la URL como texto plano."
+                )
+            except Exception as e:
+                resultado = f"Error preparando respuesta: {e}"
+                logger.error(f"responder_correo error: {e}")
+
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": resultado
+            })
+
+        # ── buscar_correos ────────────────────────────────────────────
+        elif bloque.name == "buscar_correos":
+            try:
+                import agent.gmail as gmail
+
+                consulta = bloque.input["consulta"]
+                query_gmail = gmail._traducir_query_natural(consulta)
+
+                correos = await gmail.buscar_correos(telefono, query_gmail)
+                if not correos:
+                    resultado = (
+                        f"No encontré correos para '{consulta}' (query: {query_gmail}). "
+                        "INSTRUCCIÓN: Dile que no hay resultados para esa búsqueda."
+                    )
+                else:
+                    lineas = []
+                    for i, c in enumerate(correos, 1):
+                        remitente = c["from"].split("<")[0].strip() or c["from"]
+                        lineas.append(
+                            f"{i}. *{c['subject']}*\n"
+                            f"   De: {remitente} — {c['date']}\n"
+                            f"   {c['snippet'][:100]}..."
+                        )
+                    resultado = (
+                        f"Búsqueda '{consulta}' — {len(correos)} resultado(s):\n\n"
+                        + "\n\n".join(lineas)
+                        + "\n\nIDs: " + str([c["id"] for c in correos])
+                        + "\nINSTRUCCIÓN: Presenta los resultados. "
+                        + "El usuario puede pedir leer uno completo."
+                    )
+                logger.info(f"buscar_correos '{consulta}' para {telefono}: {len(correos)} resultados")
+
+            except gmail.GmailScopeError:
+                base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+                link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
+                resultado = (
+                    f"Token sin permisos de Gmail. Re-autoriza en: {link}\n"
+                    f"INSTRUCCIÓN: Muestra la URL como texto plano."
+                )
+            except Exception as e:
+                resultado = f"Error buscando correos: {e}"
+                logger.error(f"buscar_correos error: {e}")
 
             resultados_herramientas.append({
                 "type": "tool_result",
