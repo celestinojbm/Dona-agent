@@ -937,8 +937,12 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                         f"?telefono={urllib.parse.quote(telefono)}"
                     )
                     resultado = (
-                        f"Enlace de conexión generado: {link}\n"
-                        "El usuario debe abrirlo en su navegador para autorizar el acceso."
+                        f"Enlace de autorización generado: {link}\n\n"
+                        "INSTRUCCIÓN CRÍTICA: Muestra la URL exacta como texto plano, sin formato Markdown. "
+                        "NO uses [texto](url) ni ningún formato de link. "
+                        "Escribe la URL directamente en el mensaje para que WhatsApp la haga clickeable automáticamente. "
+                        "Formato correcto:\n"
+                        f"'Para conectar tu Google, abre este enlace:\n{link}'"
                     )
                     logger.info(f"[GOOGLE] Enlace OAuth generado para {telefono}")
             except Exception as e:
