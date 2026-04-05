@@ -337,7 +337,7 @@ async def inicializar_db():
 
     except Exception as e:
         logger.error(f"[DB] ERROR en inicializar_db (create_all): {type(e).__name__}: {e}", exc_info=True)
-        raise
+        # No relanzar — el servidor debe arrancar aunque la DB tenga un timeout momentáneo
 
     # Paso 3: migraciones de columnas — FUERA del engine.begin() principal
     # Cada migración corre en su propia transacción para evitar cascading failures
@@ -1122,22 +1122,35 @@ async def guardar_nota_db(
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
     async with AsyncSession(engine) as session:
-        result = await session.execute(
-            text("""
-                INSERT INTO notas_usuario (telefono, titulo, contenido, etiquetas, embedding)
-                VALUES (:telefono, :titulo, :contenido, CAST(:etiquetas AS jsonb),
-                        CASE WHEN :embedding IS NULL THEN NULL
-                             ELSE CAST(:embedding AS vector) END)
-                RETURNING id
-            """),
-            {
-                "telefono": telefono,
-                "titulo": titulo[:200],
-                "contenido": contenido[:4000],
-                "etiquetas": json.dumps(etiquetas or []),
-                "embedding": str(embedding) if embedding else None,
-            }
-        )
+        if embedding:
+            result = await session.execute(
+                text("""
+                    INSERT INTO notas_usuario (telefono, titulo, contenido, etiquetas, embedding)
+                    VALUES (:telefono, :titulo, :contenido, CAST(:etiquetas AS jsonb), CAST(:embedding AS vector))
+                    RETURNING id
+                """),
+                {
+                    "telefono": telefono,
+                    "titulo": titulo[:200],
+                    "contenido": contenido[:4000],
+                    "etiquetas": json.dumps(etiquetas or []),
+                    "embedding": str(embedding),
+                }
+            )
+        else:
+            result = await session.execute(
+                text("""
+                    INSERT INTO notas_usuario (telefono, titulo, contenido, etiquetas)
+                    VALUES (:telefono, :titulo, :contenido, CAST(:etiquetas AS jsonb))
+                    RETURNING id
+                """),
+                {
+                    "telefono": telefono,
+                    "titulo": titulo[:200],
+                    "contenido": contenido[:4000],
+                    "etiquetas": json.dumps(etiquetas or []),
+                }
+            )
         await session.commit()
         row = result.fetchone()
         return row[0] if row else 0
