@@ -1014,7 +1014,11 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 )
                 logger.info(f"Nota #{nota_id} guardada para {telefono}: '{titulo}'")
             except Exception as e:
-                resultado = f"Error guardando nota: {e}"
+                err_str = str(e)
+                if "notas_usuario" in err_str and ("does not exist" in err_str or "no existe" in err_str):
+                    resultado = "La función de notas aún no está configurada en este servidor. INSTRUCCIÓN: Dile al usuario que esta función estará disponible pronto."
+                else:
+                    resultado = f"Error guardando nota: {err_str}. INSTRUCCIÓN: Dile que hubo un problema técnico y que lo intente de nuevo."
                 logger.error(f"Error guardar_nota: {e}")
 
             resultados_herramientas.append({

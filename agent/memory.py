@@ -1158,7 +1158,7 @@ async def buscar_notas_db(
         if embedding_consulta:
             result = await session.execute(
                 text("""
-                    SELECT id, titulo, contenido, etiquetas, created_at,
+                    SELECT id, titulo, contenido, etiquetas, fecha_creacion,
                            1 - (embedding <=> CAST(:embedding AS vector)) AS similitud
                     FROM notas_usuario
                     WHERE telefono = :telefono
@@ -1177,10 +1177,10 @@ async def buscar_notas_db(
         else:
             result = await session.execute(
                 text("""
-                    SELECT id, titulo, contenido, etiquetas, created_at, 1.0 AS similitud
+                    SELECT id, titulo, contenido, etiquetas, fecha_creacion, 1.0 AS similitud
                     FROM notas_usuario
                     WHERE telefono = :telefono
-                    ORDER BY created_at DESC
+                    ORDER BY fecha_creacion DESC
                     LIMIT :limite
                 """),
                 {"telefono": telefono, "limite": limite}
