@@ -197,15 +197,27 @@ TOOLS = [
             "Lista los correos no leídos del inbox de Gmail del usuario. "
             "Úsala cuando el usuario diga 'revisa mi correo', 'tengo emails?', "
             "'qué correos tengo sin leer', 'checa mi Gmail'. "
-            "NO marca los correos como leídos. Solo lista. "
-            "Si el usuario no tiene Gmail conectado, ofrece el enlace de autorización."
+            "POR DEFECTO muestra solo correos importantes (categoría Principal): "
+            "excluye automáticamente publicidad, promociones, redes sociales y newsletters. "
+            "Solo muestra TODO si el usuario pide explícitamente 'incluyendo publicidad', "
+            "'todos los correos', 'las promociones', 'los de redes sociales'. "
+            "NO marca los correos como leídos. Solo lista."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "solo_no_leidos": {
                     "type": "boolean",
-                    "description": "True (default) para solo no leídos. False para los más recientes en general.",
+                    "description": "True (default) para solo no leídos. False para todos los recientes.",
+                    "default": True
+                },
+                "solo_importantes": {
+                    "type": "boolean",
+                    "description": (
+                        "True (default): filtra category:primary — excluye promociones, social, actualizaciones, foros. "
+                        "False: muestra todos sin filtrar. Usar False solo si el usuario pide explícitamente "
+                        "ver publicidad, promociones, o 'todos' los correos."
+                    ),
                     "default": True
                 },
                 "max_resultados": {
@@ -1251,12 +1263,14 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
             try:
                 import agent.gmail as gmail
                 solo_no_leidos = bloque.input.get("solo_no_leidos", True)
+                solo_importantes = bloque.input.get("solo_importantes", True)
                 max_res = min(bloque.input.get("max_resultados", 8), 15)
 
                 correos = await gmail.listar_correos(
                     telefono=telefono,
                     max_results=max_res,
                     solo_no_leidos=solo_no_leidos,
+                    solo_importantes=solo_importantes,
                 )
                 if not correos:
                     tipo = "no leídos" if solo_no_leidos else "recientes"

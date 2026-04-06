@@ -141,9 +141,15 @@ async def listar_correos(
     telefono: str,
     max_results: int = 8,
     solo_no_leidos: bool = True,
+    solo_importantes: bool = True,
 ) -> list[dict]:
     """
     Lista correos del inbox.
+
+    Args:
+        solo_importantes: Si True (default), filtra usando category:primary — excluye
+                         Promociones, Redes Sociales, Actualizaciones y Foros automáticamente.
+                         Si False, muestra todos los no leídos sin importar categoría.
 
     Returns:
         Lista de dicts con id, from, subject, date, snippet, unread.
@@ -155,7 +161,12 @@ async def listar_correos(
     if not tok:
         return []
 
-    query = "in:inbox is:unread" if solo_no_leidos else "in:inbox"
+    partes = ["in:inbox"]
+    if solo_no_leidos:
+        partes.append("is:unread")
+    if solo_importantes:
+        partes.append("category:primary")
+    query = " ".join(partes)
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         # 1. Obtener lista de IDs
