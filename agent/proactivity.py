@@ -171,7 +171,7 @@ async def _evaluar_disparadores(usuario: dict, ahora_local: datetime, offset_min
     )
     if es_hora_brief and not ya_enviado_hoy:
         from agent.memory import guardar_proactividad
-        msg = await _generar_morning_brief(telefono, nombre, contexto)
+        msg = await _generar_morning_brief(telefono, nombre, contexto, offset_min=offset_min)
         if msg:
             await guardar_proactividad(telefono, ultimo_morning_brief=datetime.utcnow())
             return msg
@@ -244,7 +244,7 @@ async def _evaluar_disparadores(usuario: dict, ahora_local: datetime, offset_min
 # ─── DISPARADORES ────────────────────────────────────────────────────────────
 
 async def _generar_morning_brief(
-    telefono: str, nombre: str, contexto: str, bajo_demanda: bool = False
+    telefono: str, nombre: str, contexto: str, bajo_demanda: bool = False, offset_min: int = 0
 ) -> str | None:
     """Genera el resumen matutino personalizado usando Claude, incluyendo clima si está disponible."""
     from agent.memory import obtener_recordatorios_proximas_horas
@@ -255,7 +255,7 @@ async def _generar_morning_brief(
 
         recordatorios_str = ""
         if proximos:
-            items = [f"- {r['mensaje']} ({_hora_local_str(r['fecha_hora'])})" for r in proximos[:5]]
+            items = [f"- {r['mensaje']} ({_hora_local_str(r['fecha_hora'], offset_min)})" for r in proximos[:5]]
             recordatorios_str = "\n".join(items)
         else:
             recordatorios_str = "(ninguno programado para hoy)"
