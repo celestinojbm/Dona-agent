@@ -211,15 +211,6 @@ TOOLS = [
                     "description": "True (default) para solo no leídos. False para todos los recientes.",
                     "default": True
                 },
-                "solo_importantes": {
-                    "type": "boolean",
-                    "description": (
-                        "True (default): filtra category:primary — excluye promociones, social, actualizaciones, foros. "
-                        "False: muestra todos sin filtrar. Usar False solo si el usuario pide explícitamente "
-                        "ver publicidad, promociones, o 'todos' los correos."
-                    ),
-                    "default": True
-                },
                 "max_resultados": {
                     "type": "integer",
                     "description": "Máximo de correos a listar (default: 8, max: 15).",
@@ -1264,7 +1255,6 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 import agent.gmail as gmail
                 from agent.memory import obtener_proactividad, guardar_proactividad
                 solo_no_leidos = bloque.input.get("solo_no_leidos", True)
-                solo_importantes = bloque.input.get("solo_importantes", True)
                 max_res = min(bloque.input.get("max_resultados", 8), 15)
 
                 # Leer la última revisión para evitar repetir correos ya mostrados
@@ -1275,7 +1265,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                     telefono=telefono,
                     max_results=max_res,
                     solo_no_leidos=solo_no_leidos,
-                    solo_importantes=solo_importantes,
+                    solo_importantes=True,  # siempre filtrar category:primary
                     after_timestamp=after_ts,
                 )
 
