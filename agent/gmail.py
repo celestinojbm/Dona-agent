@@ -142,14 +142,16 @@ async def listar_correos(
     max_results: int = 8,
     solo_no_leidos: bool = True,
     solo_importantes: bool = True,
+    after_timestamp: "datetime | None" = None,
 ) -> list[dict]:
     """
     Lista correos del inbox.
 
     Args:
-        solo_importantes: Si True (default), filtra usando category:primary — excluye
-                         Promociones, Redes Sociales, Actualizaciones y Foros automáticamente.
-                         Si False, muestra todos los no leídos sin importar categoría.
+        solo_importantes:  Si True (default), filtra category:primary — excluye
+                           Promociones, Social, Updates, Foros.
+        after_timestamp:   Si se proporciona, solo devuelve correos posteriores a
+                           esta fecha (en UTC). Evita repetir correos ya mostrados.
 
     Returns:
         Lista de dicts con id, from, subject, date, snippet, unread.
@@ -166,6 +168,10 @@ async def listar_correos(
         partes.append("is:unread")
     if solo_importantes:
         partes.append("category:primary")
+    if after_timestamp:
+        # Gmail acepta Unix timestamp en el operador after:
+        epoch = int(after_timestamp.timestamp())
+        partes.append(f"after:{epoch}")
     query = " ".join(partes)
 
     async with httpx.AsyncClient(timeout=15.0) as client:

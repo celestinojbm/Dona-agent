@@ -174,6 +174,8 @@ class UsuarioProactividad(Base):
     ultimo_conflict_check: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Disparador 8: última vez que se envió un consejo estratégico (MiroFish)
     ultimo_consejo_estrategico: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Gmail: última vez que el usuario pidió revisar correos (para filtrar duplicados)
+    ultimo_revision_correo: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class EventoComportamiento(Base):
@@ -252,6 +254,7 @@ _MIGRACIONES = [
     "ALTER TABLE usuario_mirofish ADD COLUMN contexto_pendiente TEXT DEFAULT ''",
     "ALTER TABLE usuario_mirofish ADD COLUMN mensajes_desde_sync INTEGER DEFAULT 0",
     "ALTER TABLE usuario_proactividad ADD COLUMN ultimo_consejo_estrategico TIMESTAMP",
+    "ALTER TABLE usuario_proactividad ADD COLUMN ultimo_revision_correo TIMESTAMP",
     # ── Tablas nuevas (respaldo explícito) ──────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS memoria_largo_plazo (
@@ -977,6 +980,7 @@ async def obtener_proactividad(telefono: str) -> dict | None:
             "ultimo_weekly_review": r.ultimo_weekly_review,
             "ultimo_conflict_check": r.ultimo_conflict_check,
             "ultimo_consejo_estrategico": r.ultimo_consejo_estrategico,
+            "ultimo_revision_correo": r.ultimo_revision_correo,
         }
 
 

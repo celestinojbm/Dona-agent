@@ -1262,20 +1262,30 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
         elif bloque.name == "leer_correos":
             try:
                 import agent.gmail as gmail
+                from agent.memory import obtener_proactividad, guardar_proactividad
                 solo_no_leidos = bloque.input.get("solo_no_leidos", True)
                 solo_importantes = bloque.input.get("solo_importantes", True)
                 max_res = min(bloque.input.get("max_resultados", 8), 15)
+
+                # Leer la última revisión para evitar repetir correos ya mostrados
+                prov = await obtener_proactividad(telefono)
+                after_ts = prov.get("ultimo_revision_correo") if prov else None
 
                 correos = await gmail.listar_correos(
                     telefono=telefono,
                     max_results=max_res,
                     solo_no_leidos=solo_no_leidos,
                     solo_importantes=solo_importantes,
+                    after_timestamp=after_ts,
                 )
+
+                # Guardar timestamp de esta revisión
+                await guardar_proactividad(telefono, ultimo_revision_correo=datetime.utcnow())
+
                 if not correos:
                     tipo = "no leídos" if solo_no_leidos else "recientes"
                     resultado = (
-                        f"No hay correos {tipo} en el inbox. "
+                        f"No hay correos {tipo} nuevos en el inbox. "
                         "INSTRUCCIÓN: Comunica esto de forma amigable."
                     )
                 else:
@@ -1295,7 +1305,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                         + "\nINSTRUCCIÓN: Presenta la lista de forma clara. "
                         + "Menciona que el usuario puede decir 'léeme el de X' o 'el primero' para leer uno completo."
                     )
-                logger.info(f"leer_correos para {telefono}: {len(correos)} resultados")
+                logger.info(f"leer_correos para {telefono}: {len(correos)} resultados (after_ts={after_ts})")
 
             except gmail.GmailScopeError:
                 resultado = _resultado_reauth_google(telefono)
