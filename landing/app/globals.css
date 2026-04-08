@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+/*
+  DONA — Design System
+  Inspired by saleads.ai color palette and editorial style
+  Background: #050a1a (deep navy-black)
+  Text: white hierarchy
+  Accent: #4F46E5 indigo → #7C3AED violet gradient
+*/
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  --background: #050a1a;
+  --foreground: #f0f0f5;
+  --accent-1: #4F46E5;
+  --accent-2: #7C3AED;
+  --accent-glow: rgba(79, 70, 229, 0.4);
+  --gradient-main: linear-gradient(135deg, #4F46E5, #7C3AED);
+  --gradient-text: linear-gradient(135deg, #818CF8, #A78BFA);
+  --card-bg: rgba(255, 255, 255, 0.03);
+  --card-border: rgba(255, 255, 255, 0.06);
+  --muted: rgba(255, 255, 255, 0.4);
+  --dim: rgba(255, 255, 255, 0.2);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Selection ── */
+::selection {
+  background: rgba(79, 70, 229, 0.3);
+  color: white;
+}
+
+/* ── Gradient text ── */
+.text-gradient {
+  background: var(--gradient-text);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-main {
+  background: var(--gradient-main);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Buttons ── */
+.btn-primary {
+  background: var(--gradient-main);
+  color: white;
+  font-weight: 600;
+  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: 0 4px 24px var(--accent-glow);
+}
+.btn-primary:hover {
+  box-shadow: 0 8px 40px rgba(79, 70, 229, 0.6);
+  transform: translateY(-2px);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+.btn-secondary:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  color: white;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ── Pulse glow ── */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 4px 24px var(--accent-glow); }
+  50% { box-shadow: 0 4px 48px rgba(79, 70, 229, 0.7); }
+}
+.pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+/* ── Divider ── */
+.divider-gradient {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-1), var(--accent-2), transparent);
+  opacity: 0.3;
+}
+
+/* ── Cards ── */
+.glass-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  backdrop-filter: blur(12px);
+  transition: all 0.3s ease;
+}
+.glass-card:hover {
+  border-color: rgba(79, 70, 229, 0.25);
+  box-shadow: 0 0 40px rgba(79, 70, 229, 0.08);
+}
+
+/* ── Noise overlay ── */
+.noise-overlay::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 256px;
+}
+
+/* ── Section spacing ── */
+.section-space {
+  padding-top: 8rem;
+  padding-bottom: 8rem;
+}
+
+@media (max-width: 768px) {
+  .section-space {
+    padding-top: 5rem;
+    padding-bottom: 5rem;
+  }
+}
