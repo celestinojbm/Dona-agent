@@ -32,6 +32,11 @@ if _ES_POSTGRES:
     engine = create_async_engine(
         DATABASE_URL,
         echo=False,
+        pool_size=5,
+        max_overflow=2,
+        pool_timeout=10,       # máx 10s esperando una conexión libre
+        pool_recycle=300,      # reciclar conexiones cada 5 min (evita cuelgues de PgBouncer)
+        pool_pre_ping=True,    # verificar que la conexión esté viva antes de usarla
         connect_args={
             "ssl": "require",
             "statement_cache_size": 0,  # requerido para PgBouncer

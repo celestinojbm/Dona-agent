@@ -8,6 +8,7 @@ Soporta recordatorios únicos y recurrentes (diario, semanal, dias_semana, mensu
 """
 
 import os
+import asyncio
 import logging
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -20,6 +21,10 @@ from agent.memory import (
 from agent.onboarding import iniciar_siguiente_fase
 from agent.proactivity import verificar_proactividad
 from agent.learning import actualizar_perfiles_todos
+
+# Timeout máximo para jobs del scheduler (en segundos).
+# Si un job tarda más que esto, se cancela para no bloquear el event loop.
+_JOB_TIMEOUT_SEGUNDOS = 30
 
 logger = logging.getLogger("agentkit")
 
@@ -34,54 +39,67 @@ async def _verificar_y_enviar_recordatorios(proveedor):
     - Si el envío es exitoso: marca como enviado (único) o calcula próxima ocurrencia (recurrente).
     - Si falla: incrementa intentos_fallidos. Al 3er fallo, el recordatorio queda pausado.
     - Al recuperarse (envío exitoso después de fallos), el contador se reinicia.
+    - Tiene un timeout de 30s para evitar que una conexión colgada bloquee el scheduler.
     """
     try:
-        pendientes = await obtener_recordatorios_pendientes()
-        if not pendientes:
-            return
-
-        logger.info(f"Scheduler: {len(pendientes)} recordatorio(s) pendiente(s)")
-
-        for r in pendientes:
-            # Formato del mensaje que le llega al usuario
-            if r.recurrencia:
-                encabezado = "🔔 Recordatorio recurrente"
-            else:
-                encabezado = "🔔 Recordatorio"
-            mensaje = f"{encabezado}: {r.mensaje}"
-
-            enviado = await proveedor.enviar_mensaje(r.telefono, mensaje)
-
-            if enviado:
-                await marcar_recordatorio_enviado(r.id)
-                tipo = "recurrente" if r.recurrencia else "único"
-                logger.info(f"Recordatorio #{r.id} ({tipo}) enviado a {r.telefono}: {r.mensaje}")
-
-                # Si venía con fallos previos, notificar que el canal se recuperó
-                if r.intentos_fallidos and r.intentos_fallidos > 0:
-                    try:
-                        from agent.brain import obtener_mensaje_error
-                        aviso = obtener_mensaje_error("recuperacion_recordatorio")
-                        await proveedor.enviar_mensaje(r.telefono, aviso)
-                    except Exception:
-                        pass  # El aviso es best-effort
-
-            else:
-                await registrar_fallo_recordatorio(r.id)
-                nuevo_fallos = (r.intentos_fallidos or 0) + 1
-                logger.warning(
-                    f"No se pudo enviar recordatorio #{r.id} a {r.telefono} "
-                    f"(intento {nuevo_fallos}/3)"
-                )
-
-                if nuevo_fallos >= 3:
-                    logger.error(
-                        f"Recordatorio #{r.id} pausado tras 3 fallos consecutivos. "
-                        f"Se reactiva cuando el envío sea exitoso."
-                    )
-
+        await asyncio.wait_for(
+            _verificar_y_enviar_recordatorios_impl(proveedor),
+            timeout=_JOB_TIMEOUT_SEGUNDOS,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            f"[SCHEDULER] _verificar_y_enviar_recordatorios cancelado por timeout "
+            f"({_JOB_TIMEOUT_SEGUNDOS}s) — posible conexión de DB colgada"
+        )
     except Exception as e:
         logger.error(f"Error en scheduler de recordatorios ({type(e).__name__}): {e}")
+
+
+async def _verificar_y_enviar_recordatorios_impl(proveedor):
+    """Implementación real del job de recordatorios (envuelta en timeout)."""
+    pendientes = await obtener_recordatorios_pendientes()
+    if not pendientes:
+        return
+
+    logger.info(f"Scheduler: {len(pendientes)} recordatorio(s) pendiente(s)")
+
+    for r in pendientes:
+        # Formato del mensaje que le llega al usuario
+        if r.recurrencia:
+            encabezado = "🔔 Recordatorio recurrente"
+        else:
+            encabezado = "🔔 Recordatorio"
+        mensaje = f"{encabezado}: {r.mensaje}"
+
+        enviado = await proveedor.enviar_mensaje(r.telefono, mensaje)
+
+        if enviado:
+            await marcar_recordatorio_enviado(r.id)
+            tipo = "recurrente" if r.recurrencia else "único"
+            logger.info(f"Recordatorio #{r.id} ({tipo}) enviado a {r.telefono}: {r.mensaje}")
+
+            # Si venía con fallos previos, notificar que el canal se recuperó
+            if r.intentos_fallidos and r.intentos_fallidos > 0:
+                try:
+                    from agent.brain import obtener_mensaje_error
+                    aviso = obtener_mensaje_error("recuperacion_recordatorio")
+                    await proveedor.enviar_mensaje(r.telefono, aviso)
+                except Exception:
+                    pass  # El aviso es best-effort
+
+        else:
+            await registrar_fallo_recordatorio(r.id)
+            nuevo_fallos = (r.intentos_fallidos or 0) + 1
+            logger.warning(
+                f"No se pudo enviar recordatorio #{r.id} a {r.telefono} "
+                f"(intento {nuevo_fallos}/3)"
+            )
+
+            if nuevo_fallos >= 3:
+                logger.error(
+                    f"Recordatorio #{r.id} pausado tras 3 fallos consecutivos. "
+                    f"Se reactiva cuando el envío sea exitoso."
+                )
 
 
 async def _verificar_recordatorios_google_calendar(proveedor):
@@ -90,55 +108,68 @@ async def _verificar_recordatorios_google_calendar(proveedor):
     Verifica si algún usuario con Google Calendar conectado tiene un evento
     que comienza en los próximos 30 minutos y le envía un recordatorio proactivo.
     Evita enviar el mismo recordatorio dos veces usando un registro en memoria.
+    Tiene un timeout de 30s para evitar bloquear el scheduler.
     """
     try:
-        import agent.google_calendar as gc
-        from agent.memory import obtener_todos_con_google_calendar, obtener_timezone
-
-        usuarios = await obtener_todos_con_google_calendar()
-        if not usuarios:
-            return
-
-        for telefono in usuarios:
-            try:
-                offset_min = await obtener_timezone(telefono) or 0
-                proximos = await gc.obtener_proximos_eventos(
-                    telefono,
-                    offset_min=offset_min,
-                    minutos_anticipacion=30,
-                )
-
-                for evento in proximos:
-                    # Crear clave única para evitar recordatorio duplicado
-                    clave = f"gcal_reminder_{telefono}_{evento['id']}"
-                    if clave in _recordatorios_gcal_enviados:
-                        continue
-
-                    minutos = evento['minutos_restantes']
-                    titulo = evento['titulo']
-                    lugar = evento.get('lugar', '')
-
-                    if minutos <= 5:
-                        tiempo_str = "en menos de 5 minutos"
-                    elif minutos <= 15:
-                        tiempo_str = f"en {minutos} minutos"
-                    else:
-                        tiempo_str = f"en {minutos} minutos"
-
-                    mensaje = f"📅 Recordatorio: *{titulo}* comienza {tiempo_str}."
-                    if lugar:
-                        mensaje += f"\n📍 {lugar}"
-
-                    enviado = await proveedor.enviar_mensaje(telefono, mensaje)
-                    if enviado:
-                        _recordatorios_gcal_enviados.add(clave)
-                        logger.info(f"[GCAL] Recordatorio enviado a {telefono}: '{titulo}' en {minutos} min")
-
-            except Exception as e_user:
-                logger.debug(f"[GCAL] Error verificando eventos para {telefono}: {e_user}")
-
+        await asyncio.wait_for(
+            _verificar_recordatorios_google_calendar_impl(proveedor),
+            timeout=_JOB_TIMEOUT_SEGUNDOS,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            f"[SCHEDULER] _verificar_recordatorios_google_calendar cancelado por timeout "
+            f"({_JOB_TIMEOUT_SEGUNDOS}s)"
+        )
     except Exception as e:
         logger.error(f"Error en scheduler de Google Calendar ({type(e).__name__}): {e}")
+
+
+async def _verificar_recordatorios_google_calendar_impl(proveedor):
+    """Implementación real del job de Google Calendar (envuelta en timeout)."""
+    import agent.google_calendar as gc
+    from agent.memory import obtener_todos_con_google_calendar, obtener_timezone
+
+    usuarios = await obtener_todos_con_google_calendar()
+    if not usuarios:
+        return
+
+    for telefono in usuarios:
+        try:
+            offset_min = await obtener_timezone(telefono) or 0
+            proximos = await gc.obtener_proximos_eventos(
+                telefono,
+                offset_min=offset_min,
+                minutos_anticipacion=30,
+            )
+
+            for evento in proximos:
+                # Crear clave única para evitar recordatorio duplicado
+                clave = f"gcal_reminder_{telefono}_{evento['id']}"
+                if clave in _recordatorios_gcal_enviados:
+                    continue
+
+                minutos = evento['minutos_restantes']
+                titulo = evento['titulo']
+                lugar = evento.get('lugar', '')
+
+                if minutos <= 5:
+                    tiempo_str = "en menos de 5 minutos"
+                elif minutos <= 15:
+                    tiempo_str = f"en {minutos} minutos"
+                else:
+                    tiempo_str = f"en {minutos} minutos"
+
+                mensaje = f"📅 Recordatorio: *{titulo}* comienza {tiempo_str}."
+                if lugar:
+                    mensaje += f"\n📍 {lugar}"
+
+                enviado = await proveedor.enviar_mensaje(telefono, mensaje)
+                if enviado:
+                    _recordatorios_gcal_enviados.add(clave)
+                    logger.info(f"[GCAL] Recordatorio enviado a {telefono}: '{titulo}' en {minutos} min")
+
+        except Exception as e_user:
+            logger.debug(f"[GCAL] Error verificando eventos para {telefono}: {e_user}")
 
 
 # Registro en memoria de recordatorios de Google Calendar ya enviados (evita duplicados)
@@ -175,7 +206,7 @@ async def _self_ping():
         return  # No estamos en Render o no se configuró la URL
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{render_url}/health")
+            resp = await client.get(f"{render_url}/")
             logger.debug(f"Self-ping: {resp.status_code}")
     except Exception as e:
         logger.debug(f"Self-ping falló (no crítico): {type(e).__name__}")
