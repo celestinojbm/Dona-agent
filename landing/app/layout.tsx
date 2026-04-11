@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Outfit, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const outfit = Outfit({
   variable: "--font-geist-sans",
   subsets: ["latin"],
   display: "swap",
@@ -17,7 +17,7 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Dona — Tu agente de productividad en WhatsApp",
   description:
-    "Dona maneja tu correo, calendario, tareas, memoria inteligente y simulación de escenarios — todo desde WhatsApp. Diseñado para emprendedores hispanos.",
+    "Dona maneja tu correo, calendario, tareas, memoria inteligente y simulacion de escenarios — todo desde WhatsApp. Disenado para emprendedores hispanos.",
   metadataBase: new URL("https://usadona.com"),
   openGraph: {
     title: "Dona — Tu agente de productividad en WhatsApp",
@@ -44,7 +44,7 @@ export default function RootLayout({
   return (
     <html
       lang="es"
-      className={`${inter.variable} ${mono.variable} h-full antialiased`}
+      className={`${outfit.variable} ${mono.variable} h-full antialiased`}
     >
       <head>
         <script
@@ -70,7 +70,22 @@ fbq('track', 'PageView');`,
           />
         </noscript>
       </head>
-      <body className="noise-overlay min-h-full flex flex-col relative">
+      <body className="noise-overlay min-h-full flex flex-col relative bg-black">
+        {/* Global video background */}
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="fixed inset-0 w-full h-full object-cover z-0"
+          aria-hidden="true"
+        >
+          <source src="/hero.mp4" type="video/mp4" />
+        </video>
+        <div
+          className="fixed inset-0 bg-black/[0.72] z-[1] pointer-events-none"
+          aria-hidden="true"
+        />
         <div className="relative z-10 flex flex-col min-h-full">
           {children}
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence, useInView } from "framer-motion";
 import {
   Brain,
@@ -10,23 +10,279 @@ import {
   Mail,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   ArrowRight,
-  Zap,
   Shield,
   Globe,
-  Clock,
   Send,
   Menu,
   X,
+  Mic,
+  Image,
+  DollarSign,
+  Compass,
+  Languages,
 } from "lucide-react";
 
-/* ─── Animated counter ─── */
-function Counter({ target, suffix = "" }: { target: number; suffix?: string }) {
+/* ════════════════════════════════════════════════════════════
+   i18n — All page text in ES and EN
+   ════════════════════════════════════════════════════════════ */
+
+const i18n = {
+  ES: {
+    nav: {
+      capabilities: "Capacidades",
+      how: "Como funciona",
+      pricing: "Precios",
+      faq: "FAQ",
+      login: "Login",
+      start: "Comenzar",
+    },
+    hero: {
+      line1: "Te ayuda con",
+      line3: "desde WhatsApp.",
+      subtitle:
+        "Un solo chat para correo, calendario, tareas, memoria y decisiones de negocio. Sin apps extra. Sin friccion.",
+      cta: "Unete a Dona",
+      secondary: "Ver capacidades",
+      stats: [
+        { value: "+100", label: "capacidades de alta conversion integradas" },
+        { value: "100%", label: "dentro de WhatsApp" },
+        { value: "24/7", label: "disponible siempre" },
+      ],
+    },
+    rotating: [
+      "tu correo",
+      "tu calendario",
+      "tus tareas",
+      "tu memoria",
+      "tus decisiones",
+    ],
+    painLabel: "El problema que Dona resuelve",
+    painStats: [
+      { num: 14, prefix: "", suffix: "h", sub: "", label: "a la semana perdidas cambiando entre apps" },
+      { num: 24, prefix: "$", suffix: "K", sub: "", label: "al a\u00f1o en productividad desperdiciada por emprendedor" },
+      { num: 73, prefix: "", suffix: "%", sub: "", label: "de tareas criticas se pierden sin un sistema central" },
+      { num: 2, prefix: "$", suffix: "K", sub: "/mes", label: "en gastos de empleados que Dona puede reemplazar" },
+    ],
+    how: {
+      label: "Como funciona",
+      title: "De cero a productivo en 2 minutos",
+      subtitle: "Sin descargas. Sin configuraciones complicadas. Solo WhatsApp.",
+      steps: [
+        { step: "01", title: "Agrega a Dona", desc: "Guardas el numero de Dona en tus contactos y le envias un mensaje. Dona se presenta y te guia en la configuracion inicial de 60 segundos." },
+        { step: "02", title: "Conecta tus herramientas", desc: "Dona se integra con Gmail, Google Calendar y tus apps favoritas. Un link seguro, un clic, y todo queda sincronizado." },
+        { step: "03", title: "Empieza a delegar", desc: "Enviare tu correo, agendare tu cita, recordare esa tarea. Habla con Dona como le hablarias a tu mejor asistente." },
+      ],
+    },
+    capabilities: {
+      label: "Capacidades",
+      title: "Todo lo que Dona puede hacer",
+      subtitle: "+100 capacidades de alta conversion integradas en un solo chat. Sin apps extra, sin friccion, sin curva de aprendizaje.",
+      items: [
+        { icon: "Brain", title: "Memoria inteligente", desc: "Dona retiene cada contacto, decision, idea y detalle que le compartas. No importa si fue hace dos dias o hace dos meses — preguntale y lo recuerda al instante. Es como tener un segundo cerebro que nunca olvida nada, organizado y listo para cuando lo necesites." },
+        { icon: "Sparkles", title: "Simulacion de escenarios", desc: "Antes de tomar una decision importante, pidele a Dona que analice el impacto. Subir precios, contratar a alguien, cambiar de proveedor — Dona evalua los numeros, los riesgos y te da una recomendacion clara. Muchas veces el problema no es falta de informacion, sino falta de direccion." },
+        { icon: "Mail", title: "Correo y calendario", desc: "Dona lee tus correos, te resume lo importante y puede responder por ti. Tambien maneja tu calendario: agenda reuniones, te avisa de conflictos y te prepara para lo que viene. Todo sin abrir Gmail ni Google Calendar — directamente desde tu chat. Dona nunca envia mensajes ni correos sin tu autorizacion explicita." },
+        { icon: "Calendar", title: "Agenda y recordatorios", desc: "Crea recordatorios, da seguimiento a tus pendientes y recibe alertas antes de que algo se te pase. Dona no solo guarda la tarea — entiende la urgencia, te prioriza lo importante y te empuja cuando algo lleva tiempo sin moverse." },
+        { icon: "Mic", title: "Comandos de voz", desc: "Envia una nota de voz y Dona la transcribe, interpreta y ejecuta. Pedile que agende algo, que anote una idea o que busque informacion — todo con tu voz, sin escribir ni un caracter. Perfecto para cuando estas manejando o en medio de algo." },
+        { icon: "MessageSquare", title: "Respuestas automaticas de WhatsApp", desc: "Dona responde los mensajes de WhatsApp de tu negocio de forma inteligente y en tu nombre. Entiende el contexto de cada conversacion, responde con el tono de tu marca y escala a ti solo cuando es necesario. Tus clientes siempre atendidos, incluso a las 3am." },
+        { icon: "Image", title: "Comprende imagenes y documentos", desc: "Mandale una foto de una factura, un recibo o cualquier documento y Dona lo lee, extrae los datos importantes y los guarda automaticamente. Nada de transcribir numeros a mano ni perder papeles. Le tomas foto y listo." },
+        { icon: "DollarSign", title: "Seguimiento de gastos y finanzas", desc: "Registra gastos, ingresos y movimientos desde el chat. Dona los categoriza, te muestra tendencias y te alerta si algo se sale de lo normal. No reemplaza a tu contador, pero te da una radiografia diaria de tu dinero sin abrir una hoja de calculo." },
+        { icon: "Compass", title: "Respuestas basadas en contexto", desc: "Dona no da respuestas genericas — entiende tu negocio, tu historial y tus preferencias. Cada respuesta esta informada por todo lo que le has compartido antes. Es como hablar con alguien que de verdad conoce tu operacion y sabe lo que necesitas escuchar." },
+      ],
+    },
+    whyDona: {
+      label: "Por que Dona",
+      title: "Construida para emprendedores",
+      cards: [
+        { icon: "Brain", title: "Memoria que aprende", desc: "No repites informacion. Dona retiene cada dato, contacto y decision. Preguntale lo que sea, cuando sea." },
+        { icon: "Sparkles", title: "Escenarios simulados", desc: "Subir precios? Contratar? Dona analiza el impacto financiero antes de que tomes una decision costosa." },
+        { icon: "Shield", title: "Privacidad real", desc: "Tu informacion esta encriptada de extremo a extremo. No compartimos datos con terceros. Nunca." },
+        { icon: "Globe", title: "Hecho para hispanos en USA", desc: "Entiende espanol, ingles y spanglish. Disenada para la realidad del emprendedor latino que hace negocios en dos idiomas." },
+      ],
+    },
+    testimonials: {
+      label: "Usuarios beta",
+      title: "Lo que dicen los primeros usuarios",
+    },
+    pricing: {
+      label: "Precios",
+      title: "Simple y transparente",
+      subtitle: "Elige el plan que se ajuste a tu negocio. Sin sorpresas.",
+      cancel: "Cancela cuando quieras. Sin permanencia.",
+      earlyAccess: "Premium",
+      pro: "Pro",
+      enterprise: "Enterprise",
+      comingSoon: "Proximamente",
+      startNow: "Comenzar ahora",
+      earlyFeatures: ["Correo y calendario", "Gestion de tareas", "Memoria inteligente", "Simulacion de escenarios", "Notas de voz", "Soporte prioritario"],
+      proFeatures: ["Todo del plan anterior", "Integraciones avanzadas", "Multi-negocio", "API personalizada", "Automatizaciones", "Analisis y reportes"],
+      enterpriseFeatures: ["Todo del plan Pro", "Equipo ilimitado", "SLA garantizado", "Onboarding dedicado", "Integraciones custom", "Soporte 24/7"],
+    },
+    cta: {
+      title: "Tu negocio merece un asistente 24/7",
+      subtitle: "Dona maneja tu correo, tu agenda, tus finanzas y tus mensajes de WhatsApp — todo desde un solo chat, para que tu te enfoques en lo que importa.",
+      button: "Elige tu plan",
+    },
+    faq: {
+      label: "FAQ",
+      title: "Preguntas frecuentes",
+      items: [
+        { q: "Dona puede leer mis correos?", a: "Si. Dona se conecta a Gmail y Outlook para leer, resumir y responder correos. Tu apruebas cada accion antes de que se ejecute." },
+        { q: "Es seguro compartir informacion de mi negocio?", a: "Toda la informacion se encripta en transito y en reposo. No compartimos datos con terceros ni entrenamos modelos con tu informacion." },
+        { q: "Funciona en espanol e ingles?", a: "Dona entiende y responde en ambos idiomas. Puedes mezclar espanol e ingles en la misma conversacion sin problema." },
+        { q: "Necesito instalar una app?", a: "No. Dona funciona 100% dentro de WhatsApp. Solo necesitas agregar el numero de Dona a tus contactos y empezar a escribir." },
+        { q: "Puedo cancelar en cualquier momento?", a: "Si. No hay contratos ni permanencia. Cancelas cuando quieras desde tu cuenta, sin preguntas ni penalizaciones." },
+      ],
+    },
+    footer: {
+      tagline: "Tu agente de productividad en WhatsApp",
+      terms: "Terminos y condiciones",
+      privacy: "Politica de privacidad",
+      legal: "Aviso legal",
+      disclaimer: "Dona actua como asistente inteligente para tu negocio. Puede responder mensajes de WhatsApp, procesar imagenes como facturas y gestionar tu agenda. El uso del servicio implica la aceptacion de nuestros terminos.",
+      copy: "Todos los derechos reservados.",
+    },
+  },
+  EN: {
+    nav: {
+      capabilities: "Features",
+      how: "How it works",
+      pricing: "Pricing",
+      faq: "FAQ",
+      login: "Login",
+      start: "Get started",
+    },
+    hero: {
+      line1: "Helps you with",
+      line3: "from WhatsApp.",
+      subtitle:
+        "One chat for email, calendar, tasks, memory and business decisions. No extra apps. No friction.",
+      cta: "Join Dona",
+      secondary: "See features",
+      stats: [
+        { value: "+100", label: "high-conversion features built in" },
+        { value: "100%", label: "inside WhatsApp" },
+        { value: "24/7", label: "always available" },
+      ],
+    },
+    rotating: [
+      "your email",
+      "your calendar",
+      "your tasks",
+      "your memory",
+      "your decisions",
+    ],
+    painLabel: "The problem Dona solves",
+    painStats: [
+      { num: 14, prefix: "", suffix: "h", sub: "", label: "per week lost switching between apps" },
+      { num: 24, prefix: "$", suffix: "K", sub: "", label: "per year in wasted productivity per entrepreneur" },
+      { num: 73, prefix: "", suffix: "%", sub: "", label: "of critical tasks are lost without a central system" },
+      { num: 2, prefix: "$", suffix: "K", sub: "/mo", label: "in employee costs that Dona can replace" },
+    ],
+    how: {
+      label: "How it works",
+      title: "Zero to productive in 2 minutes",
+      subtitle: "No downloads. No complex setup. Just WhatsApp.",
+      steps: [
+        { step: "01", title: "Add Dona", desc: "Save Dona's number in your contacts and send a message. Dona introduces itself and guides you through a 60-second setup." },
+        { step: "02", title: "Connect your tools", desc: "Dona integrates with Gmail, Google Calendar and your favorite apps. One secure link, one click, and everything is synced." },
+        { step: "03", title: "Start delegating", desc: "Send your email, schedule your meeting, remember that task. Talk to Dona like you would to your best assistant." },
+      ],
+    },
+    capabilities: {
+      label: "Features",
+      title: "Everything Dona can do",
+      subtitle: "+100 high-conversion features built into a single chat. No extra apps, no friction, no learning curve.",
+      items: [
+        { icon: "Brain", title: "Smart memory", desc: "Dona remembers every contact, decision, idea and detail you share. It doesn't matter if it was two days or two months ago — ask and it recalls instantly. Like a second brain that never forgets, organized and ready when you need it." },
+        { icon: "Sparkles", title: "Scenario simulation", desc: "Before making a big decision, ask Dona to analyze the impact. Raising prices, hiring someone, switching suppliers — Dona evaluates the numbers, the risks and gives you a clear recommendation. Often the problem isn't lack of information, but lack of direction." },
+        { icon: "Mail", title: "Email and calendar", desc: "Dona reads your emails, summarizes what matters and can reply for you. It also manages your calendar: schedules meetings, warns about conflicts and prepares you for what's next. All without opening Gmail or Google Calendar — straight from your chat. Dona never sends messages or emails without your explicit authorization." },
+        { icon: "Calendar", title: "Agenda and reminders", desc: "Create reminders, track your to-dos and get alerts before something slips. Dona doesn't just save tasks — it understands urgency, prioritizes what matters and nudges you when something has been sitting too long." },
+        { icon: "Mic", title: "Voice commands", desc: "Send a voice note and Dona transcribes, interprets and executes it. Ask it to schedule something, jot down an idea or look up information — all with your voice, without typing a single character. Perfect when you're driving or in the middle of something." },
+        { icon: "MessageSquare", title: "Auto WhatsApp replies", desc: "Dona replies to your business WhatsApp messages intelligently and on your behalf. It understands the context of each conversation, responds in your brand's tone and escalates to you only when needed. Your customers always attended, even at 3am." },
+        { icon: "Image", title: "Image and document understanding", desc: "Send a photo of an invoice, receipt or any document and Dona reads it, extracts the important data and saves it automatically. No more transcribing numbers by hand or losing papers. Snap a photo and done." },
+        { icon: "DollarSign", title: "Expense and finance tracking", desc: "Log expenses, income and transactions from the chat. Dona categorizes them, shows trends and alerts you if something looks off. It doesn't replace your accountant, but gives you a daily snapshot of your money without opening a spreadsheet." },
+        { icon: "Compass", title: "Context-based answers", desc: "Dona doesn't give generic replies — it understands your business, your history and your preferences. Every answer is informed by everything you've shared before. Like talking to someone who truly knows your operation and knows what you need to hear." },
+      ],
+    },
+    whyDona: {
+      label: "Why Dona",
+      title: "Built for entrepreneurs",
+      cards: [
+        { icon: "Brain", title: "Memory that learns", desc: "No repeating yourself. Dona retains every piece of data, contact and decision. Ask anything, anytime." },
+        { icon: "Sparkles", title: "Simulated scenarios", desc: "Raise prices? Hire? Dona analyzes the financial impact before you make an expensive decision." },
+        { icon: "Shield", title: "Real privacy", desc: "Your information is encrypted end-to-end. We don't share data with third parties. Ever." },
+        { icon: "Globe", title: "Made for Hispanics in the US", desc: "Understands Spanish, English and Spanglish. Designed for the reality of the Latino entrepreneur doing business in two languages." },
+      ],
+    },
+    testimonials: {
+      label: "Beta users",
+      title: "What early users are saying",
+    },
+    pricing: {
+      label: "Pricing",
+      title: "Simple and transparent",
+      subtitle: "Choose the plan that fits your business. No surprises.",
+      cancel: "Cancel anytime. No lock-in.",
+      earlyAccess: "Premium",
+      pro: "Pro",
+      enterprise: "Enterprise",
+      comingSoon: "Coming soon",
+      startNow: "Get started",
+      earlyFeatures: ["Email and calendar", "Task management", "Smart memory", "Scenario simulation", "Voice notes", "Priority support"],
+      proFeatures: ["Everything in previous plan", "Advanced integrations", "Multi-business", "Custom API", "Automations", "Analytics and reports"],
+      enterpriseFeatures: ["Everything in Pro", "Unlimited team", "Guaranteed SLA", "Dedicated onboarding", "Custom integrations", "24/7 support"],
+    },
+    cta: {
+      title: "Your business deserves a 24/7 assistant",
+      subtitle: "Dona handles your email, calendar, finances and WhatsApp messages — all from one chat, so you can focus on what matters.",
+      button: "Choose your plan",
+    },
+    faq: {
+      label: "FAQ",
+      title: "Frequently asked questions",
+      items: [
+        { q: "Can Dona read my emails?", a: "Yes. Dona connects to Gmail and Outlook to read, summarize and reply to emails. You approve every action before it's executed." },
+        { q: "Is it safe to share my business information?", a: "All information is encrypted in transit and at rest. We don't share data with third parties or train models on your information." },
+        { q: "Does it work in Spanish and English?", a: "Dona understands and replies in both languages. You can mix Spanish and English in the same conversation seamlessly." },
+        { q: "Do I need to install an app?", a: "No. Dona works 100% inside WhatsApp. Just save Dona's number and start chatting." },
+        { q: "Can I cancel anytime?", a: "Yes. No contracts, no lock-in. Cancel whenever you want from your account — no questions asked." },
+      ],
+    },
+    footer: {
+      tagline: "Your WhatsApp productivity agent",
+      terms: "Terms and conditions",
+      privacy: "Privacy policy",
+      legal: "Legal notice",
+      disclaimer: "Dona acts as an intelligent assistant for your business. It can reply to WhatsApp messages, process images such as invoices, and manage your calendar. Using the service implies acceptance of our terms.",
+      copy: "All rights reserved.",
+    },
+  },
+} as const;
+
+type Lang = keyof typeof i18n;
+
+/* Testimonials (not translated — real names stay) */
+const testimonials = [
+  { name: "Carlos Montoya", role: "Fundador, importadora en Miami", text: "Dona me ahorra 2 horas al dia. Ya no reviso correos uno por uno — me manda un resumen y responde por mi." },
+  { name: "Valeria Restrepo", role: "Consultora de marketing digital", text: "La simulacion de escenarios es otra cosa. Le pregunte si debia subir tarifas y me dio un analisis que mi contador no me habia dado." },
+  { name: "Diego Fuentes", role: "E-commerce, envios a LATAM", text: "Lo mejor es la memoria. Le digo algo una vez y nunca lo olvida. Es como tener un asistente que realmente escucha." },
+  { name: "Andrea Lopez", role: "Duena de restaurante en Houston", text: "Le mando fotos de facturas y me las organiza sola. Antes perdia una hora al dia en eso. Ahora ni lo pienso." },
+  { name: "Marco Herrera", role: "Agente de bienes raices", text: "Dona responde a mis clientes de WhatsApp cuando estoy en showings. Nadie espera y yo no pierdo oportunidades." },
+  { name: "Sofia Chen", role: "Freelancer de diseno en LA", text: "Es como tener un asistente que entiende mi negocio. Le pregunto cualquier cosa y siempre tiene el contexto correcto." },
+];
+
+/* Icon map for capabilities */
+const iconMap = { Brain, Sparkles, Mail, Calendar, Mic, MessageSquare, Image, DollarSign, Compass, Shield, Globe } as const;
+
+/* ════════════════════════════════════════════════════════════
+   ISOLATED COMPONENTS
+   ════════════════════════════════════════════════════════════ */
+
+function Counter({ target, suffix = "", prefix = "" }: { target: number; suffix?: string; prefix?: string }) {
   const ref = useRef<HTMLSpanElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-100px" });
   const [count, setCount] = useState(0);
-
   useEffect(() => {
     if (!isInView) return;
     let start = 0;
@@ -34,235 +290,103 @@ function Counter({ target, suffix = "" }: { target: number; suffix?: string }) {
     const step = target / (duration / 16);
     const timer = setInterval(() => {
       start += step;
-      if (start >= target) {
-        setCount(target);
-        clearInterval(timer);
-      } else {
-        setCount(Math.floor(start));
-      }
+      if (start >= target) { setCount(target); clearInterval(timer); }
+      else setCount(Math.floor(start));
     }, 16);
     return () => clearInterval(timer);
   }, [isInView, target]);
-
-  return (
-    <span ref={ref} className="tabular-nums">
-      {count}
-      {suffix}
-    </span>
-  );
+  return <span ref={ref} className="tabular-nums font-mono">{prefix}{count}{suffix}</span>;
 }
 
-/* ─── Fade-in on scroll ─── */
-function FadeIn({
-  children,
-  delay = 0,
-  direction = "up",
-  className = "",
-}: {
-  children: React.ReactNode;
-  delay?: number;
-  direction?: "up" | "down" | "left" | "right";
-  className?: string;
-}) {
-  const offsets = {
-    up: { y: 40, x: 0 },
-    down: { y: -40, x: 0 },
-    left: { x: 40, y: 0 },
-    right: { x: -40, y: 0 },
-  };
-  return (
-    <motion.div
-      initial={{ opacity: 0, ...offsets[direction] }}
-      whileInView={{ opacity: 1, x: 0, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.7, delay, ease: [0.22, 1, 0.36, 1] }}
-      className={className}
-    >
-      {children}
-    </motion.div>
-  );
+function FadeIn({ children, delay = 0, direction = "up", className = "" }: { children: React.ReactNode; delay?: number; direction?: "up" | "down" | "left" | "right"; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Hide before first paint (no flash). Skipped on bfcache restore since DOM already has data-fade="visible".
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || el.getAttribute("data-fade") === "visible") return;
+    el.setAttribute("data-fade", "pending");
+    el.style.setProperty("--fade-delay", `${delay}s`);
+    el.style.setProperty("--fade-dir", direction);
+  }, [delay, direction]);
+
+  // Observe intersection, then reveal once
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || el.getAttribute("data-fade") === "visible") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          el.setAttribute("data-fade", "visible");
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "-80px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return <div ref={ref} className={className}>{children}</div>;
 }
 
-/* ─── Rotating headline words ─── */
-const rotatingWords = [
-  "tu correo",
-  "tu calendario",
-  "tus tareas",
-  "tu memoria",
-  "tus escenarios",
-];
-
-function RotatingText() {
+function RotatingText({ words }: { words: readonly string[] }) {
   const [index, setIndex] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setIndex((i) => (i + 1) % rotatingWords.length), 2800);
+    const t = setInterval(() => setIndex((i) => (i + 1) % words.length), 2800);
     return () => clearInterval(t);
-  }, []);
+  }, [words.length]);
   return (
-    <span className="inline-block relative h-[1.15em] overflow-hidden align-bottom min-w-[260px]">
+    <span className="inline-block relative h-[1.2em] overflow-hidden align-bottom w-full">
       <AnimatePresence mode="wait">
         <motion.span
-          key={rotatingWords[index]}
-          initial={{ y: 30, opacity: 0, filter: "blur(8px)" }}
+          key={words[index]}
+          initial={{ y: 40, opacity: 0, filter: "blur(10px)" }}
           animate={{ y: 0, opacity: 1, filter: "blur(0px)" }}
-          exit={{ y: -30, opacity: 0, filter: "blur(8px)" }}
-          transition={{ duration: 0.5 }}
-          className="absolute left-0 text-gradient-main whitespace-nowrap"
+          exit={{ y: -40, opacity: 0, filter: "blur(10px)" }}
+          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          className="absolute inset-x-0 text-gradient whitespace-nowrap"
         >
-          {rotatingWords[index]}
+          {words[index]}
         </motion.span>
       </AnimatePresence>
     </span>
   );
 }
 
-/* ─── Chat mockup ─── */
-interface ChatMsg {
-  role: "user" | "dona";
-  text: string;
-}
-
-function ChatMockup({ messages }: { messages: ChatMsg[] }) {
+function TestimonialCarousel() {
+  const doubled = [...testimonials, ...testimonials];
   return (
-    <div className="glass-card rounded-2xl p-5 max-w-sm w-full">
-      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#4F46E5] to-[#7C3AED] flex items-center justify-center text-xs font-bold">
-          D
-        </div>
-        <span className="text-sm font-medium text-white/80">Dona</span>
-        <span className="ml-auto text-[10px] text-white/30">WhatsApp</span>
-      </div>
-      <div className="space-y-3">
-        {messages.map((m, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 10 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: i * 0.15 }}
-            className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                m.role === "user"
-                  ? "bg-[#4F46E5]/30 text-white/90 rounded-br-md"
-                  : "bg-white/[0.04] text-white/70 rounded-bl-md"
-              }`}
-            >
-              {m.text}
+    <div className="overflow-hidden">
+      <div className="carousel-track flex gap-6 w-max">
+        {doubled.map((t, i) => (
+          <div key={i} className="glass-card rounded-2xl p-8 flex flex-col w-[340px] shrink-0">
+            <p className="text-sm text-white/45 leading-relaxed flex-1 mb-6 italic font-light">&ldquo;{t.text}&rdquo;</p>
+            <div>
+              <p className="text-sm font-normal text-white/70">{t.name}</p>
+              <p className="text-xs text-white/25 font-light">{t.role}</p>
             </div>
-          </motion.div>
+          </div>
         ))}
       </div>
     </div>
   );
 }
 
-/* ─── Capabilities data ─── */
-const capabilities = [
-  {
-    icon: Brain,
-    title: "Memoria inteligente",
-    desc: "Dona recuerda todo: contactos, decisiones, ideas. Pregúntale cualquier cosa que le hayas dicho antes.",
-    messages: [
-      { role: "user" as const, text: "¿Cuál era el nombre del proveedor de cajas?" },
-      { role: "dona" as const, text: "PackPro MX — te pasaron cotización el 12 de marzo. ¿Quieres que les escriba?" },
-    ],
-  },
-  {
-    icon: Sparkles,
-    title: "Simulación de escenarios",
-    desc: "Evalúa decisiones de negocio antes de tomarlas. Dona analiza pros, contras y te da una recomendación.",
-    messages: [
-      { role: "user" as const, text: "¿Qué pasa si subo precios 15%?" },
-      { role: "dona" as const, text: "Con tu margen actual del 22%, subirías a 34%. Riesgo: ~8% de churn. Recomiendo subir 10% primero." },
-    ],
-  },
-  {
-    icon: Mail,
-    title: "Correo y calendario",
-    desc: "Lee, resume y responde correos. Agenda reuniones. Todo sin salir de WhatsApp.",
-    messages: [
-      { role: "user" as const, text: "¿Qué correos importantes tengo hoy?" },
-      { role: "dona" as const, text: "3 urgentes: factura vencida de Adobe, propuesta de cliente nuevo, y confirmación de envío de Shopify." },
-    ],
-  },
-  {
-    icon: Calendar,
-    title: "Gestión de tareas",
-    desc: "Crea, prioriza y da seguimiento a tus pendientes. Dona te recuerda lo importante.",
-    messages: [
-      { role: "user" as const, text: "Recuérdame llamar al contador el viernes" },
-      { role: "dona" as const, text: "Listo. Te recordaré el viernes a las 9am. También tienes pendiente enviar la factura de marzo." },
-    ],
-  },
-  {
-    icon: MessageSquare,
-    title: "Comandos de voz",
-    desc: "Envía notas de voz y Dona las transcribe, interpreta y ejecuta la acción correcta.",
-    messages: [
-      { role: "user" as const, text: "🎙️ Nota de voz (0:12)" },
-      { role: "dona" as const, text: 'Entendido: "Agendar call con Sofía mañana a las 3pm". Ya la agendé en tu calendario.' },
-    ],
-  },
-];
-
-/* ─── FAQ data ─── */
-const faqItems = [
-  {
-    q: "¿Dona puede leer mis correos?",
-    a: "Sí. Dona se conecta a Gmail y Outlook para leer, resumir y responder correos. Tú apruebas cada acción.",
-  },
-  {
-    q: "¿Es seguro compartir información de mi negocio?",
-    a: "Toda la información se encripta en tránsito y en reposo. No compartimos datos con terceros ni entrenamos modelos con tu información.",
-  },
-  {
-    q: "¿Funciona en español e inglés?",
-    a: "Dona entiende y responde en ambos idiomas. Puedes mezclar español e inglés en la misma conversación.",
-  },
-  {
-    q: "¿Necesito instalar una app?",
-    a: "No. Dona funciona 100% dentro de WhatsApp. Solo necesitas agregar el número de Dona a tus contactos.",
-  },
-  {
-    q: "¿Cuánto cuesta después del periodo de acceso anticipado?",
-    a: "El precio de acceso anticipado de $20/mes se mantiene de por vida para los primeros 100 usuarios. El precio regular será mayor.",
-  },
-];
-
-/* ─── FAQ accordion ─── */
-function FAQ() {
+function FAQSection({ items }: { items: readonly { q: string; a: string }[] }) {
   const [open, setOpen] = useState<number | null>(null);
   return (
     <div className="space-y-3 max-w-2xl mx-auto">
-      {faqItems.map((item, i) => (
-        <div
-          key={i}
-          className="glass-card rounded-xl overflow-hidden"
-        >
-          <button
-            onClick={() => setOpen(open === i ? null : i)}
-            className="w-full flex items-center justify-between px-6 py-4 text-left text-white/90 hover:text-white transition-colors cursor-pointer"
-          >
-            <span className="font-medium text-sm md:text-base pr-4">{item.q}</span>
-            <ChevronDown
-              className={`w-5 h-5 shrink-0 transition-transform duration-300 ${
-                open === i ? "rotate-180" : ""
-              }`}
-            />
+      {items.map((item, i) => (
+        <div key={i} className="glass-card rounded-xl overflow-hidden">
+          <button onClick={() => setOpen(open === i ? null : i)} className="w-full flex items-center justify-between px-6 py-5 text-left text-white/80 hover:text-white transition-colors cursor-pointer">
+            <span className="font-light text-sm md:text-base pr-4">{item.q}</span>
+            <ChevronDown className={`w-5 h-5 shrink-0 transition-transform duration-300 ${open === i ? "rotate-180" : ""}`} />
           </button>
           <AnimatePresence>
             {open === i && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="px-6 pb-4 text-sm text-white/50 leading-relaxed">
-                  {item.a}
-                </div>
+              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }}>
+                <div className="px-6 pb-5 text-sm text-white/40 leading-relaxed font-light">{item.a}</div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -277,318 +401,200 @@ function FAQ() {
    ═══════════════════════════════════════════════════════ */
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState(0);
-  const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [lang, setLang] = useState<Lang>("ES");
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const t = i18n[lang];
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email) return;
-    // TODO: connect to API route
-    setSubmitted(true);
-  };
+
+  const handleCheckout = useCallback(async (plan: "premium" | "pro") => {
+    setCheckoutLoading(plan);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        alert(data.error || "Error creating checkout session");
+        setCheckoutLoading(null);
+      }
+    } catch {
+      alert("Connection error. Please try again.");
+      setCheckoutLoading(null);
+    }
+  }, []);
 
   return (
     <>
-      {/* ── Background effects ── */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-[radial-gradient(ellipse_at_center,rgba(79,70,229,0.15)_0%,transparent_70%)]" />
-        <div className="absolute bottom-0 right-0 w-[800px] h-[500px] bg-[radial-gradient(ellipse_at_center,rgba(124,58,237,0.1)_0%,transparent_70%)]" />
-      </div>
-
-      {/* ── Nav ── */}
-      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-[#050a1a]/80 border-b border-white/[0.04]">
-        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 h-16">
-          <a href="#" className="text-xl font-bold tracking-tight">
-            <span className="text-gradient-main">Dona</span>
+      {/* ── Nav — transparent, no capsule ── */}
+      <nav className="fixed top-0 left-0 right-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <a href="#" className="text-4xl font-normal tracking-tight text-white nav-link">
+            Dona
           </a>
 
-          {/* Desktop links */}
-          <div className="hidden md:flex items-center gap-8 text-sm text-white/50">
-            <a href="#capabilities" className="hover:text-white transition-colors">
-              Capacidades
-            </a>
-            <a href="#pricing" className="hover:text-white transition-colors">
-              Precios
-            </a>
-            <a href="#faq" className="hover:text-white transition-colors">
-              FAQ
-            </a>
-            <a
-              href="#cta"
-              className="btn-primary px-5 py-2 rounded-full text-sm"
-            >
-              Acceso anticipado
-            </a>
+          {/* Desktop */}
+          <div className="hidden md:flex items-center gap-7 text-sm text-white/40 font-light">
+            <a href="#capabilities" className="nav-link">{t.nav.capabilities}</a>
+            <a href="#how" className="nav-link">{t.nav.how}</a>
+            <a href="#pricing" className="nav-link">{t.nav.pricing}</a>
+            <a href="#faq" className="nav-link">{t.nav.faq}</a>
+            <button onClick={() => setLang(lang === "ES" ? "EN" : "ES")} className="flex items-center gap-1.5 nav-link cursor-pointer">
+              <Languages className="w-4 h-4" />
+              <span className="text-xs font-mono">{lang}</span>
+            </button>
+            <a href="/login" className="nav-link text-white/40">{t.nav.login}</a>
+            <a href="#pricing" className="btn-primary px-5 py-2 rounded-full text-sm">{t.nav.start}</a>
           </div>
 
-          {/* Mobile menu toggle */}
-          <button
-            className="md:hidden text-white/60"
-            onClick={() => setMobileMenu(!mobileMenu)}
-          >
-            {mobileMenu ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          {/* Mobile toggle */}
+          <button className="md:hidden text-white/50" onClick={() => setMobileMenu(!mobileMenu)}>
+            {mobileMenu ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
 
-        {/* Mobile menu */}
         <AnimatePresence>
           {mobileMenu && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="md:hidden border-t border-white/[0.04] overflow-hidden"
-            >
-              <div className="flex flex-col gap-4 px-6 py-6 text-sm text-white/60">
-                <a href="#capabilities" onClick={() => setMobileMenu(false)} className="hover:text-white">
-                  Capacidades
-                </a>
-                <a href="#pricing" onClick={() => setMobileMenu(false)} className="hover:text-white">
-                  Precios
-                </a>
-                <a href="#faq" onClick={() => setMobileMenu(false)} className="hover:text-white">
-                  FAQ
-                </a>
-                <a
-                  href="#cta"
-                  onClick={() => setMobileMenu(false)}
-                  className="btn-primary px-5 py-2.5 rounded-full text-center text-sm"
-                >
-                  Acceso anticipado
-                </a>
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="md:hidden overflow-hidden backdrop-blur-xl bg-black/70 border-b border-white/[0.06]">
+              <div className="flex flex-col gap-4 px-6 py-6 text-sm text-white/50 font-light">
+                <a href="#capabilities" onClick={() => setMobileMenu(false)} className="nav-link">{t.nav.capabilities}</a>
+                <a href="#how" onClick={() => setMobileMenu(false)} className="nav-link">{t.nav.how}</a>
+                <a href="#pricing" onClick={() => setMobileMenu(false)} className="nav-link">{t.nav.pricing}</a>
+                <a href="#faq" onClick={() => setMobileMenu(false)} className="nav-link">{t.nav.faq}</a>
+                <button onClick={() => { setLang(lang === "ES" ? "EN" : "ES"); setMobileMenu(false); }} className="flex items-center gap-1.5 nav-link">
+                  <Languages className="w-4 h-4" /><span className="text-xs font-mono">{lang}</span>
+                </button>
+                <a href="/login" onClick={() => setMobileMenu(false)} className="nav-link">{t.nav.login}</a>
+                <a href="#pricing" onClick={() => setMobileMenu(false)} className="btn-primary px-5 py-2.5 rounded-full text-center text-sm">{t.nav.start}</a>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </nav>
 
-      {/* ── Hero ── */}
-      <section className="relative min-h-screen flex items-center justify-center pt-16">
-        <div className="max-w-6xl mx-auto px-6 py-24 md:py-32">
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            {/* Left */}
-            <div>
-              <FadeIn>
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08] text-xs text-white/50 mb-8">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Acceso anticipado — 100 cupos
-                </div>
-              </FadeIn>
+      {/* ══════════════════════════════════════════════════════
+          HERO
+          ══════════════════════════════════════════════════════ */}
+      <section className="relative z-[2] min-h-[100dvh] flex items-center justify-center pt-16">
+        <div className="max-w-4xl mx-auto px-6 py-24 md:py-32 w-full text-center">
+          <FadeIn delay={0.1}>
+            <h1 className="text-5xl md:text-7xl lg:text-8xl font-normal leading-[1.1] tracking-tighter mb-8 text-white">
+              {t.hero.line1}
+              <br />
+              <RotatingText words={t.rotating} />
+              <br />
+              <span className="text-white/25 font-extralight">{t.hero.line3}</span>
+            </h1>
+          </FadeIn>
 
-              <FadeIn delay={0.1}>
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.1] tracking-tight mb-6">
-                  Dona maneja{" "}
-                  <RotatingText />
-                  <br />
-                  <span className="text-white/40">desde WhatsApp.</span>
-                </h1>
-              </FadeIn>
+          <FadeIn delay={0.2}>
+            <p className="text-lg md:text-xl text-white/35 max-w-lg mx-auto mb-10 leading-relaxed font-light">
+              {t.hero.subtitle}
+            </p>
+          </FadeIn>
 
-              <FadeIn delay={0.2}>
-                <p className="text-lg text-white/40 max-w-md mb-8 leading-relaxed">
-                  Tu agente de productividad que maneja correo, calendario, tareas, memoria
-                  y simulación de escenarios — todo en un solo chat.
-                </p>
-              </FadeIn>
-
-              <FadeIn delay={0.3}>
-                <div className="flex flex-wrap gap-4 mb-12">
-                  <a
-                    href="#cta"
-                    className="btn-primary px-8 py-3.5 rounded-full text-sm flex items-center gap-2 pulse-glow"
-                  >
-                    Quiero acceso
-                    <ArrowRight className="w-4 h-4" />
-                  </a>
-                  <a
-                    href="#capabilities"
-                    className="btn-secondary px-8 py-3.5 rounded-full text-sm"
-                  >
-                    Ver capacidades
-                  </a>
-                </div>
-              </FadeIn>
-
-              <FadeIn delay={0.4}>
-                <div className="flex gap-8 text-center">
-                  <div>
-                    <div className="text-2xl font-bold text-gradient">5</div>
-                    <div className="text-xs text-white/30 mt-1">módulos integrados</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-gradient">100%</div>
-                    <div className="text-xs text-white/30 mt-1">en WhatsApp</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-gradient">24/7</div>
-                    <div className="text-xs text-white/30 mt-1">disponible</div>
-                  </div>
-                </div>
-              </FadeIn>
+          <FadeIn delay={0.3}>
+            <div className="flex flex-wrap gap-4 justify-center mb-14">
+              <a href="#pricing" className="btn-primary px-8 py-4 rounded-full text-sm flex items-center gap-2 pulse-glow">
+                {t.hero.cta}
+                <ArrowRight className="w-4 h-4" />
+              </a>
+              <a href="#capabilities" className="btn-secondary px-8 py-4 rounded-full text-sm font-light">
+                {t.hero.secondary}
+              </a>
             </div>
+          </FadeIn>
 
-            {/* Right — chat mockup */}
-            <FadeIn direction="right" delay={0.3} className="hidden md:block">
-              <ChatMockup
-                messages={[
-                  { role: "user", text: "Dona, ¿qué tengo hoy?" },
-                  {
-                    role: "dona",
-                    text: "Buenos días. Tienes 3 correos urgentes, una call a las 11am con Carlos, y tu tarea pendiente de enviar propuesta a NovaTech.",
-                  },
-                  { role: "user", text: "Resume el correo de Carlos" },
-                  {
-                    role: "dona",
-                    text: "Carlos confirma la reunión de mañana y pregunta si puedes llevar los números del Q1. ¿Le confirmo?",
-                  },
-                ]}
-              />
-            </FadeIn>
-          </div>
+          <FadeIn delay={0.4}>
+            <div className="flex gap-12 justify-center text-center">
+              {t.hero.stats.map((stat, i) => (
+                <div key={i}>
+                  <div className="text-2xl font-normal text-white/80">{stat.value}</div>
+                  <div className="text-[11px] text-white/25 mt-1 uppercase tracking-wider font-light">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+          </FadeIn>
         </div>
       </section>
 
-      {/* ── Pain numbers ── */}
-      <section className="section-space">
-        <div className="max-w-6xl mx-auto px-6">
+      {/* ══════════════════════════════════════════════════════
+          PAIN NUMBERS
+          ══════════════════════════════════════════════════════ */}
+      <section className="relative z-[2] section-space">
+        <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
-            <p className="text-center text-sm uppercase tracking-[0.2em] text-white/30 mb-16">
-              El problema que resuelve Dona
-            </p>
+            <p className="text-center text-xs uppercase tracking-[0.25em] text-white/25 mb-20 font-light">{t.painLabel}</p>
           </FadeIn>
-          <div className="grid md:grid-cols-3 gap-12 text-center">
-            {[
-              { num: 8, suffix: "+", label: "apps que usas para manejar tu negocio" },
-              { num: 3, suffix: "h", label: "perdidas al día cambiando entre herramientas" },
-              { num: 47, suffix: "%", label: "de tareas se olvidan sin un sistema central" },
-            ].map((item, i) => (
-              <FadeIn key={i} delay={i * 0.15}>
-                <div className="text-6xl md:text-8xl font-bold text-gradient-main tracking-tighter">
-                  <Counter target={item.num} suffix={item.suffix} />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-10 md:gap-16 text-center">
+            {t.painStats.map((item, i) => (
+              <FadeIn key={i} delay={i * 0.12}>
+                <div className="text-6xl md:text-8xl font-extralight text-gradient-stat tracking-tighter leading-none">
+                  <Counter target={item.num} suffix={item.suffix} prefix={item.prefix} />
+                  {item.sub && <span className="text-lg md:text-xl font-light text-white/25">{item.sub}</span>}
                 </div>
-                <p className="mt-4 text-sm text-white/40 max-w-[240px] mx-auto">
-                  {item.label}
-                </p>
+                <p className="mt-6 text-sm text-white/35 max-w-[240px] mx-auto leading-relaxed font-light">{item.label}</p>
               </FadeIn>
             ))}
           </div>
         </div>
       </section>
 
-      <div className="divider-gradient" />
+      <div className="relative z-[2] divider-gradient" />
 
-      {/* ── Capabilities ── */}
-      <section id="capabilities" className="section-space">
-        <div className="max-w-6xl mx-auto px-6">
+      {/* ══════════════════════════════════════════════════════
+          HOW IT WORKS
+          ══════════════════════════════════════════════════════ */}
+      <section id="how" className="relative z-[2] section-space">
+        <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
-            <p className="text-sm uppercase tracking-[0.2em] text-white/30 mb-4 text-center">
-              Capacidades
-            </p>
-            <h2 className="text-3xl md:text-5xl font-bold text-center mb-4 tracking-tight">
-              Todo lo que Dona <span className="text-gradient">puede hacer</span>
-            </h2>
-            <p className="text-center text-white/40 max-w-lg mx-auto mb-16">
-              Cinco módulos integrados en un solo chat de WhatsApp. Sin apps extra, sin fricción.
-            </p>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.how.label}</p>
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-6 tracking-tighter text-white">{t.how.title}</h2>
+            <p className="text-center text-white/35 max-w-lg mx-auto mb-20 font-light">{t.how.subtitle}</p>
           </FadeIn>
-
-          <div className="grid md:grid-cols-12 gap-8">
-            {/* Tabs */}
-            <div className="md:col-span-4 flex md:flex-col gap-2">
-              {capabilities.map((cap, i) => {
-                const Icon = cap.icon;
-                return (
-                  <button
-                    key={i}
-                    onClick={() => setActiveTab(i)}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all cursor-pointer w-full ${
-                      activeTab === i
-                        ? "bg-white/[0.06] border border-white/[0.1] text-white"
-                        : "text-white/40 hover:text-white/60 hover:bg-white/[0.02]"
-                    }`}
-                  >
-                    <Icon className="w-5 h-5 shrink-0" />
-                    <span className="text-sm font-medium hidden md:inline">{cap.title}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Content */}
-            <div className="md:col-span-8">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={activeTab}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.4 }}
-                  className="grid md:grid-cols-2 gap-8 items-start"
-                >
-                  <div>
-                    <h3 className="text-xl font-semibold mb-3">
-                      {capabilities[activeTab].title}
-                    </h3>
-                    <p className="text-white/40 text-sm leading-relaxed">
-                      {capabilities[activeTab].desc}
-                    </p>
+          <div className="space-y-20 md:space-y-28">
+            {t.how.steps.map((item, i) => (
+              <FadeIn key={i} delay={0.1}>
+                <div className="grid md:grid-cols-12 gap-8 items-start">
+                  <div className="md:col-span-3"><div className="step-number">{item.step}</div></div>
+                  <div className="md:col-span-9 md:pt-6">
+                    <h3 className="text-2xl md:text-3xl font-normal mb-4 tracking-tight text-white">{item.title}</h3>
+                    <p className="text-white/35 text-base md:text-lg leading-relaxed max-w-xl font-light">{item.desc}</p>
                   </div>
-                  <ChatMockup messages={capabilities[activeTab].messages} />
-                </motion.div>
-              </AnimatePresence>
-            </div>
+                </div>
+              </FadeIn>
+            ))}
           </div>
         </div>
       </section>
 
-      <div className="divider-gradient" />
+      <div className="relative z-[2] divider-gradient" />
 
-      {/* ── Why Different ── */}
-      <section className="section-space">
-        <div className="max-w-6xl mx-auto px-6">
+      {/* ══════════════════════════════════════════════════════
+          CAPABILITIES
+          ══════════════════════════════════════════════════════ */}
+      <section id="capabilities" className="relative z-[2] section-space">
+        <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
-            <p className="text-sm uppercase tracking-[0.2em] text-white/30 mb-4 text-center">
-              Por qué Dona
-            </p>
-            <h2 className="text-3xl md:text-5xl font-bold text-center mb-16 tracking-tight">
-              Diseñada para <span className="text-gradient">emprendedores</span>
-            </h2>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.capabilities.label}</p>
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.capabilities.title}</h2>
+            <p className="text-center text-white/35 max-w-xl mx-auto mb-20 font-light">{t.capabilities.subtitle}</p>
           </FadeIn>
-
-          <div className="grid md:grid-cols-2 gap-6">
-            {[
-              {
-                icon: Brain,
-                title: "Memoria que aprende",
-                desc: "No repites información. Dona recuerda cada dato, contacto y decisión. Pregúntale lo que sea.",
-              },
-              {
-                icon: Sparkles,
-                title: "Escenarios simulados",
-                desc: "¿Subir precios? ¿Contratar? Dona analiza el impacto antes de que tomes la decisión.",
-              },
-              {
-                icon: Shield,
-                title: "Privacidad primero",
-                desc: "Tu información está encriptada y nunca se comparte. No entrenamos modelos con tus datos.",
-              },
-              {
-                icon: Globe,
-                title: "Hecho para hispanos en USA",
-                desc: "Entiende español, inglés y Spanglish. Diseñada para la realidad del emprendedor latino.",
-              },
-            ].map((card, i) => {
-              const Icon = card.icon;
+          <div className="grid md:grid-cols-3 gap-6">
+            {t.capabilities.items.map((cap, i) => {
+              const Icon = iconMap[cap.icon as keyof typeof iconMap];
               return (
-                <FadeIn key={i} delay={i * 0.1}>
-                  <div className="glass-card rounded-2xl p-8 h-full">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#4F46E5]/20 to-[#7C3AED]/20 flex items-center justify-center mb-5">
-                      <Icon className="w-6 h-6 text-[#818CF8]" />
+                <FadeIn key={i} delay={i * 0.06}>
+                  <div className="glass-card rounded-2xl p-8 h-full group">
+                    <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
+                      <Icon className="w-6 h-6 text-white/40" />
                     </div>
-                    <h3 className="text-lg font-semibold mb-2">{card.title}</h3>
-                    <p className="text-sm text-white/40 leading-relaxed">{card.desc}</p>
+                    <h3 className="text-lg font-normal mb-3 text-white">{cap.title}</h3>
+                    <p className="text-sm text-white/35 leading-relaxed font-light">{cap.desc}</p>
                   </div>
                 </FadeIn>
               );
@@ -597,135 +603,104 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="divider-gradient" />
+      <div className="relative z-[2] divider-gradient" />
 
-      {/* ── Testimonials ── */}
-      <section className="section-space">
-        <div className="max-w-6xl mx-auto px-6">
+      {/* ══════════════════════════════════════════════════════
+          WHY DONA
+          ══════════════════════════════════════════════════════ */}
+      <section className="relative z-[2] section-space">
+        <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
-            <p className="text-sm uppercase tracking-[0.2em] text-white/30 mb-4 text-center">
-              Usuarios beta
-            </p>
-            <h2 className="text-3xl md:text-5xl font-bold text-center mb-16 tracking-tight">
-              Lo que dicen los <span className="text-gradient">primeros usuarios</span>
-            </h2>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.whyDona.label}</p>
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white">{t.whyDona.title}</h2>
           </FadeIn>
-
-          <div className="grid md:grid-cols-3 gap-6">
-            {[
-              {
-                name: "Carlos M.",
-                role: "Fundador, importadora en Miami",
-                text: "Dona me ahorra 2 horas al día. Ya no tengo que revisar correos uno por uno — me manda un resumen y responde por mí.",
-              },
-              {
-                name: "Valeria R.",
-                role: "Consultora de marketing digital",
-                text: "La simulación de escenarios es increíble. Le pregunté si debía subir tarifas y me dio un análisis que mi contador no me había dado.",
-              },
-              {
-                name: "Diego F.",
-                role: "E-commerce, envíos a LATAM",
-                text: "Lo mejor es la memoria. Le digo algo una vez y nunca lo olvida. Es como tener un asistente que realmente escucha.",
-              },
-            ].map((t, i) => (
-              <FadeIn key={i} delay={i * 0.1}>
-                <div className="glass-card rounded-2xl p-8 h-full flex flex-col">
-                  <p className="text-sm text-white/50 leading-relaxed flex-1 mb-6">
-                    &ldquo;{t.text}&rdquo;
-                  </p>
-                  <div>
-                    <p className="text-sm font-medium text-white/80">{t.name}</p>
-                    <p className="text-xs text-white/30">{t.role}</p>
+          <div className="grid md:grid-cols-2 gap-6">
+            {t.whyDona.cards.map((card, i) => {
+              const Icon = iconMap[card.icon as keyof typeof iconMap];
+              return (
+                <FadeIn key={i} delay={i * 0.1}>
+                  <div className="glass-card rounded-2xl p-8 h-full group">
+                    <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
+                      <Icon className="w-6 h-6 text-white/40" />
+                    </div>
+                    <h3 className="text-lg font-normal mb-2 text-white">{card.title}</h3>
+                    <p className="text-sm text-white/35 leading-relaxed font-light">{card.desc}</p>
                   </div>
-                </div>
-              </FadeIn>
-            ))}
+                </FadeIn>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      <div className="divider-gradient" />
+      <div className="relative z-[2] divider-gradient" />
 
-      {/* ── Pricing ── */}
-      <section id="pricing" className="section-space">
-        <div className="max-w-6xl mx-auto px-6">
+      {/* ══════════════════════════════════════════════════════
+          TESTIMONIALS — infinite carousel
+          ══════════════════════════════════════════════════════ */}
+      <section className="relative z-[2] section-space">
+        <div className="max-w-7xl mx-auto px-6 mb-16">
           <FadeIn>
-            <p className="text-sm uppercase tracking-[0.2em] text-white/30 mb-4 text-center">
-              Precios
-            </p>
-            <h2 className="text-3xl md:text-5xl font-bold text-center mb-4 tracking-tight">
-              Simple y <span className="text-gradient">transparente</span>
-            </h2>
-            <p className="text-center text-white/40 max-w-md mx-auto mb-16">
-              Precio especial de por vida para los primeros 100 usuarios.
-            </p>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.testimonials.label}</p>
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.testimonials.title}</h2>
+          </FadeIn>
+        </div>
+        <FadeIn><TestimonialCarousel /></FadeIn>
+      </section>
+
+      <div className="relative z-[2] divider-gradient" />
+
+      {/* ══════════════════════════════════════════════════════
+          PRICING
+          ══════════════════════════════════════════════════════ */}
+      <section id="pricing" className="relative z-[2] section-space">
+        <div className="max-w-7xl mx-auto px-6">
+          <FadeIn>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.pricing.label}</p>
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.pricing.title}</h2>
+            <p className="text-center text-white/35 max-w-md mx-auto mb-20 font-light">{t.pricing.subtitle}</p>
           </FadeIn>
 
           <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
             {/* Early Access */}
             <FadeIn delay={0}>
               <div className="glass-card rounded-2xl p-8 relative overflow-hidden">
-                <p className="text-sm text-white/40 mb-1">Acceso Anticipado</p>
+                <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">{t.pricing.earlyAccess}</p>
                 <div className="flex items-end gap-1 mb-6">
-                  <span className="text-4xl font-bold">$20</span>
-                  <span className="text-white/30 mb-1">/mes</span>
+                  <span className="text-5xl font-light text-white">$20</span>
+                  <span className="text-white/25 mb-1.5 font-light">/mes</span>
                 </div>
                 <ul className="space-y-3 mb-8">
-                  {[
-                    "Correo y calendario",
-                    "Gestión de tareas",
-                    "Memoria inteligente",
-                    "Simulación de escenarios",
-                    "Notas de voz",
-                    "Soporte prioritario",
-                  ].map((f, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm text-white/50">
-                      <CheckCircle2 className="w-4 h-4 text-[#818CF8] shrink-0" />
-                      {f}
+                  {t.pricing.earlyFeatures.map((f, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm text-white/45 font-light">
+                      <CheckCircle2 className="w-4 h-4 text-white/30 shrink-0" />{f}
                     </li>
                   ))}
                 </ul>
-                <a
-                  href="#cta"
-                  className="btn-primary w-full py-3 rounded-full text-sm text-center block"
-                >
-                  Reservar cupo
-                </a>
+                <button onClick={() => handleCheckout("premium")} disabled={checkoutLoading === "premium"} className="btn-primary w-full py-3.5 rounded-full text-sm text-center block cursor-pointer disabled:opacity-50">
+                  {checkoutLoading === "premium" ? "..." : t.pricing.startNow}
+                </button>
               </div>
             </FadeIn>
 
             {/* Pro */}
             <FadeIn delay={0.1}>
-              <div className="glass-card rounded-2xl p-8 border-[#4F46E5]/30 relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#4F46E5] to-[#7C3AED]" />
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="text-sm text-white/40">Pro</p>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#4F46E5]/20 text-[#818CF8]">
-                    Próximamente
-                  </span>
-                </div>
+              <div className="glass-card rounded-2xl p-8 relative overflow-hidden border-[#2563EB]/20">
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#2563EB] to-[#F97316]" />
+                <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">{t.pricing.pro}</p>
                 <div className="flex items-end gap-1 mb-6">
-                  <span className="text-4xl font-bold">$40</span>
-                  <span className="text-white/30 mb-1">/mes</span>
+                  <span className="text-5xl font-light text-white">$40</span>
+                  <span className="text-white/25 mb-1.5 font-light">/mes</span>
                 </div>
                 <ul className="space-y-3 mb-8">
-                  {[
-                    "Todo del plan anterior",
-                    "Integraciones avanzadas",
-                    "Multi-negocio",
-                    "API personalizada",
-                    "Automatizaciones",
-                    "Análisis y reportes",
-                  ].map((f, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm text-white/50">
-                      <CheckCircle2 className="w-4 h-4 text-[#818CF8] shrink-0" />
-                      {f}
+                  {t.pricing.proFeatures.map((f, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm text-white/45 font-light">
+                      <CheckCircle2 className="w-4 h-4 text-white/30 shrink-0" />{f}
                     </li>
                   ))}
                 </ul>
-                <button className="btn-secondary w-full py-3 rounded-full text-sm cursor-not-allowed opacity-50">
-                  Próximamente
+                <button onClick={() => handleCheckout("pro")} disabled={checkoutLoading === "pro"} className="btn-primary w-full py-3.5 rounded-full text-sm text-center block cursor-pointer disabled:opacity-50">
+                  {checkoutLoading === "pro" ? "..." : t.pricing.startNow}
                 </button>
               </div>
             </FadeIn>
@@ -733,142 +708,101 @@ export default function Home() {
             {/* Enterprise */}
             <FadeIn delay={0.2}>
               <div className="glass-card rounded-2xl p-8">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="text-sm text-white/40">Enterprise</p>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#4F46E5]/20 text-[#818CF8]">
-                    Próximamente
-                  </span>
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="text-xs uppercase tracking-widest text-white/35 font-light">{t.pricing.enterprise}</p>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-white/40 font-mono">{t.pricing.comingSoon}</span>
                 </div>
                 <div className="flex items-end gap-1 mb-6">
-                  <span className="text-4xl font-bold">Custom</span>
+                  <span className="text-5xl font-light text-white">Custom</span>
                 </div>
                 <ul className="space-y-3 mb-8">
-                  {[
-                    "Todo del plan Pro",
-                    "Equipo ilimitado",
-                    "SLA garantizado",
-                    "Onboarding dedicado",
-                    "Integraciones custom",
-                    "Soporte 24/7",
-                  ].map((f, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm text-white/50">
-                      <CheckCircle2 className="w-4 h-4 text-[#818CF8] shrink-0" />
-                      {f}
+                  {t.pricing.enterpriseFeatures.map((f, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm text-white/45 font-light">
+                      <CheckCircle2 className="w-4 h-4 text-white/30 shrink-0" />{f}
                     </li>
                   ))}
                 </ul>
-                <button className="btn-secondary w-full py-3 rounded-full text-sm cursor-not-allowed opacity-50">
-                  Próximamente
-                </button>
+                <button className="btn-secondary w-full py-3.5 rounded-full text-sm cursor-not-allowed opacity-50 font-light">{t.pricing.comingSoon}</button>
               </div>
             </FadeIn>
           </div>
+
+          <FadeIn delay={0.3}>
+            <div className="flex items-center justify-center gap-2 mt-10">
+              <CheckCircle2 className="w-4 h-4 text-white/30" />
+              <p className="text-white/30 text-sm font-light">{t.pricing.cancel}</p>
+            </div>
+          </FadeIn>
         </div>
       </section>
 
-      <div className="divider-gradient" />
+      <div className="relative z-[2] divider-gradient" />
 
-      {/* ── CTA + Form ── */}
-      <section id="cta" className="section-space">
+      {/* ══════════════════════════════════════════════════════
+          CTA — no email form, just button to pricing
+          ══════════════════════════════════════════════════════ */}
+      <section id="cta" className="relative z-[2] section-space">
         <div className="max-w-2xl mx-auto px-6 text-center">
           <FadeIn>
-            <h2 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">
-              Reserva tu <span className="text-gradient-main">cupo</span>
-            </h2>
-            <p className="text-white/40 mb-10 max-w-md mx-auto">
-              Solo 100 cupos en acceso anticipado. Ingresa tu correo para asegurar tu lugar.
-            </p>
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal mb-6 tracking-tighter text-white">{t.cta.title}</h2>
+            <p className="text-white/35 mb-12 max-w-md mx-auto text-lg font-light">{t.cta.subtitle}</p>
           </FadeIn>
-
           <FadeIn delay={0.15}>
-            {!submitted ? (
-              <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="tu@correo.com"
-                  required
-                  className="flex-1 px-5 py-3.5 rounded-full bg-white/[0.04] border border-white/[0.08] text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#4F46E5]/50 transition-colors"
-                />
-                <button
-                  type="submit"
-                  className="btn-primary px-8 py-3.5 rounded-full text-sm flex items-center justify-center gap-2 whitespace-nowrap"
-                >
-                  Reservar
-                  <Send className="w-4 h-4" />
-                </button>
-              </form>
-            ) : (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="glass-card rounded-2xl p-8 max-w-md mx-auto"
-              >
-                <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold mb-2">Cupo reservado</h3>
-                <p className="text-sm text-white/40">
-                  Te enviaremos un correo con los próximos pasos. Bienvenido a Dona.
-                </p>
-              </motion.div>
-            )}
+            <a href="#pricing" className="btn-primary inline-flex items-center gap-2 px-10 py-4 rounded-full text-sm pulse-glow">
+              {t.cta.button}
+              <ArrowRight className="w-4 h-4" />
+            </a>
           </FadeIn>
         </div>
       </section>
 
-      {/* ── FAQ ── */}
-      <section id="faq" className="section-space">
-        <div className="max-w-6xl mx-auto px-6">
+      {/* ══════════════════════════════════════════════════════
+          FAQ
+          ══════════════════════════════════════════════════════ */}
+      <section id="faq" className="relative z-[2] section-space">
+        <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
-            <p className="text-sm uppercase tracking-[0.2em] text-white/30 mb-4 text-center">
-              FAQ
-            </p>
-            <h2 className="text-3xl md:text-5xl font-bold text-center mb-16 tracking-tight">
-              Preguntas <span className="text-gradient">frecuentes</span>
-            </h2>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.faq.label}</p>
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white">{t.faq.title}</h2>
           </FadeIn>
           <FadeIn delay={0.1}>
-            <FAQ />
+            <FAQSection items={t.faq.items} />
           </FadeIn>
         </div>
       </section>
 
-      <div className="divider-gradient" />
+      <div className="relative z-[2] divider-gradient" />
 
       {/* ── Footer ── */}
-      <footer className="py-12">
-        <div className="max-w-6xl mx-auto px-6">
+      <footer className="relative z-[2] py-16">
+        <div className="max-w-7xl mx-auto px-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4">
-              <span className="text-lg font-bold text-gradient-main">Dona</span>
-              <span className="text-xs text-white/20">
-                Tu agente de productividad en WhatsApp
-              </span>
+              <span className="text-xl font-normal text-white">Dona</span>
+              <span className="text-xs text-white/20 font-light">{t.footer.tagline}</span>
             </div>
-            <div className="flex items-center gap-6 text-sm text-white/30">
-              <a href="mailto:hola@usadona.com" className="hover:text-white/60 transition-colors">
-                hola@usadona.com
-              </a>
-              <a
-                href="https://instagram.com/usadona"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-white/60 transition-colors"
-              >
-                Instagram
-              </a>
-              <a
-                href="https://twitter.com/usadona"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-white/60 transition-colors"
-              >
-                X / Twitter
-              </a>
+            <div className="flex items-center gap-6 text-sm text-white/25 font-light">
+              <a href="mailto:hola@usadona.com" className="nav-link">hola@usadona.com</a>
+              <a href="https://instagram.com/usadona" target="_blank" rel="noopener noreferrer" className="nav-link">Instagram</a>
+              <a href="https://twitter.com/usadona" target="_blank" rel="noopener noreferrer" className="nav-link">X / Twitter</a>
             </div>
           </div>
-          <div className="mt-8 text-center text-xs text-white/15">
-            &copy; {new Date().getFullYear()} Dona. Todos los derechos reservados.
+
+          <div className="mt-8 pt-8 border-t border-white/[0.06]">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-6 text-xs text-white/20 font-light">
+                <a href="#" className="nav-link">{t.footer.terms}</a>
+                <a href="#" className="nav-link">{t.footer.privacy}</a>
+                <a href="#" className="nav-link">{t.footer.legal}</a>
+              </div>
+            </div>
+            <p className="text-[11px] text-white/15 font-light mt-6 max-w-2xl mx-auto text-center leading-relaxed">
+              {t.footer.disclaimer}
+            </p>
+          </div>
+
+          <div className="mt-8 text-center text-xs text-white/10 font-light">
+            &copy; {new Date().getFullYear()} Dona. {t.footer.copy}
           </div>
         </div>
       </footer>

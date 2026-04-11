@@ -1,11 +1,12 @@
 @import "tailwindcss";
 
 /*
-  DONA — Design System
-  Inspired by saleads.ai color palette and editorial style
-  Background: #050a1a (deep navy-black)
-  Text: white hierarchy
-  Accent: #4F46E5 indigo → #7C3AED violet gradient
+  DONA — Design System v5
+  Dark premium with fixed video background
+  Accent: #7C3AED violet (subtle)
+  Buttons: ghost/outline only — no solid fills
+  Hover: blue-electric (#2563EB) + orange (#F97316) gradient
+  Typography: Outfit thin/light + JetBrains Mono
 */
 
 @theme inline {
@@ -16,17 +17,11 @@
 }
 
 :root {
-  --background: #050a1a;
-  --foreground: #f0f0f5;
-  --accent-1: #4F46E5;
-  --accent-2: #7C3AED;
-  --accent-glow: rgba(79, 70, 229, 0.4);
-  --gradient-main: linear-gradient(135deg, #4F46E5, #7C3AED);
-  --gradient-text: linear-gradient(135deg, #818CF8, #A78BFA);
+  --background: #0a0a0a;
+  --foreground: #f5f5f5;
+  --accent: #7C3AED;
   --card-bg: rgba(255, 255, 255, 0.03);
-  --card-border: rgba(255, 255, 255, 0.06);
-  --muted: rgba(255, 255, 255, 0.4);
-  --dim: rgba(255, 255, 255, 0.2);
+  --card-border: rgba(255, 255, 255, 0.07);
 }
 
 html {
@@ -37,106 +32,162 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
+  font-weight: 300;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Selection ── */
 ::selection {
-  background: rgba(79, 70, 229, 0.3);
+  background: rgba(124, 58, 237, 0.25);
   color: white;
 }
 
-/* ── Gradient text ── */
+/* -- Gradient text -- */
 .text-gradient {
-  background: var(--gradient-text);
+  background: linear-gradient(135deg, #ffffff, rgba(255, 255, 255, 0.6));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-.text-gradient-main {
-  background: var(--gradient-main);
+.text-gradient-stat {
+  background: linear-gradient(180deg, #ffffff, rgba(255, 255, 255, 0.4));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* ── Buttons ── */
+/* -- Nav link hover: blue-to-orange gradient text -- */
+.nav-link {
+  transition: all 0.3s ease;
+}
+.nav-link:hover {
+  background: linear-gradient(135deg, #2563EB, #F97316);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* -- Primary CTA button — ghost/outline -- */
 .btn-primary {
-  background: var(--gradient-main);
+  background: transparent;
   color: white;
-  font-weight: 600;
+  font-weight: 400;
+  border: 1px solid rgba(255, 255, 255, 0.25);
   transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-  box-shadow: 0 4px 24px var(--accent-glow);
 }
 .btn-primary:hover {
-  box-shadow: 0 8px 40px rgba(79, 70, 229, 0.6);
+  border-color: transparent;
+  background: linear-gradient(135deg, #2563EB, #F97316);
+  color: white;
+  box-shadow: 0 4px 32px rgba(37, 99, 235, 0.25), 0 4px 32px rgba(249, 115, 22, 0.15);
   transform: translateY(-2px);
 }
+.btn-primary:active {
+  transform: translateY(0) scale(0.98);
+}
 
+/* -- Secondary / ghost button -- */
 .btn-secondary {
   background: transparent;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  font-weight: 500;
+  font-weight: 300;
   transition: all 0.3s ease;
 }
 .btn-secondary:hover {
-  border-color: rgba(255, 255, 255, 0.25);
+  border-color: transparent;
+  background: linear-gradient(135deg, #2563EB, #F97316);
   color: white;
-  background: rgba(255, 255, 255, 0.03);
+  box-shadow: 0 4px 32px rgba(37, 99, 235, 0.2), 0 4px 32px rgba(249, 115, 22, 0.1);
 }
 
-/* ── Pulse glow ── */
+/* -- Pulse glow -- */
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 4px 24px var(--accent-glow); }
-  50% { box-shadow: 0 4px 48px rgba(79, 70, 229, 0.7); }
+  0%, 100% { box-shadow: 0 0 16px rgba(37, 99, 235, 0.08); }
+  50% { box-shadow: 0 0 32px rgba(37, 99, 235, 0.15), 0 0 32px rgba(249, 115, 22, 0.08); }
 }
 .pulse-glow {
   animation: pulse-glow 3s ease-in-out infinite;
 }
 
-/* ── Divider ── */
+/* -- Divider -- */
 .divider-gradient {
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--accent-1), var(--accent-2), transparent);
-  opacity: 0.3;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
 }
 
-/* ── Cards ── */
+/* -- Glass card -- */
 .glass-card {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  backdrop-filter: blur(12px);
-  transition: all 0.3s ease;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .glass-card:hover {
-  border-color: rgba(79, 70, 229, 0.25);
-  box-shadow: 0 0 40px rgba(79, 70, 229, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 40px rgba(124, 58, 237, 0.04);
 }
 
-/* ── Noise overlay ── */
+/* -- Noise overlay -- */
 .noise-overlay::after {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.025;
+  opacity: 0.02;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
   background-size: 256px;
 }
 
-/* ── Section spacing ── */
+/* -- Section spacing -- */
 .section-space {
-  padding-top: 8rem;
-  padding-bottom: 8rem;
+  padding-top: 10rem;
+  padding-bottom: 10rem;
 }
-
 @media (max-width: 768px) {
   .section-space {
     padding-top: 5rem;
     padding-bottom: 5rem;
   }
+}
+
+/* -- Step number -- */
+.step-number {
+  font-family: var(--font-geist-mono), monospace;
+  font-weight: 200;
+  color: rgba(255, 255, 255, 0.06);
+  font-size: 5rem;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+@media (min-width: 768px) {
+  .step-number { font-size: 8rem; }
+}
+
+/* -- Fade-in reveal (CSS-driven, bfcache-safe) -- */
+[data-fade="pending"] {
+  opacity: 0;
+}
+[data-fade="pending"][style*="--fade-dir:up"]    { transform: translateY(40px); }
+[data-fade="pending"][style*="--fade-dir:down"]  { transform: translateY(-40px); }
+[data-fade="pending"][style*="--fade-dir:left"]  { transform: translateX(40px); }
+[data-fade="pending"][style*="--fade-dir:right"] { transform: translateX(-40px); }
+[data-fade="visible"] {
+  opacity: 1 !important;
+  transform: none !important;
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--fade-delay, 0s),
+              transform 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--fade-delay, 0s);
+}
+
+/* -- Testimonial carousel (infinite, no pause) -- */
+@keyframes scroll-left {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.carousel-track {
+  animation: scroll-left 35s linear infinite;
 }
