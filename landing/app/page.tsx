@@ -779,29 +779,29 @@ export default function Home() {
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4">
               <span className="text-xl font-normal text-white">Dona</span>
-              <span className="text-xs text-white/20 font-light">{t.footer.tagline}</span>
+              <span className="text-xs text-white/30 font-light">{t.footer.tagline}</span>
             </div>
-            <div className="flex items-center gap-6 text-sm text-white/25 font-light">
+            <div className="flex items-center gap-6 text-sm text-white/40 font-light">
               <a href="mailto:hola@usadona.com" className="nav-link">hola@usadona.com</a>
-              <a href="https://instagram.com/usadona" target="_blank" rel="noopener noreferrer" className="nav-link">Instagram</a>
-              <a href="https://twitter.com/usadona" target="_blank" rel="noopener noreferrer" className="nav-link">X / Twitter</a>
+              <a href="https://instagram.com/usadonaapp" target="_blank" rel="noopener noreferrer" className="nav-link">Instagram</a>
+              <a href="#" className="nav-link">X / Twitter</a>
             </div>
           </div>
 
           <div className="mt-8 pt-8 border-t border-white/[0.06]">
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-6 text-xs text-white/20 font-light">
+              <div className="flex items-center gap-6 text-xs text-white/30 font-light">
                 <a href="#" className="nav-link">{t.footer.terms}</a>
                 <a href="#" className="nav-link">{t.footer.privacy}</a>
                 <a href="#" className="nav-link">{t.footer.legal}</a>
               </div>
             </div>
-            <p className="text-[11px] text-white/15 font-light mt-6 max-w-2xl mx-auto text-center leading-relaxed">
+            <p className="text-[11px] text-white/25 font-light mt-6 max-w-2xl mx-auto text-center leading-relaxed">
               {t.footer.disclaimer}
             </p>
           </div>
 
-          <div className="mt-8 text-center text-xs text-white/10 font-light">
+          <div className="mt-8 text-center text-xs text-white/20 font-light">
             &copy; {new Date().getFullYear()} Dona. {t.footer.copy}
           </div>
         </div>
