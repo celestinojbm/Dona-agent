@@ -454,6 +454,41 @@ async def procesar_webhook(request: Request):
                 await proveedor.enviar_mensaje(msg.telefono, resp_diag)
                 continue
 
+            # ── Dona 2.0: Ejecución con supervisión (!actions, !exec) ──
+            if _texto_cmd in ("!actions", "!acciones"):
+                from enhanced.execution import ejecucion
+                from enhanced.safe_module import _es_owner
+                if _es_owner(msg.telefono):
+                    await proveedor.enviar_mensaje(msg.telefono, ejecucion.listar_acciones())
+                else:
+                    await proveedor.enviar_mensaje(msg.telefono, "Este comando requiere permisos de administrador.")
+                continue
+            if _texto_cmd.startswith("!exec") or _texto_lower.startswith("!exec "):
+                from enhanced.execution import ejecucion
+                from enhanced.safe_module import _es_owner
+                if not _es_owner(msg.telefono):
+                    await proveedor.enviar_mensaje(msg.telefono, "Este comando requiere permisos de administrador.")
+                    continue
+                # Extraer nombre de la acción: "!exec limpiar_rate_limit" → "limpiar_rate_limit"
+                _partes = msg.texto.strip().split(maxsplit=1)
+                if len(_partes) < 2:
+                    await proveedor.enviar_mensaje(msg.telefono, "Uso: *!exec <nombre_accion>*\nEscribe *!actions* para ver las disponibles.")
+                    continue
+                _nombre_accion = _partes[1].strip().lower()
+                resp_exec = await ejecucion.iniciar_ejecucion(msg.telefono, _nombre_accion)
+                await proveedor.enviar_mensaje(msg.telefono, resp_exec)
+                continue
+            # ── Dona 2.0: Reporte semanal bajo demanda ───────────────────
+            if _texto_cmd in ("!insights", "!reporte"):
+                from enhanced.insights import insights as _insights_mod
+                from enhanced.safe_module import _es_owner
+                if _es_owner(msg.telefono):
+                    reporte = await _insights_mod.generar_reporte_semanal()
+                    await proveedor.enviar_mensaje(msg.telefono, reporte)
+                else:
+                    await proveedor.enviar_mensaje(msg.telefono, "Este comando requiere permisos de administrador.")
+                continue
+
             # ── Dona 2.0: Catálogo de sistemas ─────────────────────────
             from enhanced.nlp_detector import es_consulta_catalogo
             if es_consulta_catalogo(msg.texto):

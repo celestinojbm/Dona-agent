@@ -265,6 +265,18 @@ def iniciar_scheduler(proveedor):
         id="dona2_monitoreo",
         replace_existing=True,
     )
+    # Dona 2.0: Reporte semanal de insights — domingos 20:00 UTC
+    from enhanced.insights import job_reporte_semanal
+    scheduler.add_job(
+        job_reporte_semanal,
+        trigger="cron",
+        day_of_week="sun",
+        hour=20,
+        minute=0,
+        args=[proveedor],
+        id="dona2_reporte_semanal",
+        replace_existing=True,
+    )
     # Self-ping para mantener vivo el servicio en Render Free Tier
     scheduler.add_job(
         _self_ping,
