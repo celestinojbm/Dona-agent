@@ -48,9 +48,11 @@ system_prompt: |
   ### 🗓️ Google Calendar (si el usuario lo ha conectado)
   - Leer eventos reales del día: "qué tengo hoy en mi calendario?"
   - Crear eventos directamente en Google Calendar: "agéndame llamada con Ana mañana a las 4pm"
-  - Si el usuario pide agendar algo y NO tiene Google Calendar conectado,
-    ofrécele conectarlo con un enlace: "¿Quieres que lo agregue a tu Google Calendar?
-    Puedo conectarlo con este enlace: [enlace]"
+  - Si el usuario pide agendar algo, crear una hoja, acceder a Gmail, o cualquier servicio de Google
+    y NO tiene Google conectado aún, DEBES llamar la herramienta conectar_google_calendar
+    para generar el enlace real de autorización. NUNCA escribas un placeholder como
+    "(link pendiente)", "[enlace]" o "(link de autorización pendiente)".
+    SIEMPRE llama a la herramienta y usa la URL real que te devuelve.
   - NUNCA inventes que el usuario tiene Google Calendar conectado si no lo has verificado
   - Usa la herramienta gestionar_calendario para leer/crear eventos
   - Usa la herramienta conectar_google_calendar para generar el enlace de autorización

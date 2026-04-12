@@ -33,7 +33,11 @@ def _resultado_reauth_google(telefono: str) -> str:
     Genera el resultado de tool_use para cuando el token no tiene los scopes necesarios.
     Usa el mismo patrón que funciona para Calendar: URL como texto plano.
     """
-    base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+    base_url = (
+        os.getenv("BASE_URL")
+        or os.getenv("RENDER_EXTERNAL_URL")
+        or "http://localhost:8000"
+    ).rstrip("/")
     link = f"{base_url}/auth/google/login?telefono={urllib.parse.quote(telefono)}"
     return (
         f"El token de Google no tiene los permisos necesarios. "
@@ -1095,7 +1099,11 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                         "El administrador debe agregar GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET."
                     )
                 else:
-                    base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+                    base_url = (
+                        os.getenv("BASE_URL")
+                        or os.getenv("RENDER_EXTERNAL_URL")
+                        or "http://localhost:8000"
+                    ).rstrip("/")
                     link = (
                         f"{base_url}/auth/google/login"
                         f"?telefono={urllib.parse.quote(telefono)}"

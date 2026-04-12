@@ -20,13 +20,21 @@ logger = logging.getLogger("agentkit")
 # ─── MENSAJES ────────────────────────────────────────────────────────────────
 
 MENSAJE_BIENVENIDA = """\
-¡Hola! 👋 Soy *Dona*, tu asistente de IA personal en WhatsApp.
+¡Hola! 👋 Soy *Dona*, tu asistente personal con inteligencia artificial.
 
-Para ser realmente útil para ti — no solo un recordatorio genérico — necesito conocerte bien.
+Vivo aquí en WhatsApp y puedo ayudarte con:
+📌 Tareas y pendientes
+🔔 Recordatorios inteligentes
+📅 Tu Google Calendar y Gmail
+📋 Listas y hojas de cálculo
+🧠 Analizar decisiones importantes
+☀️ Resúmenes matutinos personalizados
 
-Voy a hacerte algunas preguntas en los próximos días. Cada cosa que compartas me hace más inteligente para ayudarte.
+Pero para ser realmente útil — no solo un bot genérico — necesito conocerte un poco.
 
-¿Empezamos ahora? Responde *sí* cuando estés listo ✨"""
+Te haré algunas preguntas en los próximos días. Cada cosa que compartas me hace más inteligente para ayudarte.
+
+¿Empezamos? Responde *sí* cuando estés listo ✨"""
 
 MENSAJE_PEDIR_NOMBRE = """\
 Genial! Antes de empezar — ¿cómo te llamas? 😊"""

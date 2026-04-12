@@ -31,7 +31,11 @@ logger = logging.getLogger("agentkit")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+BASE_URL = (
+    os.getenv("BASE_URL")
+    or os.getenv("RENDER_EXTERNAL_URL")
+    or "http://localhost:8000"
+).rstrip("/")
 REDIRECT_URI = f"{BASE_URL}/auth/google/callback"
 
 # Alcances de Google que Dona necesita (Calendar + Sheets + Drive + Gmail)

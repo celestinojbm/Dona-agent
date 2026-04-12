@@ -161,6 +161,10 @@ async def _evaluar_disparadores(usuario: dict, ahora_local: datetime, offset_min
     nombre = usuario["nombre"] or ""
     contexto = usuario.get("contexto_onboarding") or ""
 
+    # ── Guardia nocturna: NO enviar mensajes proactivos antes de las 7am ─────
+    if ahora_local.hour < 7:
+        return None
+
     # ── 1. Morning Brief ──────────────────────────────────────────────────────
     brief_hour = usuario.get("morning_brief_hour", 8)
     ultimo_brief = usuario.get("ultimo_morning_brief")
@@ -313,8 +317,15 @@ async def _disparador_deadline_24h(telefono: str, nombre: str, offset_min: int) 
         if not proximos:
             return None
 
-        # Tomar el más próximo
-        r = proximos[0]
+        # Tomar el más próximo que sea IMPORTANTE (no básico como "tomar agua")
+        r = None
+        for candidato in proximos:
+            if _es_recordatorio_importante(candidato["mensaje"]):
+                r = candidato
+                break
+        if not r:
+            return None
+
         horas_restantes = (r["fecha_hora"] - datetime.utcnow()).total_seconds() / 3600
 
         # Solo disparar si está entre 22h y 26h (ventana de 4h para no repetir)
@@ -344,7 +355,15 @@ async def _disparador_deadline_1h(telefono: str, nombre: str, offset_min: int) -
         if not proximos:
             return None
 
-        r = proximos[0]
+        # Solo avisar con anticipación para recordatorios IMPORTANTES
+        r = None
+        for candidato in proximos:
+            if _es_recordatorio_importante(candidato["mensaje"]):
+                r = candidato
+                break
+        if not r:
+            return None
+
         minutos = int((r["fecha_hora"] - datetime.utcnow()).total_seconds() / 60)
 
         # No duplicar con el scheduler de recordatorios (que también lo envía al vencer)
@@ -569,6 +588,28 @@ def _hora_local_str(fecha_utc: datetime, offset_min: int = 0) -> str:
     """Convierte datetime UTC a string legible en hora local del usuario."""
     local = fecha_utc + timedelta(minutes=offset_min)
     return local.strftime("%d/%m %H:%M")
+
+
+# Palabras clave que indican un recordatorio IMPORTANTE (merece aviso anticipado).
+# Recordatorios básicos (tomar agua, pastilla, etc.) solo se envían a la hora exacta.
+_KEYWORDS_RECORDATORIO_IMPORTANTE = {
+    "reunión", "reunion", "cita", "entrevista", "llamada", "presentación",
+    "presentacion", "junta", "evento", "vuelo", "viaje", "avión", "avion",
+    "aeropuerto", "consulta", "doctor", "dentista", "médico", "medico",
+    "examen", "deadline", "entrega", "vencimiento", "pago", "factura",
+    "visita", "audiencia", "conferencia", "webinar", "clase", "curso",
+    "cumpleaños", "cumpleanos", "aniversario", "boda", "graduación",
+    "graduacion", "compromiso", "reserva", "reservación", "reservacion",
+}
+
+
+def _es_recordatorio_importante(mensaje: str) -> bool:
+    """
+    Retorna True si el recordatorio es importante y merece aviso anticipado.
+    Recordatorios básicos (tomar agua, pastilla, etc.) solo se envían a la hora exacta.
+    """
+    texto_lower = mensaje.lower()
+    return any(kw in texto_lower for kw in _KEYWORDS_RECORDATORIO_IMPORTANTE)
 
 
 async def _disparador_consejo_estrategico(telefono: str, nombre: str, contexto: str) -> str | None:
