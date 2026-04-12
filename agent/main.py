@@ -87,6 +87,9 @@ def _dentro_de_limite(telefono: str) -> bool:
 async def lifespan(app: FastAPI):
     """Inicializa la base de datos y el scheduler al arrancar el servidor."""
     await inicializar_db()
+    # Crear tablas de Dona 2.0 (enhanced/) si no existen
+    from enhanced.models import inicializar_tablas_enhanced
+    await inicializar_tablas_enhanced()
     iniciar_scheduler(proveedor)
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor Dona corriendo en puerto {PORT}")
@@ -413,6 +416,40 @@ async def procesar_webhook(request: Request):
                 continue
 
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto[:120]}")
+
+            # ── Dona 2.0: Confirmaciones pendientes (SafeModule) ─────────
+            from enhanced.safe_module import tiene_confirmacion_pendiente
+            if tiene_confirmacion_pendiente(msg.telefono):
+                from enhanced.safe_module import SafeModule
+                _sm = SafeModule()
+                _procesado, _resp_conf = await _sm.procesar_confirmacion(msg.telefono, msg.texto)
+                if _procesado:
+                    await proveedor.enviar_mensaje(msg.telefono, _resp_conf)
+                    logger.info(f"[ENHANCED] Confirmación procesada para {msg.telefono}")
+                    continue
+
+            # ── Dona 2.0: Comando !diagnostic (owner) y diagnóstico usuario ──
+            _texto_lower = msg.texto.strip().lower()
+            # Normalizar: quitar espacios entre ! y la palabra, ej "! diagnostic" → "!diagnostic"
+            _texto_cmd = _texto_lower.replace(" ", "")
+            if _texto_cmd in ("!diagnostic", "!diagnostico", "!diag"):
+                from enhanced.diagnostics import diagnostico
+                from enhanced.safe_module import _es_owner
+                if _es_owner(msg.telefono):
+                    checks = await diagnostico.ejecutar_diagnostico(msg.telefono)
+                    resp_diag = diagnostico.formatear_vista_owner(checks)
+                else:
+                    resp_diag = "Este comando requiere permisos de administrador."
+                await proveedor.enviar_mensaje(msg.telefono, resp_diag)
+                continue
+            # "dona status" → vista simplificada para cualquier usuario
+            if _texto_cmd in ("donastatus", "donaestado", "donadiagnostico", "donadiagnóstico") or \
+               _texto_lower in ("dona status", "dona estado", "dona diagnóstico", "dona diagnostico"):
+                from enhanced.diagnostics import diagnostico
+                checks = await diagnostico.ejecutar_diagnostico(msg.telefono)
+                resp_diag = diagnostico.formatear_vista_usuario(checks)
+                await proveedor.enviar_mensaje(msg.telefono, resp_diag)
+                continue
 
             # ── Comandos de proactividad ("dona pausa", "dona resumen", etc.) ──
             if es_comando_proactividad(msg.texto):
