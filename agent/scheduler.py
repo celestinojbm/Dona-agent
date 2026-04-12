@@ -255,6 +255,16 @@ def iniciar_scheduler(proveedor):
         id="actualizar_perfiles_aprendizaje",
         replace_existing=True,
     )
+    # Dona 2.0: Monitoreo y alertas cada 15 minutos
+    from enhanced.monitoring import job_monitoreo
+    scheduler.add_job(
+        job_monitoreo,
+        trigger="interval",
+        minutes=15,
+        args=[proveedor],
+        id="dona2_monitoreo",
+        replace_existing=True,
+    )
     # Self-ping para mantener vivo el servicio en Render Free Tier
     scheduler.add_job(
         _self_ping,
@@ -300,7 +310,8 @@ def iniciar_scheduler(proveedor):
     scheduler.start()
     logger.info(
         "Scheduler iniciado — recordatorios cada minuto, Google Calendar cada 5 min, "
-        "onboarding y proactividad cada hora, self-ping cada 10 min, aprendizaje los domingos, "
+        "onboarding y proactividad cada hora, monitoreo Dona 2.0 cada 15 min, "
+        "self-ping cada 10 min, aprendizaje los domingos, "
         "simulaciones MiroFish lunes/miércoles/viernes a las 2 AM UTC"
     )
 

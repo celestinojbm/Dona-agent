@@ -90,6 +90,9 @@ async def lifespan(app: FastAPI):
     # Crear tablas de Dona 2.0 (enhanced/) si no existen
     from enhanced.models import inicializar_tablas_enhanced
     await inicializar_tablas_enhanced()
+    # Sembrar catálogo de sistemas si está vacío
+    from enhanced.catalog import sembrar_catalogo
+    await sembrar_catalogo()
     iniciar_scheduler(proveedor)
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor Dona corriendo en puerto {PORT}")
@@ -451,6 +454,23 @@ async def procesar_webhook(request: Request):
                 await proveedor.enviar_mensaje(msg.telefono, resp_diag)
                 continue
 
+            # ── Dona 2.0: Catálogo de sistemas ─────────────────────────
+            from enhanced.nlp_detector import es_consulta_catalogo
+            if es_consulta_catalogo(msg.texto):
+                from enhanced.catalog import obtener_catalogo_activo
+                from enhanced.system_manager import gestor_sistemas
+                catalogo = await obtener_catalogo_activo()
+                resp_cat = gestor_sistemas.formatear_catalogo(catalogo)
+                await proveedor.enviar_mensaje(msg.telefono, resp_cat)
+                continue
+
+            # "mis sistemas" → listar sistemas activos del usuario
+            if _texto_lower in ("mis sistemas", "mis sistemas activos"):
+                from enhanced.system_manager import gestor_sistemas
+                resp_sis = await gestor_sistemas.listar_sistemas_usuario(msg.telefono)
+                await proveedor.enviar_mensaje(msg.telefono, resp_sis)
+                continue
+
             # ── Comandos de proactividad ("dona pausa", "dona resumen", etc.) ──
             if es_comando_proactividad(msg.texto):
                 try:
@@ -508,6 +528,26 @@ async def procesar_webhook(request: Request):
             # ── Detección de viaje (ciudad temporal con expiración) ───────────
             if parece_viaje(msg.texto):
                 _asyncio.create_task(_detectar_y_guardar_viaje(msg.telefono, msg.texto))
+
+            # ── Dona 2.0: Detección NLP de sistemas del catálogo ────────────
+            try:
+                from enhanced.nlp_detector import detectar_sistema, _pasa_filtro_rapido
+                if _pasa_filtro_rapido(msg.texto):
+                    from enhanced.catalog import obtener_catalogo_activo
+                    from enhanced.system_manager import gestor_sistemas
+                    _catalogo = await obtener_catalogo_activo()
+                    _match = await detectar_sistema(msg.texto, _catalogo)
+                    if _match:
+                        resp_sis = await gestor_sistemas.instanciar_sistema(
+                            msg.telefono, _match["catalog_id"]
+                        )
+                        await proveedor.enviar_mensaje(msg.telefono, resp_sis)
+                        await guardar_mensaje(msg.telefono, "user", msg.texto)
+                        await guardar_mensaje(msg.telefono, "assistant", resp_sis)
+                        logger.info(f"[SISTEMAS] Sistema '{_match['nombre']}' activado para {msg.telefono}")
+                        continue
+            except Exception as _e_nlp:
+                logger.debug(f"[SISTEMAS] Error en detección NLP: {_e_nlp}")
 
             # ── Historial de conversación ─────────────────────────────────────
             try:
