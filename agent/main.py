@@ -53,6 +53,35 @@ import collections as _collections
 _mensajes_procesados: _collections.OrderedDict = _collections.OrderedDict()
 _MAX_IDS_DEDUP = 1000
 
+# ── Rate limiting por número de teléfono ─────────────────────────────────────
+# Limita la cantidad de mensajes que un solo número puede enviar por minuto.
+# Protege contra abuso, spam, y consumo excesivo de Claude API.
+from time import time as _time
+
+_rate_limit: dict[str, list[float]] = {}
+_RATE_LIMIT_MAX = 10        # máximo de mensajes por ventana
+_RATE_LIMIT_VENTANA = 60.0  # ventana en segundos (1 minuto)
+_RATE_LIMIT_MAX_KEYS = 500  # limpiar números inactivos si se acumulan
+
+
+def _dentro_de_limite(telefono: str) -> bool:
+    """Retorna True si el número no ha excedido el límite de mensajes por minuto."""
+    ahora = _time()
+    timestamps = _rate_limit.get(telefono, [])
+    # Filtrar timestamps fuera de la ventana
+    timestamps = [t for t in timestamps if ahora - t < _RATE_LIMIT_VENTANA]
+    if len(timestamps) >= _RATE_LIMIT_MAX:
+        _rate_limit[telefono] = timestamps
+        return False
+    timestamps.append(ahora)
+    _rate_limit[telefono] = timestamps
+    # Limpieza periódica: si hay demasiados números tracked, eliminar los más viejos
+    if len(_rate_limit) > _RATE_LIMIT_MAX_KEYS:
+        numeros_ordenados = sorted(_rate_limit, key=lambda t: _rate_limit[t][-1] if _rate_limit[t] else 0)
+        for n in numeros_ordenados[:len(_rate_limit) - _RATE_LIMIT_MAX_KEYS]:
+            del _rate_limit[n]
+    return True
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -339,6 +368,11 @@ async def procesar_webhook(request: Request):
                 _mensajes_procesados[msg.mensaje_id] = True
                 if len(_mensajes_procesados) > _MAX_IDS_DEDUP:
                     _mensajes_procesados.popitem(last=False)  # Eliminar el más antiguo
+
+            # ── Rate limiting: máx 10 mensajes por minuto por número ──
+            if not _dentro_de_limite(msg.telefono):
+                logger.warning(f"[RATE] Límite excedido para {msg.telefono} — mensaje ignorado")
+                continue
 
             # Si es una nota de voz, transcribirla primero
             if msg.audio_id and not msg.texto:

@@ -13,9 +13,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  // Forward Meta's HMAC signature so Render can verify authenticity
+  const signature = request.headers.get("X-Hub-Signature-256");
+  if (signature) {
+    headers["X-Hub-Signature-256"] = signature;
+  }
   const res = await fetch(RENDER_WEBHOOK_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body,
   });
   const data = await res.json();

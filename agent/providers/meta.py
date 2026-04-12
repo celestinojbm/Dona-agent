@@ -14,6 +14,8 @@ Variables opcionales:
 """
 
 import os
+import hmac
+import hashlib
 import logging
 import httpx
 from fastapi import Request
@@ -36,6 +38,7 @@ class ProveedorMeta(ProveedorWhatsApp):
         self.access_token = os.getenv("META_ACCESS_TOKEN", "")
         self.phone_number_id = os.getenv("META_PHONE_NUMBER_ID", "")
         self.verify_token = os.getenv("META_WEBHOOK_VERIFY_TOKEN", "dona_webhook_secret")
+        self.app_secret = os.getenv("META_APP_SECRET", "")
         self.api_version = os.getenv("META_API_VERSION", "v21.0")
         self.url_envio = (
             f"https://graph.facebook.com/{self.api_version}"
@@ -60,13 +63,48 @@ class ProveedorMeta(ProveedorWhatsApp):
             logger.warning(f"[META] Verificación de webhook fallida: mode={mode} token={token}")
             return None
 
+    def _verificar_firma(self, body_bytes: bytes, signature_header: str) -> bool:
+        """
+        Verifica la firma HMAC-SHA256 que Meta envía en X-Hub-Signature-256.
+        Retorna True si la firma es válida o si META_APP_SECRET no está configurado
+        (modo degradado con warning).
+        """
+        if not self.app_secret:
+            logger.warning(
+                "[META] META_APP_SECRET no configurado — webhook sin verificación HMAC. "
+                "Configura esta variable para proteger el webhook contra payloads falsos."
+            )
+            return True  # Permitir sin firma si no se configuró (backwards compatible)
+
+        if not signature_header or not signature_header.startswith("sha256="):
+            logger.warning("[META] Webhook recibido sin firma X-Hub-Signature-256 válida — rechazado")
+            return False
+
+        expected = hmac.new(
+            self.app_secret.encode(), body_bytes, hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(signature_header[7:], expected):
+            logger.warning("[META] Firma HMAC del webhook NO coincide — payload rechazado")
+            return False
+
+        return True
+
     async def parsear_webhook(self, request: Request) -> list[MensajeEntrante]:
         """
         Parsea el payload de la Cloud API de Meta.
         Estructura: entry[].changes[].value.messages[]
+        Verifica firma HMAC-SHA256 antes de procesar.
         """
+        # Verificar firma HMAC antes de procesar
+        body_bytes = await request.body()
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        if not self._verificar_firma(body_bytes, signature):
+            return []  # Rechazar payload sin firma válida
+
         try:
-            body = await request.json()
+            import json as _json
+            body = _json.loads(body_bytes)
         except Exception as e:
             logger.error(f"[META] Error al parsear JSON del webhook: {e}")
             return []
