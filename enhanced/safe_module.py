@@ -14,7 +14,7 @@ Cada módulo puede deshabilitarse con feature flags.
 
 import os
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Any, Callable, Awaitable
@@ -48,7 +48,7 @@ class ConfirmacionPendiente:
     """Estado de una confirmación en progreso."""
     accion: AccionConfirmable
     telefono: str
-    creada: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    creada: datetime = field(default_factory=lambda: datetime.utcnow())
     primera_confirmacion: bool = False  # True si ya recibió CONFIRMAR (para owner_critical)
 
 
@@ -67,7 +67,7 @@ def _es_owner(telefono: str) -> bool:
 
 def _confirmacion_expirada(conf: ConfirmacionPendiente) -> bool:
     """Verifica si una confirmación pendiente ha expirado."""
-    ahora = datetime.now(timezone.utc)
+    ahora = datetime.utcnow()
     return (ahora - conf.creada).total_seconds() > CONFIRMACION_TIMEOUT
 
 
@@ -113,7 +113,7 @@ class SafeModule:
                     detalle=detalle[:2000] if detalle else "",
                     nivel=nivel,
                     privilegiada=privilegiada,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.utcnow(),
                 )
                 session.add(log)
                 await session.commit()

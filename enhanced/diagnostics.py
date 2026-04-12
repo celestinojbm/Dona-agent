@@ -20,7 +20,7 @@ Checks:
 
 import os
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 import httpx
 
@@ -85,7 +85,7 @@ class ModuloDiagnostico(SafeModule):
     def formatear_vista_owner(self, checks: dict) -> str:
         """Vista tecnica completa para el owner."""
         lineas = ["*Diagnostico del sistema Dona*\n"]
-        ahora = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        ahora = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
         lineas.append(f"Timestamp: {ahora}\n")
 
         for servicio, resultado in checks.items():

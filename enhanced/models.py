@@ -11,7 +11,7 @@ Tablas:
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import String, Text, Integer, Boolean, DateTime, Index
 
@@ -35,7 +35,7 @@ class SystemCatalog(Base):
     plantilla_json: Mapped[str] = mapped_column(Text)  # JSON string con la estructura del sistema
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     creado: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc)
+        DateTime, default=lambda: datetime.utcnow()
     )
 
 
@@ -53,11 +53,11 @@ class UserSystem(Base):
     datos_json: Mapped[str] = mapped_column(Text, default="{}")  # Datos del usuario en JSON
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     creado: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc)
+        DateTime, default=lambda: datetime.utcnow()
     )
     actualizado: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        DateTime, default=lambda: datetime.utcnow(),
+        onupdate=lambda: datetime.utcnow(),
     )
 
     __table_args__ = (
@@ -80,7 +80,7 @@ class SystemActivityLog(Base):
     nivel: Mapped[str] = mapped_column(String(20), default="info")  # info, warning, error
     privilegiada: Mapped[bool] = mapped_column(Boolean, default=False)
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), index=True,
+        DateTime, default=lambda: datetime.utcnow(), index=True,
     )
 
 

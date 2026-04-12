@@ -17,7 +17,7 @@ Reglas:
 
 import os
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from time import monotonic
 
 from enhanced.safe_module import SafeModule, OWNER_PHONE
@@ -76,7 +76,7 @@ class ModuloMonitoreo(SafeModule):
             return 0
 
         enviadas = 0
-        ahora = datetime.now(timezone.utc)
+        ahora = datetime.utcnow()
 
         for alerta in alertas:
             tipo = alerta["tipo"]
@@ -139,7 +139,7 @@ class ModuloMonitoreo(SafeModule):
     async def _check_errores_recientes(self) -> dict | None:
         """Cuenta errores en activity logs de los últimos 15 minutos."""
         try:
-            hace_15min = datetime.now(timezone.utc) - timedelta(minutes=15)
+            hace_15min = datetime.utcnow() - timedelta(minutes=15)
             async with async_session_enhanced() as session:
                 result = await session.execute(
                     select(func.count(SystemActivityLog.id)).where(

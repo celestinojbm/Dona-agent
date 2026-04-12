@@ -12,7 +12,7 @@ Responsabilidades:
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy import select, update
 
 from enhanced.safe_module import SafeModule, NivelPermiso, AccionConfirmable
@@ -132,7 +132,7 @@ class GestorSistemas(SafeModule):
                 return False
 
             sistema.datos_json = json.dumps(datos, ensure_ascii=False)
-            sistema.actualizado = datetime.now(timezone.utc)
+            sistema.actualizado = datetime.utcnow()
             await session.commit()
 
         return True
