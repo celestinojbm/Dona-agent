@@ -910,28 +910,38 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     mensajes = [{"role": m["role"], "content": m["content"]} for m in historial]
     mensajes.append({"role": "user", "content": mensaje})
 
-    try:
-        # Primera llamada a Claude — puede responder con texto o con tool_use
-        response = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1024,
-            system=system_prompt,
-            messages=mensajes,
-            tools=TOOLS
-        )
+    # Retry con backoff para errores transitorios (529 Overloaded, 500, etc.)
+    import asyncio as _asyncio
+    _max_reintentos = 3
+    for _intento in range(_max_reintentos):
+        try:
+            response = await client.messages.create(
+                model="claude-sonnet-4-5",
+                max_tokens=1024,
+                system=system_prompt,
+                messages=mensajes,
+                tools=TOOLS
+            )
 
-        logger.info(f"Claude respuesta ({response.usage.input_tokens} in / {response.usage.output_tokens} out) stop={response.stop_reason}")
+            logger.info(f"Claude respuesta ({response.usage.input_tokens} in / {response.usage.output_tokens} out) stop={response.stop_reason}")
 
-        # Si Claude quiere usar una herramienta
-        if response.stop_reason == "tool_use":
-            return await _manejar_tool_use(response, mensajes, system_prompt, telefono, offset_guardado, proveedor)
+            # Si Claude quiere usar una herramienta
+            if response.stop_reason == "tool_use":
+                return await _manejar_tool_use(response, mensajes, system_prompt, telefono, offset_guardado, proveedor)
 
-        # Respuesta de texto normal
-        return _extraer_texto(response)
+            # Respuesta de texto normal
+            return _extraer_texto(response)
 
-    except Exception as e:
-        logger.error(f"Error Claude API: {e}")
-        return obtener_mensaje_error()
+        except Exception as e:
+            error_str = str(e)
+            es_transitorio = any(code in error_str for code in ("529", "500", "502", "503", "overloaded"))
+            if es_transitorio and _intento < _max_reintentos - 1:
+                espera = 2 ** (_intento + 1)  # 2s, 4s
+                logger.warning(f"Claude API error transitorio (intento {_intento + 1}/{_max_reintentos}), reintentando en {espera}s: {e}")
+                await _asyncio.sleep(espera)
+                continue
+            logger.error(f"Error Claude API: {e}")
+            return obtener_mensaje_error()
 
 
 async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str, offset_guardado: int | None, proveedor=None) -> str:
