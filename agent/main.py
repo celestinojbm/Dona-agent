@@ -421,20 +421,56 @@ async def procesar_webhook(request: Request):
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto[:120]}")
 
             # ── Dona 2.0: Confirmaciones pendientes (SafeModule) ─────────
-            from enhanced.safe_module import tiene_confirmacion_pendiente
-            if tiene_confirmacion_pendiente(msg.telefono):
-                from enhanced.safe_module import SafeModule
-                _sm = SafeModule()
-                _procesado, _resp_conf = await _sm.procesar_confirmacion(msg.telefono, msg.texto)
-                if _procesado:
-                    await proveedor.enviar_mensaje(msg.telefono, _resp_conf)
-                    logger.info(f"[ENHANCED] Confirmación procesada para {msg.telefono}")
-                    continue
+            try:
+                from enhanced.safe_module import tiene_confirmacion_pendiente
+                if tiene_confirmacion_pendiente(msg.telefono):
+                    from enhanced.safe_module import SafeModule
+                    _sm = SafeModule()
+                    _procesado, _resp_conf = await _sm.procesar_confirmacion(msg.telefono, msg.texto)
+                    if _procesado:
+                        await proveedor.enviar_mensaje(msg.telefono, _resp_conf)
+                        logger.info(f"[ENHANCED] Confirmación procesada para {msg.telefono}")
+                        continue
+            except Exception as _e_conf:
+                logger.error(f"[ENHANCED] Error en confirmación: {_e_conf}")
 
-            # ── Dona 2.0: Comando !diagnostic (owner) y diagnóstico usuario ──
+            # ── Dona 2.0: Comandos del sistema ──────────────────────────
             _texto_lower = msg.texto.strip().lower()
             # Normalizar: quitar espacios entre ! y la palabra, ej "! diagnostic" → "!diagnostic"
             _texto_cmd = _texto_lower.replace(" ", "")
+
+            # !help → muestra todos los comandos disponibles
+            if _texto_cmd in ("!help", "!ayuda", "!comandos"):
+                from enhanced.safe_module import _es_owner
+                if _es_owner(msg.telefono):
+                    _help = (
+                        "*Comandos Dona 2.0 (admin):*\n\n"
+                        "*Diagnóstico*\n"
+                        "  !diagnostic — Reporte técnico completo\n"
+                        "  dona status — Vista simplificada\n\n"
+                        "*Ejecución*\n"
+                        "  !actions — Lista acciones correctivas\n"
+                        "  !exec <acción> — Ejecutar con confirmación\n\n"
+                        "*Insights*\n"
+                        "  !insights — Reporte semanal bajo demanda\n\n"
+                        "*Sistemas*\n"
+                        "  catálogo — Ver sistemas disponibles\n"
+                        "  mis sistemas — Ver tus sistemas activos\n\n"
+                        "*Otros*\n"
+                        "  !help — Este mensaje"
+                    )
+                else:
+                    _help = (
+                        "*Comandos disponibles:*\n\n"
+                        "  dona status — Estado del sistema\n"
+                        "  catálogo — Ver sistemas disponibles\n"
+                        "  mis sistemas — Ver tus sistemas activos\n\n"
+                        "También puedes activar sistemas con lenguaje natural:\n"
+                        '"quiero organizar mis gastos"\n'
+                        '"necesito un tracker de hábitos"'
+                    )
+                await proveedor.enviar_mensaje(msg.telefono, _help)
+                continue
             if _texto_cmd in ("!diagnostic", "!diagnostico", "!diag"):
                 from enhanced.diagnostics import diagnostico
                 from enhanced.safe_module import _es_owner
@@ -490,21 +526,24 @@ async def procesar_webhook(request: Request):
                 continue
 
             # ── Dona 2.0: Catálogo de sistemas ─────────────────────────
-            from enhanced.nlp_detector import es_consulta_catalogo
-            if es_consulta_catalogo(msg.texto):
-                from enhanced.catalog import obtener_catalogo_activo
-                from enhanced.system_manager import gestor_sistemas
-                catalogo = await obtener_catalogo_activo()
-                resp_cat = gestor_sistemas.formatear_catalogo(catalogo)
-                await proveedor.enviar_mensaje(msg.telefono, resp_cat)
-                continue
+            try:
+                from enhanced.nlp_detector import es_consulta_catalogo
+                if es_consulta_catalogo(msg.texto):
+                    from enhanced.catalog import obtener_catalogo_activo
+                    from enhanced.system_manager import gestor_sistemas
+                    catalogo = await obtener_catalogo_activo()
+                    resp_cat = gestor_sistemas.formatear_catalogo(catalogo)
+                    await proveedor.enviar_mensaje(msg.telefono, resp_cat)
+                    continue
 
-            # "mis sistemas" → listar sistemas activos del usuario
-            if _texto_lower in ("mis sistemas", "mis sistemas activos"):
-                from enhanced.system_manager import gestor_sistemas
-                resp_sis = await gestor_sistemas.listar_sistemas_usuario(msg.telefono)
-                await proveedor.enviar_mensaje(msg.telefono, resp_sis)
-                continue
+                # "mis sistemas" → listar sistemas activos del usuario
+                if _texto_lower in ("mis sistemas", "mis sistemas activos"):
+                    from enhanced.system_manager import gestor_sistemas
+                    resp_sis = await gestor_sistemas.listar_sistemas_usuario(msg.telefono)
+                    await proveedor.enviar_mensaje(msg.telefono, resp_sis)
+                    continue
+            except Exception as _e_cat:
+                logger.error(f"[ENHANCED] Error en catálogo/sistemas: {_e_cat}")
 
             # ── Comandos de proactividad ("dona pausa", "dona resumen", etc.) ──
             if es_comando_proactividad(msg.texto):
@@ -583,6 +622,19 @@ async def procesar_webhook(request: Request):
                         continue
             except Exception as _e_nlp:
                 logger.debug(f"[SISTEMAS] Error en detección NLP: {_e_nlp}")
+
+            # ── Dona 2.0: Interacción con sistemas activos ──────────────────
+            try:
+                from enhanced.system_processor import procesar_mensaje_sistema
+                _resp_sistema = await procesar_mensaje_sistema(msg.telefono, msg.texto)
+                if _resp_sistema:
+                    await proveedor.enviar_mensaje(msg.telefono, _resp_sistema)
+                    await guardar_mensaje(msg.telefono, "user", msg.texto)
+                    await guardar_mensaje(msg.telefono, "assistant", _resp_sistema)
+                    logger.info(f"[SISTEMAS] Interacción procesada para {msg.telefono}")
+                    continue
+            except Exception as _e_sys:
+                logger.debug(f"[SISTEMAS] Error en procesador de sistemas: {_e_sys}")
 
             # ── Historial de conversación ─────────────────────────────────────
             try:
