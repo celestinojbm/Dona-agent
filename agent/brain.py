@@ -1516,12 +1516,10 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                     f"Sin explicaciones adicionales."
                 )
 
-                resp_redaccion = await client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=600,
-                    messages=[{"role": "user", "content": prompt_redactar}],
-                )
-                cuerpo = resp_redaccion.content[0].text.strip()
+                from agent.llm import completar_texto
+                cuerpo = await completar_texto(prompt_redactar, max_tokens=600)
+                if not cuerpo:
+                    cuerpo = "(No se pudo generar el borrador)"
 
                 # Guardar borrador pendiente
                 _borradores_pendientes[telefono] = {
@@ -1631,12 +1629,10 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                         f"Escribe SOLO el cuerpo de la respuesta. Sin explicaciones."
                     )
 
-                    resp_redaccion = await client.messages.create(
-                        model="claude-haiku-4-5-20251001",
-                        max_tokens=600,
-                        messages=[{"role": "user", "content": prompt_redactar}],
-                    )
-                    cuerpo = resp_redaccion.content[0].text.strip()
+                    from agent.llm import completar_texto as _completar
+                    cuerpo = await _completar(prompt_redactar, max_tokens=600)
+                    if not cuerpo:
+                        cuerpo = "(No se pudo generar el borrador)"
 
                     # Guardar borrador con info del thread
                     remitente_original = original["from"]
@@ -2184,12 +2180,10 @@ async def _postprocesar_reporte_mirofish(reporte_raw: str, escenario: str) -> li
             f"- Sin markdown pesado (no tablas, no listas de 6+ ítems)\n"
             f"- Termina con una pregunta que invite al usuario a actuar"
         )
-        response = await cliente.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=600,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        texto_procesado = response.content[0].text.strip() if response.content else reporte_raw
+        from agent.llm import completar_texto as _completar_sim
+        texto_procesado = await _completar_sim(prompt, max_tokens=600)
+        if not texto_procesado:
+            texto_procesado = reporte_raw
 
         # Dividir en múltiples mensajes si supera 1500 chars
         mensajes = []

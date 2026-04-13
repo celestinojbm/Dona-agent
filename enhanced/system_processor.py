@@ -106,13 +106,10 @@ REGLAS:
 - La respuesta al usuario debe ser concisa y en español"""
 
     try:
-        response = await _claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        respuesta_raw = response.content[0].text.strip()
+        from agent.llm import completar_texto
+        respuesta_raw = await completar_texto(prompt, max_tokens=1000)
+        if not respuesta_raw:
+            return None
         # Limpiar markdown
         if respuesta_raw.startswith("```"):
             respuesta_raw = respuesta_raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()

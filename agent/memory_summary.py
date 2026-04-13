@@ -20,13 +20,10 @@ Flujo:
 
 import os
 import logging
-from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger("agentkit")
-
-_claude = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # Cuántos mensajes nuevos deben acumularse antes de regenerar el resumen
 MENSAJES_POR_CICLO = 20
@@ -113,21 +110,19 @@ async def actualizar_resumen_si_necesario(telefono: str) -> bool:
             mensajes_nuevos=texto_mensajes,
         )
 
-        respuesta = await _claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=600,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        from agent.llm import completar_texto
+        nuevo_resumen = await completar_texto(prompt, max_tokens=600)
+        if not nuevo_resumen:
+            logger.warning(f"[MEMORIA] {telefono}: LLM no generó resumen")
+            return False
 
-        nuevo_resumen = respuesta.content[0].text.strip()
         nuevo_ultimo_id = mensajes[-1]["id"]
 
         await guardar_memoria_largo_plazo(telefono, nuevo_resumen, nuevo_ultimo_id)
 
         logger.info(
             f"[MEMORIA] {telefono}: resumen actualizado → "
-            f"id_hasta={nuevo_ultimo_id}, {len(nuevo_resumen)} chars, "
-            f"{respuesta.usage.input_tokens} tokens in / {respuesta.usage.output_tokens} out"
+            f"id_hasta={nuevo_ultimo_id}, {len(nuevo_resumen)} chars"
         )
         return True
 

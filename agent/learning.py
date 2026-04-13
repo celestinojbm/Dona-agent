@@ -22,13 +22,10 @@ import os
 import logging
 from collections import Counter
 from datetime import datetime, timedelta
-from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger("agentkit")
-
-_claude = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 _DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
@@ -162,26 +159,20 @@ async def _generar_perfil_texto(datos: dict) -> str | None:
     usando Claude Haiku (rápido y barato).
     """
     try:
-        response = await _claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Convierte estos patrones de comportamiento en un perfil de aprendizaje "
-                    f"conciso para un asistente de IA personal. "
-                    f"Máximo 120 palabras. Escríbelo como instrucciones para el asistente, "
-                    f"en segunda persona, en español.\n\n"
-                    f"Patrones detectados:\n{datos}\n\n"
-                    f"Ejemplo de formato:\n"
-                    f"'El usuario es más activo entre las 9:00 y 11:00. "
-                    f"Los lunes y martes tienen más estrés — reduce la carga proactiva esos días. "
-                    f"Prefiere respuestas cortas. Usa recordatorios frecuentemente — "
-                    f"es un buen canal para conectar con él.'"
-                ),
-            }],
+        from agent.llm import completar_texto
+        prompt = (
+            f"Convierte estos patrones de comportamiento en un perfil de aprendizaje "
+            f"conciso para un asistente de IA personal. "
+            f"Máximo 120 palabras. Escríbelo como instrucciones para el asistente, "
+            f"en segunda persona, en español.\n\n"
+            f"Patrones detectados:\n{datos}\n\n"
+            f"Ejemplo de formato:\n"
+            f"'El usuario es más activo entre las 9:00 y 11:00. "
+            f"Los lunes y martes tienen más estrés — reduce la carga proactiva esos días. "
+            f"Prefiere respuestas cortas. Usa recordatorios frecuentemente — "
+            f"es un buen canal para conectar con él.'"
         )
-        return response.content[0].text.strip() if response.content else None
+        return await completar_texto(prompt, max_tokens=200)
     except Exception as e:
         logger.error(f"learning._generar_perfil_texto: {e}")
         return None

@@ -160,21 +160,14 @@ async def extraer_industria(contexto: str) -> str | None:
     if not contexto or len(contexto) < 50:
         return None
     try:
-        from anthropic import AsyncAnthropic
-        claude = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        response = await claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=20,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Del siguiente texto, extrae en 1-3 palabras la industria o sector "
-                    f"principal de trabajo de la persona. Solo la industria, sin explicación.\n\n"
-                    f"Texto: {contexto[:400]}\n\nIndustria:"
-                )
-            }]
+        from agent.llm import completar_texto
+        prompt = (
+            f"Del siguiente texto, extrae en 1-3 palabras la industria o sector "
+            f"principal de trabajo de la persona. Solo la industria, sin explicación.\n\n"
+            f"Texto: {contexto[:400]}\n\nIndustria:"
         )
-        industria = response.content[0].text.strip().lower() if response.content else None
+        resultado = await completar_texto(prompt, max_tokens=20)
+        industria = resultado.strip().lower() if resultado else None
         return industria if industria and len(industria) < 40 else None
     except Exception as e:
         logger.debug(f"real_world.extraer_industria: {e}")

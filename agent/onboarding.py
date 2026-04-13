@@ -474,21 +474,16 @@ async def _inferir_timezone_desde_ciudad(ciudad: str, pais: str) -> tuple[str | 
     from datetime import datetime
 
     try:
+        from agent.llm import completar_texto
         texto_ciudad = f"{ciudad}, {pais}" if pais else ciudad
-        cliente = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        resp = await cliente.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=25,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"IANA timezone name for '{texto_ciudad}'. "
-                    "Reply with ONLY the name. Examples: America/New_York, America/Chicago, "
-                    "America/Mexico_City, America/Bogota, Europe/Madrid, America/Los_Angeles"
-                ),
-            }],
+        prompt = (
+            f"IANA timezone name for '{texto_ciudad}'. "
+            "Reply with ONLY the name. Examples: America/New_York, America/Chicago, "
+            "America/Mexico_City, America/Bogota, Europe/Madrid, America/Los_Angeles"
         )
-        iana_nombre = resp.content[0].text.strip()
+        iana_nombre = await completar_texto(prompt, max_tokens=25)
+        if not iana_nombre:
+            return None, None
         # Verificar que es un nombre IANA válido y calcular offset actual (con DST)
         tz = ZoneInfo(iana_nombre)
         offset_actual = int(datetime.now(tz).utcoffset().total_seconds() / 60)

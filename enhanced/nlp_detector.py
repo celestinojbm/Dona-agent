@@ -91,13 +91,10 @@ REGLAS:
 - Responde SOLO el JSON, sin texto adicional."""
 
     try:
-        response = await _claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        respuesta = response.content[0].text.strip()
+        from agent.llm import completar_texto
+        respuesta = await completar_texto(prompt, max_tokens=200)
+        if not respuesta:
+            return None
         # Limpiar posible markdown
         if respuesta.startswith("```"):
             respuesta = respuesta.split("\n", 1)[-1].rsplit("```", 1)[0].strip()

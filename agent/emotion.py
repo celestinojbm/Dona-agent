@@ -80,13 +80,10 @@ async def detectar_emocion(mensaje: str, contexto_usuario: str = "") -> dict:
             f"- No sobreinterpretes mensajes cortos o ambiguos"
         )
 
-        response = await _claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=80,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        texto = response.content[0].text.strip() if response.content else ""
+        from agent.llm import completar_texto
+        texto = await completar_texto(prompt, max_tokens=80)
+        if not texto:
+            raise ValueError("LLM no respondió")
         # Extraer solo el JSON si hay texto extra alrededor
         inicio = texto.find("{")
         fin = texto.rfind("}") + 1

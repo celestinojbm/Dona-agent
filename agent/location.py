@@ -11,13 +11,10 @@ Usa Claude Haiku para inferencia, con pre-filtros baratos para evitar llamadas i
 
 import os
 import logging
-from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger("agentkit")
-
-_claude = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # Pre-filtro de palabras clave para detectar viajes sin LLM
 _PALABRAS_VIAJE = {
@@ -59,26 +56,20 @@ async def detectar_viaje(texto: str) -> dict | None:
         return None
 
     try:
-        response = await _claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=40,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"¿Este mensaje indica que el usuario está temporalmente en otra ciudad?\n"
-                    f"Mensaje: \"{texto[:200]}\"\n\n"
-                    f"Si SÍ → responde solo: VIAJE: <ciudad>, <días_estimados>\n"
-                    f"Si NO → responde solo: NO\n\n"
-                    f"Ejemplos:\n"
-                    f"'estoy en Bogotá esta semana' → VIAJE: Bogotá, 7\n"
-                    f"'llegué a Miami ayer' → VIAJE: Miami, 3\n"
-                    f"'viaje de trabajo a Monterrey 2 días' → VIAJE: Monterrey, 2\n"
-                    f"'tengo reunión mañana' → NO"
-                ),
-            }],
+        from agent.llm import completar_texto
+        prompt = (
+            f"¿Este mensaje indica que el usuario está temporalmente en otra ciudad?\n"
+            f"Mensaje: \"{texto[:200]}\"\n\n"
+            f"Si SÍ → responde solo: VIAJE: <ciudad>, <días_estimados>\n"
+            f"Si NO → responde solo: NO\n\n"
+            f"Ejemplos:\n"
+            f"'estoy en Bogotá esta semana' → VIAJE: Bogotá, 7\n"
+            f"'llegué a Miami ayer' → VIAJE: Miami, 3\n"
+            f"'viaje de trabajo a Monterrey 2 días' → VIAJE: Monterrey, 2\n"
+            f"'tengo reunión mañana' → NO"
         )
-
-        resp = (response.content[0].text or "NO").strip()
+        resp_text = await completar_texto(prompt, max_tokens=40)
+        resp = (resp_text or "NO").strip()
 
         if resp.upper().startswith("VIAJE:"):
             partes = resp[6:].strip().split(",")
@@ -128,20 +119,14 @@ async def es_ciudad_suelta(texto: str) -> str | None:
         return None
 
     try:
-        response = await _claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=25,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"¿Es '{texto}' el nombre de una ciudad, municipio o localidad real?\n"
-                    f"Si SÍ → responde solo: CIUDAD: <nombre_exacto>\n"
-                    f"Si NO → responde solo: NO"
-                ),
-            }],
+        from agent.llm import completar_texto
+        prompt = (
+            f"¿Es '{texto}' el nombre de una ciudad, municipio o localidad real?\n"
+            f"Si SÍ → responde solo: CIUDAD: <nombre_exacto>\n"
+            f"Si NO → responde solo: NO"
         )
-
-        resp = (response.content[0].text or "NO").strip()
+        resp_text = await completar_texto(prompt, max_tokens=25)
+        resp = (resp_text or "NO").strip()
 
         if resp.upper().startswith("CIUDAD:"):
             ciudad = resp[7:].strip().title()
