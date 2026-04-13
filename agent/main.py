@@ -46,41 +46,15 @@ proveedor = obtener_proveedor()
 PORT = int(os.getenv("PORT", 8000))
 
 # ── Deduplicación de mensajes ─────────────────────────────────────────────────
-# Whapi puede enviar el mismo evento a /webhook y /webhook/messages al mismo tiempo.
-# Este OrderedDict en memoria evita procesar el mismo mensaje_id dos veces.
-# Se limita a 1000 IDs para no crecer indefinidamente en memoria.
+# Usa PostgreSQL para persistir IDs procesados (sobrevive restarts).
+# Fallback a in-memory si la DB falla.
 import collections as _collections
-_mensajes_procesados: _collections.OrderedDict = _collections.OrderedDict()
+_mensajes_procesados_mem: _collections.OrderedDict = _collections.OrderedDict()
 _MAX_IDS_DEDUP = 1000
 
 # ── Rate limiting por número de teléfono ─────────────────────────────────────
-# Limita la cantidad de mensajes que un solo número puede enviar por minuto.
-# Protege contra abuso, spam, y consumo excesivo de Claude API.
-from time import time as _time
-
-_rate_limit: dict[str, list[float]] = {}
-_RATE_LIMIT_MAX = 10        # máximo de mensajes por ventana
-_RATE_LIMIT_VENTANA = 60.0  # ventana en segundos (1 minuto)
-_RATE_LIMIT_MAX_KEYS = 500  # limpiar números inactivos si se acumulan
-
-
-def _dentro_de_limite(telefono: str) -> bool:
-    """Retorna True si el número no ha excedido el límite de mensajes por minuto."""
-    ahora = _time()
-    timestamps = _rate_limit.get(telefono, [])
-    # Filtrar timestamps fuera de la ventana
-    timestamps = [t for t in timestamps if ahora - t < _RATE_LIMIT_VENTANA]
-    if len(timestamps) >= _RATE_LIMIT_MAX:
-        _rate_limit[telefono] = timestamps
-        return False
-    timestamps.append(ahora)
-    _rate_limit[telefono] = timestamps
-    # Limpieza periódica: si hay demasiados números tracked, eliminar los más viejos
-    if len(_rate_limit) > _RATE_LIMIT_MAX_KEYS:
-        numeros_ordenados = sorted(_rate_limit, key=lambda t: _rate_limit[t][-1] if _rate_limit[t] else 0)
-        for n in numeros_ordenados[:len(_rate_limit) - _RATE_LIMIT_MAX_KEYS]:
-            del _rate_limit[n]
-    return True
+# Usa Redis si disponible (persistente), sino fallback a in-memory.
+from agent.rate_limiter import dentro_de_limite as _dentro_de_limite
 
 
 @asynccontextmanager
@@ -110,8 +84,16 @@ app = FastAPI(
 
 @app.get("/")
 async def health_check():
-    """Endpoint de salud para Railway/monitoreo."""
-    return {"status": "ok", "service": "dona"}
+    """Endpoint de salud para Railway/monitoreo. Verifica DB real."""
+    from sqlalchemy import text as _text
+    try:
+        from agent.memory import async_session
+        async with async_session() as session:
+            await session.execute(_text("SELECT 1"))
+        return {"status": "ok", "service": "dona", "db": "connected"}
+    except Exception as e:
+        logger.error(f"[HEALTH] DB check failed: {e}")
+        return {"status": "degraded", "service": "dona", "db": "error"}
 
 
 @app.get("/diagnostico")
@@ -347,6 +329,40 @@ async def debug_handler(request: Request):
     return {"status": "ok", "body": body.decode("utf-8", errors="replace")}
 
 
+async def _mensaje_ya_procesado(mensaje_id: str, telefono: str) -> bool:
+    """
+    Verifica si un mensaje ya fue procesado. Usa DB con fallback a memoria.
+    Registra el mensaje como procesado si es nuevo.
+    """
+    # Check memoria primero (rápido, cubre el caso de mensajes en ráfaga)
+    if mensaje_id in _mensajes_procesados_mem:
+        return True
+
+    try:
+        from agent.memory import async_session, MensajeProcesado
+        from sqlalchemy import select as _select
+        async with async_session() as session:
+            result = await session.execute(
+                _select(MensajeProcesado).where(MensajeProcesado.mensaje_id == mensaje_id)
+            )
+            if result.scalar_one_or_none():
+                _mensajes_procesados_mem[mensaje_id] = True
+                return True
+
+            # Registrar como procesado
+            session.add(MensajeProcesado(mensaje_id=mensaje_id, telefono=telefono))
+            await session.commit()
+    except Exception as e:
+        logger.debug(f"[DEDUP] Error DB, usando solo memoria: {e}")
+
+    # Registrar en memoria también
+    _mensajes_procesados_mem[mensaje_id] = True
+    if len(_mensajes_procesados_mem) > _MAX_IDS_DEDUP:
+        _mensajes_procesados_mem.popitem(last=False)
+
+    return False
+
+
 async def procesar_webhook(request: Request):
     """Lógica compartida: parsea el mensaje, llama a Claude y responde."""
     import asyncio as _asyncio
@@ -367,13 +383,10 @@ async def procesar_webhook(request: Request):
                 continue
 
             # ── Deduplicación: ignorar si ya procesamos este mensaje_id ─────
-            if msg.mensaje_id and msg.mensaje_id in _mensajes_procesados:
-                logger.debug(f"[DEDUP] Mensaje duplicado ignorado: {msg.mensaje_id} ({msg.telefono})")
-                continue
             if msg.mensaje_id:
-                _mensajes_procesados[msg.mensaje_id] = True
-                if len(_mensajes_procesados) > _MAX_IDS_DEDUP:
-                    _mensajes_procesados.popitem(last=False)  # Eliminar el más antiguo
+                if await _mensaje_ya_procesado(msg.mensaje_id, msg.telefono):
+                    logger.debug(f"[DEDUP] Mensaje duplicado ignorado: {msg.mensaje_id} ({msg.telefono})")
+                    continue
 
             # ── Rate limiting: máx 10 mensajes por minuto por número ──
             if not _dentro_de_limite(msg.telefono):
@@ -464,7 +477,8 @@ async def procesar_webhook(request: Request):
                         "*Comandos disponibles:*\n\n"
                         "  dona status — Estado del sistema\n"
                         "  catálogo — Ver sistemas disponibles\n"
-                        "  mis sistemas — Ver tus sistemas activos\n\n"
+                        "  mis sistemas — Ver tus sistemas activos\n"
+                        "  borrar mis datos — Eliminar todos tus datos\n\n"
                         "También puedes activar sistemas con lenguaje natural:\n"
                         '"quiero organizar mis gastos"\n'
                         '"necesito un tracker de hábitos"'
@@ -524,6 +538,49 @@ async def procesar_webhook(request: Request):
                 else:
                     await proveedor.enviar_mensaje(msg.telefono, "Este comando requiere permisos de administrador.")
                 continue
+
+            # ── Borrado de datos del usuario (derecho al olvido) ─────────
+            if _texto_cmd in ("!borrarmisdatos", "!deletemydata") or \
+               _texto_lower in ("!borrar mis datos", "borrar mis datos", "eliminar mis datos"):
+                from enhanced.safe_module import tiene_confirmacion_pendiente as _tcp
+                # Usar flujo de confirmación CONFIRMAR
+                if _texto_lower == "confirmar":
+                    pass  # Se maneja arriba en confirmaciones pendientes
+                else:
+                    # Pedir confirmación
+                    _aviso = (
+                        "⚠️ *Esto eliminará TODOS tus datos de Dona:*\n\n"
+                        "• Mensajes e historial\n"
+                        "• Recordatorios y tareas\n"
+                        "• Notas y listas\n"
+                        "• Conexión de Google Calendar/Gmail\n"
+                        "• Sistemas activos\n"
+                        "• Perfil y preferencias\n\n"
+                        "Esta acción es *irreversible*.\n\n"
+                        "Escribe *CONFIRMAR* para proceder o cualquier otra cosa para cancelar."
+                    )
+                    from enhanced.safe_module import AccionConfirmable, NivelPermiso, SafeModule
+                    _sm_borrar = SafeModule()
+                    _sm_borrar.nombre = "borrado_datos"
+
+                    async def _ejecutar_borrado(_tel=msg.telefono):
+                        from agent.memory import borrar_datos_usuario
+                        conteos = await borrar_datos_usuario(_tel)
+                        total = sum(v for v in conteos.values() if isinstance(v, int))
+                        return {
+                            "exito": True,
+                            "mensaje": f"Todos tus datos han sido eliminados ({total} registros). Adiós y gracias por usar Dona. 💙",
+                        }
+
+                    accion = AccionConfirmable(
+                        nombre="borrar_datos_usuario",
+                        descripcion="Eliminar todos los datos del usuario",
+                        nivel=NivelPermiso.USUARIO,
+                        ejecutar=_ejecutar_borrado,
+                    )
+                    resp_borrar = await _sm_borrar.solicitar_confirmacion(msg.telefono, accion)
+                    await proveedor.enviar_mensaje(msg.telefono, resp_borrar)
+                    continue
 
             # ── Dona 2.0: Catálogo de sistemas ─────────────────────────
             try:
@@ -643,13 +700,20 @@ async def procesar_webhook(request: Request):
                 logger.error(f"[WEBHOOK] Error cargando historial para {msg.telefono}: {_e_hist}")
                 historial = []  # Continuar sin historial antes que no responder
 
-            # ── Generar respuesta con Claude ──────────────────────────────────
-            respuesta = await generar_respuesta(
-                msg.texto, historial,
-                telefono=msg.telefono,
-                timestamp_mensaje=msg.timestamp,
-                proveedor=proveedor,
-            )
+            # ── Generar respuesta con Claude (con timeout de 90s) ────────────
+            try:
+                respuesta = await _asyncio.wait_for(
+                    generar_respuesta(
+                        msg.texto, historial,
+                        telefono=msg.telefono,
+                        timestamp_mensaje=msg.timestamp,
+                        proveedor=proveedor,
+                    ),
+                    timeout=90.0,
+                )
+            except _asyncio.TimeoutError:
+                logger.error(f"[WEBHOOK] Claude API timeout (90s) para {msg.telefono}")
+                respuesta = "Disculpa, tardé demasiado en procesar tu mensaje. ¿Puedes intentarlo de nuevo?"
 
             # ── Guardar mensajes en DB (no fatal si falla) ────────────────────
             try:

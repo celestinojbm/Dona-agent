@@ -14,3 +14,6 @@ APScheduler>=3.10.0,<4.0
 groq>=0.4.0
 tzdata>=2024.1
 openai>=1.30.0
+cryptography>=42.0.0
+redis>=5.0.0
+gunicorn>=21.2.0

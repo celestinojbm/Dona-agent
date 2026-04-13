@@ -249,6 +249,71 @@ class MemoriaLargoPlazo(Base):
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+# ── Modelos de productividad (antes en memoria, ahora persistentes) ─────────
+
+class Tarea(Base):
+    """Tarea de productividad del usuario — persistente en PostgreSQL."""
+    __tablename__ = "tareas"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    descripcion: Mapped[str] = mapped_column(Text)
+    prioridad: Mapped[str] = mapped_column(String(20), default="normal")
+    completada: Mapped[bool] = mapped_column(Boolean, default=False)
+    creada: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Lista(Base):
+    """Lista personalizada del usuario (compras, metas, ideas, etc.)."""
+    __tablename__ = "listas"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    nombre: Mapped[str] = mapped_column(String(100))
+    creada: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ItemLista(Base):
+    """Ítem dentro de una lista del usuario."""
+    __tablename__ = "items_lista"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lista_id: Mapped[int] = mapped_column(Integer, index=True)
+    texto: Mapped[str] = mapped_column(Text)
+    completado: Mapped[bool] = mapped_column(Boolean, default=False)
+    agregado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class EventoUsuario(Base):
+    """Evento de calendario local del usuario — persistente en PostgreSQL."""
+    __tablename__ = "eventos_usuario"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    titulo: Mapped[str] = mapped_column(String(200))
+    fecha_hora: Mapped[str] = mapped_column(String(50))
+    descripcion: Mapped[str] = mapped_column(Text, default="")
+    cancelado: Mapped[bool] = mapped_column(Boolean, default=False)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class MensajeProcesado(Base):
+    """Deduplicación de mensajes de webhook — persistente tras restart."""
+    __tablename__ = "mensajes_procesados"
+
+    mensaje_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    telefono: Mapped[str] = mapped_column(String(50))
+    procesado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class RecordatorioGCalEnviado(Base):
+    """Registro de recordatorios de Google Calendar ya enviados — evita duplicados tras restart."""
+    __tablename__ = "recordatorios_gcal_enviados"
+
+    clave: Mapped[str] = mapped_column(String(200), primary_key=True)
+    enviado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 _MIGRACIONES = [
     # ── Correcciones de nombre legacy ────────────────────────────────────────
     "ALTER TABLE mensajes RENAME COLUMN rol TO role",
@@ -279,6 +344,66 @@ _MIGRACIONES = [
         actualizado   TIMESTAMP
     )
     """,
+    # ── Fase 1: Persistencia de tools.py ─────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS tareas (
+        id          SERIAL PRIMARY KEY,
+        telefono    VARCHAR(50) NOT NULL,
+        descripcion TEXT        NOT NULL,
+        prioridad   VARCHAR(20) NOT NULL DEFAULT 'normal',
+        completada  BOOLEAN     NOT NULL DEFAULT FALSE,
+        creada      TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_tareas_telefono ON tareas (telefono)",
+    """
+    CREATE TABLE IF NOT EXISTS listas (
+        id       SERIAL PRIMARY KEY,
+        telefono VARCHAR(50)  NOT NULL,
+        nombre   VARCHAR(100) NOT NULL,
+        creada   TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_listas_telefono ON listas (telefono)",
+    """
+    CREATE TABLE IF NOT EXISTS items_lista (
+        id         SERIAL PRIMARY KEY,
+        lista_id   INTEGER NOT NULL,
+        texto      TEXT    NOT NULL,
+        completado BOOLEAN NOT NULL DEFAULT FALSE,
+        agregado   TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_items_lista_lista_id ON items_lista (lista_id)",
+    """
+    CREATE TABLE IF NOT EXISTS eventos_usuario (
+        id          SERIAL PRIMARY KEY,
+        telefono    VARCHAR(50)  NOT NULL,
+        titulo      VARCHAR(200) NOT NULL,
+        fecha_hora  VARCHAR(50)  NOT NULL,
+        descripcion TEXT         NOT NULL DEFAULT '',
+        cancelado   BOOLEAN      NOT NULL DEFAULT FALSE,
+        creado      TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_eventos_usuario_telefono ON eventos_usuario (telefono)",
+    # ── Fase 1: Deduplicación persistente ────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS mensajes_procesados (
+        mensaje_id   VARCHAR(100) PRIMARY KEY,
+        telefono     VARCHAR(50)  NOT NULL,
+        procesado_en TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_mensajes_procesados_fecha ON mensajes_procesados (procesado_en)",
+    # ── Fase 1: Caché GCal persistente ───────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS recordatorios_gcal_enviados (
+        clave      VARCHAR(200) PRIMARY KEY,
+        enviado_en TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_gcal_enviados_fecha ON recordatorios_gcal_enviados (enviado_en)",
 ]
 
 
@@ -1555,15 +1680,20 @@ async def guardar_google_auth(
     expires_at: datetime,
     email: str = "",
 ):
-    """Guarda o actualiza los tokens de OAuth de Google Calendar del usuario."""
+    """Guarda o actualiza los tokens de OAuth de Google Calendar del usuario (cifrados)."""
+    from agent.crypto import cifrar
+
+    access_token_enc = cifrar(access_token)
+    refresh_token_enc = cifrar(refresh_token) if refresh_token else ""
+
     async with async_session() as session:
         query = select(UsuarioGoogleAuth).where(UsuarioGoogleAuth.telefono == telefono)
         result = await session.execute(query)
         registro = result.scalar_one_or_none()
         if registro:
-            registro.access_token = access_token
+            registro.access_token = access_token_enc
             if refresh_token:                       # no sobreescribir con vacío
-                registro.refresh_token = refresh_token
+                registro.refresh_token = refresh_token_enc
             registro.expires_at = expires_at
             if email:
                 registro.email = email
@@ -1571,8 +1701,8 @@ async def guardar_google_auth(
         else:
             session.add(UsuarioGoogleAuth(
                 telefono=telefono,
-                access_token=access_token,
-                refresh_token=refresh_token,
+                access_token=access_token_enc,
+                refresh_token=refresh_token_enc,
                 expires_at=expires_at,
                 email=email,
                 actualizado=datetime.utcnow(),
@@ -1581,7 +1711,9 @@ async def guardar_google_auth(
 
 
 async def obtener_google_auth(telefono: str) -> dict | None:
-    """Retorna los tokens de Google Calendar del usuario, o None si no está conectado."""
+    """Retorna los tokens de Google Calendar del usuario (descifrados), o None si no está conectado."""
+    from agent.crypto import descifrar
+
     async with async_session() as session:
         query = select(UsuarioGoogleAuth).where(UsuarioGoogleAuth.telefono == telefono)
         result = await session.execute(query)
@@ -1589,8 +1721,8 @@ async def obtener_google_auth(telefono: str) -> dict | None:
         if not registro:
             return None
         return {
-            "access_token": registro.access_token,
-            "refresh_token": registro.refresh_token,
+            "access_token": descifrar(registro.access_token),
+            "refresh_token": descifrar(registro.refresh_token),
             "expires_at": registro.expires_at,
             "email": registro.email or "",
         }
@@ -1605,3 +1737,80 @@ async def obtener_todos_con_google_calendar() -> list[str]:
         query = select(UsuarioGoogleAuth.telefono)
         result = await session.execute(query)
         return [row[0] for row in result.fetchall()]
+
+
+async def borrar_datos_usuario(telefono: str) -> dict:
+    """
+    Elimina TODOS los datos de un usuario de todas las tablas.
+    Implementa el derecho al olvido (GDPR/LFPDPPP).
+
+    Returns:
+        dict con el conteo de registros eliminados por tabla.
+    """
+    from sqlalchemy import delete
+
+    conteos = {}
+
+    # Tablas del módulo principal (agent/memory.py)
+    tablas_principales = [
+        ("mensajes", Mensaje, Mensaje.telefono),
+        ("recordatorios", Recordatorio, Recordatorio.telefono),
+        ("timezone", TimezoneUsuario, TimezoneUsuario.telefono),
+        ("ubicacion", UsuarioUbicacion, UsuarioUbicacion.telefono),
+        ("estado_emocional", UsuarioEstadoEmocional, UsuarioEstadoEmocional.telefono),
+        ("eventos_emocionales", EventoEmocional, EventoEmocional.telefono),
+        ("onboarding", UsuarioOnboarding, UsuarioOnboarding.telefono),
+        ("proactividad", UsuarioProactividad, UsuarioProactividad.telefono),
+        ("comportamiento", EventoComportamiento, EventoComportamiento.telefono),
+        ("perfil_aprendizaje", PerfilAprendizaje, PerfilAprendizaje.telefono),
+        ("mirofish", UsuarioMiroFish, UsuarioMiroFish.telefono),
+        ("google_auth", UsuarioGoogleAuth, UsuarioGoogleAuth.telefono),
+        ("memoria_largo_plazo", MemoriaLargoPlazo, MemoriaLargoPlazo.telefono),
+        ("noticias", NoticiaEnviada, NoticiaEnviada.telefono),
+        ("tareas", Tarea, Tarea.telefono),
+        ("eventos_usuario", EventoUsuario, EventoUsuario.telefono),
+    ]
+
+    async with async_session() as session:
+        for nombre, modelo, col_telefono in tablas_principales:
+            try:
+                result = await session.execute(
+                    delete(modelo).where(col_telefono == telefono)
+                )
+                conteos[nombre] = result.rowcount
+            except Exception as e:
+                conteos[nombre] = f"error: {e}"
+                logger.error(f"[BORRAR] Error borrando {nombre} para {telefono}: {e}")
+
+        # Listas: borrar items primero, luego listas
+        try:
+            listas_result = await session.execute(
+                select(Lista.id).where(Lista.telefono == telefono)
+            )
+            lista_ids = [row[0] for row in listas_result.all()]
+            items_borrados = 0
+            if lista_ids:
+                for lid in lista_ids:
+                    r = await session.execute(delete(ItemLista).where(ItemLista.lista_id == lid))
+                    items_borrados += r.rowcount
+            r_listas = await session.execute(delete(Lista).where(Lista.telefono == telefono))
+            conteos["items_lista"] = items_borrados
+            conteos["listas"] = r_listas.rowcount
+        except Exception as e:
+            conteos["listas"] = f"error: {e}"
+
+        # Tablas enhanced/ (si existen)
+        try:
+            from enhanced.models import UserSystem, SystemActivityLog
+            r_sys = await session.execute(delete(UserSystem).where(UserSystem.telefono == telefono))
+            conteos["sistemas_usuario"] = r_sys.rowcount
+            r_log = await session.execute(delete(SystemActivityLog).where(SystemActivityLog.telefono == telefono))
+            conteos["activity_log"] = r_log.rowcount
+        except Exception as e:
+            conteos["enhanced"] = f"error: {e}"
+
+        await session.commit()
+
+    total = sum(v for v in conteos.values() if isinstance(v, int))
+    logger.info(f"[BORRAR] Datos eliminados para {telefono}: {total} registros en {len(conteos)} tablas")
+    return conteos

@@ -124,6 +124,37 @@ async def _verificar_recordatorios_google_calendar(proveedor):
         logger.error(f"Error en scheduler de Google Calendar ({type(e).__name__}): {e}")
 
 
+async def _gcal_ya_enviado(clave: str) -> bool:
+    """Verifica si un recordatorio GCal ya fue enviado (DB + memoria)."""
+    if clave in _recordatorios_gcal_enviados_mem:
+        return True
+    try:
+        from agent.memory import async_session, RecordatorioGCalEnviado
+        from sqlalchemy import select
+        async with async_session() as session:
+            result = await session.execute(
+                select(RecordatorioGCalEnviado).where(RecordatorioGCalEnviado.clave == clave)
+            )
+            if result.scalar_one_or_none():
+                _recordatorios_gcal_enviados_mem.add(clave)
+                return True
+    except Exception:
+        pass
+    return False
+
+
+async def _gcal_marcar_enviado(clave: str):
+    """Marca un recordatorio GCal como enviado (DB + memoria)."""
+    _recordatorios_gcal_enviados_mem.add(clave)
+    try:
+        from agent.memory import async_session, RecordatorioGCalEnviado
+        async with async_session() as session:
+            session.add(RecordatorioGCalEnviado(clave=clave))
+            await session.commit()
+    except Exception:
+        pass
+
+
 async def _verificar_recordatorios_google_calendar_impl(proveedor):
     """Implementación real del job de Google Calendar (envuelta en timeout)."""
     import agent.google_calendar as gc
@@ -145,7 +176,7 @@ async def _verificar_recordatorios_google_calendar_impl(proveedor):
             for evento in proximos:
                 # Crear clave única para evitar recordatorio duplicado
                 clave = f"gcal_reminder_{telefono}_{evento['id']}"
-                if clave in _recordatorios_gcal_enviados:
+                if await _gcal_ya_enviado(clave):
                     continue
 
                 minutos = evento['minutos_restantes']
@@ -165,16 +196,16 @@ async def _verificar_recordatorios_google_calendar_impl(proveedor):
 
                 enviado = await proveedor.enviar_mensaje(telefono, mensaje)
                 if enviado:
-                    _recordatorios_gcal_enviados.add(clave)
+                    await _gcal_marcar_enviado(clave)
                     logger.info(f"[GCAL] Recordatorio enviado a {telefono}: '{titulo}' en {minutos} min")
 
         except Exception as e_user:
             logger.debug(f"[GCAL] Error verificando eventos para {telefono}: {e_user}")
 
 
-# Registro en memoria de recordatorios de Google Calendar ya enviados (evita duplicados)
-# Se limpia al reiniciar el servidor — comportamiento correcto para recordatorios del día
-_recordatorios_gcal_enviados: set = set()
+# Caché en memoria para lookup rápido (se llena desde DB al consultar)
+# Los registros en DB persisten tras restart — la limpieza la hace _limpiar_datos_expirados
+_recordatorios_gcal_enviados_mem: set = set()
 
 
 async def _verificar_avance_onboarding(proveedor):
@@ -319,6 +350,14 @@ def iniciar_scheduler(proveedor):
         id="mirofish_riesgos_operacionales",
         replace_existing=True,
     )
+    # Limpieza de deduplicación y caché GCal expirados (cada hora)
+    scheduler.add_job(
+        _limpiar_datos_expirados,
+        trigger="interval",
+        hours=1,
+        id="limpiar_datos_expirados",
+        replace_existing=True,
+    )
     scheduler.start()
     logger.info(
         "Scheduler iniciado — recordatorios cada minuto, Google Calendar cada 5 min, "
@@ -326,6 +365,43 @@ def iniciar_scheduler(proveedor):
         "self-ping cada 10 min, aprendizaje los domingos, "
         "simulaciones MiroFish lunes/miércoles/viernes a las 2 AM UTC"
     )
+
+
+async def _limpiar_datos_expirados():
+    """
+    Limpia registros expirados de deduplicación y caché GCal.
+    - mensajes_procesados: elimina registros > 2 horas
+    - recordatorios_gcal_enviados: elimina registros > 24 horas
+    """
+    from datetime import datetime, timedelta
+    try:
+        from agent.memory import async_session, MensajeProcesado, RecordatorioGCalEnviado
+        from sqlalchemy import delete
+
+        async with async_session() as session:
+            # Dedup: limpiar > 2 horas
+            corte_dedup = datetime.utcnow() - timedelta(hours=2)
+            result_dedup = await session.execute(
+                delete(MensajeProcesado).where(MensajeProcesado.procesado_en < corte_dedup)
+            )
+
+            # GCal cache: limpiar > 24 horas
+            corte_gcal = datetime.utcnow() - timedelta(hours=24)
+            result_gcal = await session.execute(
+                delete(RecordatorioGCalEnviado).where(RecordatorioGCalEnviado.enviado_en < corte_gcal)
+            )
+
+            await session.commit()
+
+            dedup_limpiados = result_dedup.rowcount
+            gcal_limpiados = result_gcal.rowcount
+            if dedup_limpiados or gcal_limpiados:
+                logger.info(
+                    f"[CLEANUP] Limpiados: {dedup_limpiados} dedup expirados, "
+                    f"{gcal_limpiados} caché GCal expirados"
+                )
+    except Exception as e:
+        logger.debug(f"[CLEANUP] Error limpiando datos expirados: {e}")
 
 
 async def _ejecutar_simulacion_mirofish_programada(escenario_id: str, proveedor):

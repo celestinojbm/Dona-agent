@@ -49,6 +49,7 @@ def _sanitizar_datos_externos(texto: str, max_chars: int = 4000) -> str:
 
     - Trunca a max_chars para evitar saturación de contexto
     - Marca intentos de inyección detectados como [contenido filtrado]
+    - Envuelve en delimitadores para que Claude distinga datos de instrucciones
     """
     if not texto:
         return texto
@@ -62,7 +63,9 @@ def _sanitizar_datos_externos(texto: str, max_chars: int = 4000) -> str:
             lineas_limpias.append("[contenido filtrado por seguridad]")
         else:
             lineas_limpias.append(linea)
-    return "\n".join(lineas_limpias)
+    contenido = "\n".join(lineas_limpias)
+    # Envolver en delimitadores claros para prevenir inyección indirecta
+    return f"<external_data>\n{contenido}\n</external_data>"
 
 
 def _resultado_reauth_google(telefono: str) -> str:

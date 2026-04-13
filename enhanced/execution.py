@@ -29,10 +29,9 @@ logger = logging.getLogger("dona.enhanced")
 # ── Funciones de ejecución (cada una retorna {exito, mensaje}) ───────────────
 
 async def _limpiar_rate_limit() -> dict:
-    """Limpia la caché de rate limiting en memoria."""
-    from agent.main import _rate_limit
-    cantidad = len(_rate_limit)
-    _rate_limit.clear()
+    """Limpia la caché de rate limiting (Redis o memoria)."""
+    from agent.rate_limiter import limpiar_rate_limit
+    cantidad = limpiar_rate_limit()
     return {
         "exito": True,
         "mensaje": f"Rate limit limpiado. {cantidad} entradas eliminadas.",
@@ -40,24 +39,50 @@ async def _limpiar_rate_limit() -> dict:
 
 
 async def _limpiar_dedup() -> dict:
-    """Limpia la caché de deduplicación de mensajes."""
-    from agent.main import _mensajes_procesados
-    cantidad = len(_mensajes_procesados)
-    _mensajes_procesados.clear()
+    """Limpia la caché de deduplicación de mensajes (memoria + DB)."""
+    from agent.main import _mensajes_procesados_mem
+    cantidad_mem = len(_mensajes_procesados_mem)
+    _mensajes_procesados_mem.clear()
+
+    cantidad_db = 0
+    try:
+        from agent.memory import async_session, MensajeProcesado
+        from sqlalchemy import delete, func, select
+        async with async_session() as session:
+            count_result = await session.execute(select(func.count(MensajeProcesado.mensaje_id)))
+            cantidad_db = count_result.scalar() or 0
+            await session.execute(delete(MensajeProcesado))
+            await session.commit()
+    except Exception:
+        pass
+
     return {
         "exito": True,
-        "mensaje": f"Dedup limpiado. {cantidad} IDs eliminados.",
+        "mensaje": f"Dedup limpiado. {cantidad_mem} en memoria + {cantidad_db} en DB eliminados.",
     }
 
 
 async def _limpiar_gcal_cache() -> dict:
-    """Limpia la caché de recordatorios de Google Calendar enviados."""
-    from agent.scheduler import _recordatorios_gcal_enviados
-    cantidad = len(_recordatorios_gcal_enviados)
-    _recordatorios_gcal_enviados.clear()
+    """Limpia la caché de recordatorios de Google Calendar enviados (memoria + DB)."""
+    from agent.scheduler import _recordatorios_gcal_enviados_mem
+    cantidad_mem = len(_recordatorios_gcal_enviados_mem)
+    _recordatorios_gcal_enviados_mem.clear()
+
+    cantidad_db = 0
+    try:
+        from agent.memory import async_session, RecordatorioGCalEnviado
+        from sqlalchemy import delete, func, select
+        async with async_session() as session:
+            count_result = await session.execute(select(func.count()).select_from(RecordatorioGCalEnviado))
+            cantidad_db = count_result.scalar() or 0
+            await session.execute(delete(RecordatorioGCalEnviado))
+            await session.commit()
+    except Exception:
+        pass
+
     return {
         "exito": True,
-        "mensaje": f"Caché de recordatorios Google Calendar limpiado. {cantidad} entradas.",
+        "mensaje": f"Caché GCal limpiado. {cantidad_mem} en memoria + {cantidad_db} en DB.",
     }
 
 
