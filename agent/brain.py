@@ -23,6 +23,23 @@ logger = logging.getLogger("agentkit")
 # Cliente de Anthropic
 client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+# ── Clientes de fallback (DeepSeek → GPT-4o) ────────────────────────────────
+_deepseek_client = None
+_openai_client = None
+
+_DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+_OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
+
+if _DEEPSEEK_KEY:
+    from openai import AsyncOpenAI as _AsyncOpenAI
+    _deepseek_client = _AsyncOpenAI(api_key=_DEEPSEEK_KEY, base_url="https://api.deepseek.com")
+    logger.info("[BRAIN] Fallback DeepSeek configurado")
+
+if _OPENAI_KEY:
+    from openai import AsyncOpenAI as _AsyncOpenAI
+    _openai_client = _AsyncOpenAI(api_key=_OPENAI_KEY)
+    logger.info("[BRAIN] Fallback GPT-4o configurado")
+
 # Borradores de correo pendientes de confirmación — keyed by telefono
 # (en memoria: válido para Render single-worker free tier)
 _borradores_pendientes: dict[str, dict] = {}
@@ -940,8 +957,55 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
                 logger.warning(f"Claude API error transitorio (intento {_intento + 1}/{_max_reintentos}), reintentando en {espera}s: {e}")
                 await _asyncio.sleep(espera)
                 continue
-            logger.error(f"Error Claude API: {e}")
-            return obtener_mensaje_error()
+            logger.error(f"Error Claude API (todos los reintentos fallaron): {e}")
+
+    # ── Fallback: DeepSeek → GPT-4o ─────────────────────────────────────────
+    # Claude no disponible — responder con modelo alternativo (sin tool use)
+    respuesta_fallback = await _responder_con_fallback(system_prompt, mensajes)
+    if respuesta_fallback:
+        return respuesta_fallback
+
+    return obtener_mensaje_error()
+
+
+async def _responder_con_fallback(system_prompt: str, mensajes: list) -> str | None:
+    """
+    Intenta responder con DeepSeek o GPT-4o cuando Claude no está disponible.
+    Sin tool use — solo conversación de texto.
+    Retorna None si ningún fallback funciona.
+    """
+    # Formato OpenAI: system message + user/assistant messages
+    mensajes_openai = [{"role": "system", "content": system_prompt}] + mensajes
+
+    # Intento 1: DeepSeek
+    if _deepseek_client:
+        try:
+            resp = await _deepseek_client.chat.completions.create(
+                model="deepseek-chat",
+                max_tokens=1024,
+                messages=mensajes_openai,
+            )
+            texto = resp.choices[0].message.content
+            logger.info(f"[FALLBACK] DeepSeek respondió ({resp.usage.total_tokens} tokens)")
+            return texto
+        except Exception as e:
+            logger.warning(f"[FALLBACK] DeepSeek falló: {e}")
+
+    # Intento 2: GPT-4o
+    if _openai_client:
+        try:
+            resp = await _openai_client.chat.completions.create(
+                model="gpt-4o",
+                max_tokens=1024,
+                messages=mensajes_openai,
+            )
+            texto = resp.choices[0].message.content
+            logger.info(f"[FALLBACK] GPT-4o respondió ({resp.usage.total_tokens} tokens)")
+            return texto
+        except Exception as e:
+            logger.warning(f"[FALLBACK] GPT-4o falló: {e}")
+
+    return None
 
 
 async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str, offset_guardado: int | None, proveedor=None) -> str:
