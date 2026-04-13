@@ -9,10 +9,18 @@ Funciona con cualquier proveedor (Whapi, Meta, Twilio) gracias a la capa de prov
 import os
 import logging
 import httpx
+from time import monotonic
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse, HTMLResponse, RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from dotenv import load_dotenv
+
+load_dotenv()
+
+# Configurar logging ANTES de cualquier import que use logger
+from agent.logging_config import configurar_logging
+configurar_logging()
 
 from agent.brain import generar_respuesta
 from agent.memory import (
@@ -33,13 +41,8 @@ from agent.scheduler import iniciar_scheduler, detener_scheduler
 from agent.transcriber import procesar_audio_whapi, procesar_audio_meta
 from agent.memory_summary import actualizar_resumen_si_necesario
 
-load_dotenv()
-
-# Configuración de logging según entorno
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
-log_level = logging.DEBUG if ENVIRONMENT == "development" else logging.INFO
-logging.basicConfig(level=log_level)
 logger = logging.getLogger("agentkit")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 # Proveedor de WhatsApp (se configura en .env con WHATSAPP_PROVIDER)
 proveedor = obtener_proveedor()
@@ -55,6 +58,96 @@ _MAX_IDS_DEDUP = 1000
 # ── Rate limiting por número de teléfono ─────────────────────────────────────
 # Usa Redis si disponible (persistente), sino fallback a in-memory.
 from agent.rate_limiter import dentro_de_limite as _dentro_de_limite
+
+
+# ── Métricas en memoria para el endpoint /admin/metrics ──────────────────────
+import threading as _threading
+
+class _Metricas:
+    """Contadores atómicos simples para métricas de la aplicación."""
+    def __init__(self):
+        self._lock = _threading.Lock()
+        self.requests_total = 0
+        self.requests_por_ruta: dict[str, int] = {}
+        self.errores_total = 0
+        self.mensajes_procesados = 0
+        self.latencia_sum_ms = 0.0
+        self.latencia_count = 0
+        self.requests_lentos = 0  # > 5s
+
+    def registrar_request(self, ruta: str, duracion_ms: float, status_code: int):
+        with self._lock:
+            self.requests_total += 1
+            self.requests_por_ruta[ruta] = self.requests_por_ruta.get(ruta, 0) + 1
+            self.latencia_sum_ms += duracion_ms
+            self.latencia_count += 1
+            if status_code >= 500:
+                self.errores_total += 1
+            if duracion_ms > 5000:
+                self.requests_lentos += 1
+
+    def registrar_mensaje(self):
+        with self._lock:
+            self.mensajes_procesados += 1
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            avg = (self.latencia_sum_ms / self.latencia_count) if self.latencia_count else 0
+            return {
+                "requests_total": self.requests_total,
+                "requests_por_ruta": dict(self.requests_por_ruta),
+                "errores_5xx": self.errores_total,
+                "mensajes_procesados": self.mensajes_procesados,
+                "latencia_promedio_ms": round(avg, 1),
+                "requests_lentos_5s": self.requests_lentos,
+            }
+
+metricas = _Metricas()
+
+
+# ── Middleware: Request logging + timing ──────────────────────────────────────
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Registra cada request con duración y status code."""
+    async def dispatch(self, request: Request, call_next):
+        inicio = monotonic()
+        ruta = request.url.path
+        metodo = request.method
+
+        try:
+            response = await call_next(request)
+        except Exception:
+            duracion_ms = (monotonic() - inicio) * 1000
+            metricas.registrar_request(ruta, duracion_ms, 500)
+            logger.error(f"{metodo} {ruta} 500 {duracion_ms:.0f}ms")
+            raise
+
+        duracion_ms = (monotonic() - inicio) * 1000
+        metricas.registrar_request(ruta, duracion_ms, response.status_code)
+
+        # Solo loguear requests no triviales (omitir health checks frecuentes)
+        if ruta != "/" or response.status_code != 200:
+            nivel = logging.WARNING if duracion_ms > 5000 else logging.INFO
+            logger.log(nivel, f"{metodo} {ruta} {response.status_code} {duracion_ms:.0f}ms")
+
+        return response
+
+
+# ── Middleware: Security headers ──────────────────────────────────────────────
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Agrega headers de seguridad a cada respuesta."""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # No cachear respuestas de API
+        if not request.url.path.startswith("/auth/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 @asynccontextmanager
@@ -78,8 +171,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Dona — Asistente Personal en WhatsApp",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None if ENVIRONMENT == "production" else "/docs",
+    redoc_url=None if ENVIRONMENT == "production" else "/redoc",
 )
+
+# Registrar middleware (orden importa: el último agregado se ejecuta primero)
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 @app.get("/")
@@ -96,10 +195,26 @@ async def health_check():
         return {"status": "degraded", "service": "dona", "db": "error"}
 
 
+def _verificar_admin(request: Request, token_query: str = "") -> bool:
+    """Verifica autenticación admin via header (preferido) o query param (legacy)."""
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if not admin_token:
+        return False
+    # Preferir header Authorization: Bearer <token>
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer ") and auth_header[7:] == admin_token:
+        return True
+    # Fallback a query param (legacy, menos seguro)
+    return token_query == admin_token
+
+
 @app.get("/diagnostico")
-async def diagnostico():
-    """Prueba la conectividad con Whapi desde Railway."""
-    token = os.getenv("WHAPI_TOKEN", "")
+async def diagnostico(request: Request, token: str = ""):
+    """Prueba la conectividad con Whapi desde Railway. Requiere auth admin."""
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+
+    whapi_token = os.getenv("WHAPI_TOKEN", "")
     resultados = {}
 
     # Test 1: DNS y TCP a gate.whapi.cloud
@@ -107,13 +222,13 @@ async def diagnostico():
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(
                 "https://gate.whapi.cloud/health",
-                headers={"Authorization": f"Bearer {token}"}
+                headers={"Authorization": f"Bearer {whapi_token}"}
             )
             resultados["whapi_health"] = {"status": r.status_code, "body": r.json()}
     except Exception as e:
         resultados["whapi_health"] = {"error": type(e).__name__, "detail": str(e)}
 
-    # Test 2: Conectividad general de Railway
+    # Test 2: Conectividad general
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get("https://httpbin.org/ip")
@@ -122,6 +237,18 @@ async def diagnostico():
         resultados["railway_ip"] = {"error": type(e).__name__, "detail": str(e)}
 
     return resultados
+
+
+@app.get("/admin/metrics")
+async def admin_metrics(request: Request, token: str = ""):
+    """Métricas de la aplicación: requests, errores, latencia, mensajes."""
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from datetime import datetime as _dt, timezone as _tz
+    data = metricas.snapshot()
+    data["timestamp"] = _dt.now(_tz.utc).isoformat()
+    data["uptime_info"] = "desde último deploy"
+    return data
 
 
 @app.get("/webhook")
@@ -134,13 +261,12 @@ async def webhook_verificacion(request: Request):
 
 
 @app.get("/admin/onboarding")
-async def admin_onboarding_estado(telefono: str, token: str = ""):
+async def admin_onboarding_estado(request: Request, telefono: str, token: str = ""):
     """
     Diagnóstico de onboarding en producción.
-    Uso: /admin/onboarding?telefono=521234567890&token=ADMIN_TOKEN
+    Uso: /admin/onboarding?telefono=521234567890 + Header Authorization: Bearer <token>
     """
-    admin_token = os.getenv("ADMIN_TOKEN", "")
-    if not admin_token or token != admin_token:
+    if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.memory import obtener_onboarding, obtener_ubicacion
     estado = await obtener_onboarding(telefono)
@@ -153,13 +279,12 @@ async def admin_onboarding_estado(telefono: str, token: str = ""):
 
 
 @app.post("/admin/onboarding/reset")
-async def admin_onboarding_reset(telefono: str, fase: int = 0, paso: int = 0, token: str = ""):
+async def admin_onboarding_reset(request: Request, telefono: str, fase: int = 0, paso: int = 0, token: str = ""):
     """
     Resetea el estado de onboarding de un usuario.
-    Uso: POST /admin/onboarding/reset?telefono=521234567890&fase=0&paso=2&token=ADMIN_TOKEN
+    Uso: POST /admin/onboarding/reset?telefono=521234567890&fase=0&paso=2 + Header Auth
     """
-    admin_token = os.getenv("ADMIN_TOKEN", "")
-    if not admin_token or token != admin_token:
+    if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.memory import guardar_onboarding
     await guardar_onboarding(telefono, fase=fase, paso=paso)
@@ -167,13 +292,12 @@ async def admin_onboarding_reset(telefono: str, fase: int = 0, paso: int = 0, to
 
 
 @app.get("/admin/recordatorios")
-async def admin_recordatorios(telefono: str, token: str = ""):
+async def admin_recordatorios(request: Request, telefono: str, token: str = ""):
     """
     Diagnóstico de recordatorios en producción.
-    Uso: /admin/recordatorios?telefono=14076936023&token=ADMIN_TOKEN
+    Uso: /admin/recordatorios?telefono=14076936023 + Header Authorization: Bearer <token>
     """
-    admin_token = os.getenv("ADMIN_TOKEN", "")
-    if not admin_token or token != admin_token:
+    if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.memory import obtener_recordatorios_activos, obtener_timezone
     from datetime import datetime as dt, timedelta
@@ -321,7 +445,9 @@ async def _notificar_google_conectado(telefono: str, email: str):
 
 @app.post("/debug")
 async def debug_handler(request: Request):
-    """Captura el body crudo de cualquier request — para diagnosticar Whapi."""
+    """Captura el body crudo de cualquier request — para diagnosticar Whapi. Solo en dev."""
+    if ENVIRONMENT == "production":
+        raise HTTPException(status_code=404, detail="Not found")
     body = await request.body()
     headers = dict(request.headers)
     logger.info(f"DEBUG body: {body.decode('utf-8', errors='replace')}")
@@ -431,6 +557,7 @@ async def procesar_webhook(request: Request):
                 logger.warning(f"[SKIP] Mensaje sin texto ignorado silenciosamente: tel={msg.telefono} audio_id={msg.audio_id}")
                 continue
 
+            metricas.registrar_mensaje()
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto[:120]}")
 
             # ── Dona 2.0: Confirmaciones pendientes (SafeModule) ─────────
