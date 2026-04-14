@@ -314,6 +314,22 @@ class RecordatorioGCalEnviado(Base):
     enviado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class SesionConversacion(Base):
+    """Sesión de conversación — agrupa mensajes por ventana de inactividad."""
+    __tablename__ = "sesiones_conversacion"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    inicio: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    ultimo_mensaje: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    mensajes_count: Mapped[int] = mapped_column(Integer, default=0)
+    activa: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# Timeout de sesión: 30 minutos de inactividad → nueva sesión
+SESION_TIMEOUT_MINUTOS = 30
+
+
 _MIGRACIONES = [
     # ── Correcciones de nombre legacy ────────────────────────────────────────
     "ALTER TABLE mensajes RENAME COLUMN rol TO role",
@@ -417,6 +433,19 @@ _MIGRACIONES = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_uso_tokens_tel_fecha ON uso_tokens (telefono, fecha)",
+    # ── Fase 5: Sesiones de conversación ─────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS sesiones_conversacion (
+        id               SERIAL PRIMARY KEY,
+        telefono         VARCHAR(50)  NOT NULL,
+        inicio           TIMESTAMP    NOT NULL,
+        ultimo_mensaje   TIMESTAMP    NOT NULL,
+        mensajes_count   INTEGER      NOT NULL DEFAULT 0,
+        activa           BOOLEAN      NOT NULL DEFAULT TRUE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_sesiones_conv_tel ON sesiones_conversacion (telefono)",
+    "CREATE INDEX IF NOT EXISTS ix_sesiones_conv_activa ON sesiones_conversacion (telefono, activa)",
 ]
 
 
@@ -1873,6 +1902,15 @@ async def borrar_datos_usuario(telefono: str) -> dict:
         except Exception as e:
             conteos["uso_tokens"] = f"error: {e}"
 
+        # Tabla sesiones_conversacion
+        try:
+            r_sesiones = await session.execute(
+                delete(SesionConversacion).where(SesionConversacion.telefono == telefono)
+            )
+            conteos["sesiones"] = r_sesiones.rowcount
+        except Exception as e:
+            conteos["sesiones"] = f"error: {e}"
+
         # Tablas enhanced/ (si existen)
         try:
             from enhanced.models import UserSystem, SystemActivityLog
@@ -1888,3 +1926,109 @@ async def borrar_datos_usuario(telefono: str) -> dict:
     total = sum(v for v in conteos.values() if isinstance(v, int))
     logger.info(f"[BORRAR] Datos eliminados para {telefono}: {total} registros en {len(conteos)} tablas")
     return conteos
+
+
+# ── Sesiones de conversación ────────────────────────────────────────────────
+
+async def registrar_interaccion_sesion(telefono: str) -> int:
+    """
+    Registra una interacción en la sesión activa del usuario.
+    Si no hay sesión activa o la última expiró (>SESION_TIMEOUT_MINUTOS),
+    crea una nueva sesión.
+
+    Returns:
+        ID de la sesión activa.
+    """
+    ahora = datetime.utcnow()
+    timeout = timedelta(minutes=SESION_TIMEOUT_MINUTOS)
+
+    async with async_session() as session:
+        # Buscar sesión activa más reciente
+        result = await session.execute(
+            select(SesionConversacion)
+            .where(
+                SesionConversacion.telefono == telefono,
+                SesionConversacion.activa == True,
+            )
+            .order_by(SesionConversacion.ultimo_mensaje.desc())
+            .limit(1)
+        )
+        sesion_activa = result.scalar_one_or_none()
+
+        if sesion_activa and (ahora - sesion_activa.ultimo_mensaje) < timeout:
+            # Sesión aún activa — actualizar
+            sesion_activa.ultimo_mensaje = ahora
+            sesion_activa.mensajes_count += 1
+            await session.commit()
+            return sesion_activa.id
+        else:
+            # Cerrar sesión anterior si existe
+            if sesion_activa:
+                sesion_activa.activa = False
+
+            # Crear nueva sesión
+            nueva = SesionConversacion(
+                telefono=telefono,
+                inicio=ahora,
+                ultimo_mensaje=ahora,
+                mensajes_count=1,
+                activa=True,
+            )
+            session.add(nueva)
+            await session.commit()
+            await session.refresh(nueva)
+            logger.debug(f"[SESION] Nueva sesión #{nueva.id} para {telefono}")
+            return nueva.id
+
+
+async def obtener_sesion_activa(telefono: str) -> dict | None:
+    """Retorna datos de la sesión activa del usuario, o None si no hay."""
+    ahora = datetime.utcnow()
+    timeout = timedelta(minutes=SESION_TIMEOUT_MINUTOS)
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(SesionConversacion)
+            .where(
+                SesionConversacion.telefono == telefono,
+                SesionConversacion.activa == True,
+            )
+            .order_by(SesionConversacion.ultimo_mensaje.desc())
+            .limit(1)
+        )
+        s = result.scalar_one_or_none()
+        if not s or (ahora - s.ultimo_mensaje) >= timeout:
+            return None
+        return {
+            "id": s.id,
+            "inicio": s.inicio.isoformat(),
+            "ultimo_mensaje": s.ultimo_mensaje.isoformat(),
+            "mensajes_count": s.mensajes_count,
+            "duracion_min": round((s.ultimo_mensaje - s.inicio).total_seconds() / 60, 1),
+        }
+
+
+async def obtener_stats_sesiones(telefono: str, dias: int = 30) -> dict:
+    """Estadísticas de sesiones de un usuario en los últimos N días."""
+    desde = datetime.utcnow() - timedelta(days=dias)
+    async with async_session() as session:
+        result = await session.execute(
+            select(SesionConversacion)
+            .where(
+                SesionConversacion.telefono == telefono,
+                SesionConversacion.inicio >= desde,
+            )
+            .order_by(SesionConversacion.inicio.desc())
+        )
+        sesiones = result.scalars().all()
+        if not sesiones:
+            return {"total_sesiones": 0, "total_mensajes": 0, "duracion_promedio_min": 0}
+
+        total_msgs = sum(s.mensajes_count for s in sesiones)
+        duraciones = [(s.ultimo_mensaje - s.inicio).total_seconds() / 60 for s in sesiones]
+        return {
+            "total_sesiones": len(sesiones),
+            "total_mensajes": total_msgs,
+            "duracion_promedio_min": round(sum(duraciones) / len(duraciones), 1),
+            "mensajes_por_sesion": round(total_msgs / len(sesiones), 1),
+        }

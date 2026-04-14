@@ -865,6 +865,7 @@ async def procesar_webhook(request: Request):
             _asyncio.create_task(_verificar_sobrecarga(msg.telefono, proveedor, msg.texto))
             _asyncio.create_task(_actualizar_memoria_largo_plazo_si_necesario(msg.telefono))
             _asyncio.create_task(_registrar_interaccion_aprendizaje(msg.telefono, len(msg.texto)))
+            _asyncio.create_task(_registrar_sesion_bg(msg.telefono))
 
         except Exception as _e_msg:
             # Fallo inesperado procesando este mensaje — loguear y seguir con el siguiente
@@ -1064,6 +1065,15 @@ async def _registrar_interaccion_aprendizaje(telefono: str, longitud_mensaje: in
         )
     except Exception as e:
         logger.debug(f"_registrar_interaccion_aprendizaje ({telefono}): {e}")
+
+
+async def _registrar_sesion_bg(telefono: str):
+    """Registra interacción en la sesión de conversación (background)."""
+    try:
+        from agent.memory import registrar_interaccion_sesion
+        await registrar_interaccion_sesion(telefono)
+    except Exception as e:
+        logger.debug(f"_registrar_sesion_bg ({telefono}): {e}")
 
 
 async def _actualizar_memoria_largo_plazo_si_necesario(telefono: str):

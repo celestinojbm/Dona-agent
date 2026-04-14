@@ -18,8 +18,10 @@ import hmac
 import hashlib
 import logging
 import httpx
+from typing import Optional
+from pydantic import BaseModel, Field, ValidationError
 from fastapi import Request
-from agent.providers.base import ProveedorWhatsApp, MensajeEntrante
+from agent.providers.base import ProveedorWhatsApp, MensajeEntrante, BotonRespuesta, OpcionLista
 
 logger = logging.getLogger("agentkit")
 
@@ -29,6 +31,57 @@ TIPOS_AUDIO = {"audio", "voice"}
 # Tipos de mensaje de imagen/documento que WhatsApp puede enviar
 TIPOS_IMAGEN = {"image", "sticker"}
 TIPOS_DOCUMENTO = {"document"}
+
+
+# ── Pydantic models para validación del webhook de Meta ──────────────────────
+
+class MetaMediaPayload(BaseModel):
+    """Media object dentro de un mensaje (audio, image, sticker, document)."""
+    id: str = ""
+    mime_type: str = ""
+    caption: str = ""
+    filename: str = ""
+
+
+class MetaMensaje(BaseModel):
+    """Un mensaje individual dentro del webhook de Meta."""
+    id: str = ""
+    type: str = "text"
+    timestamp: str = "0"
+
+    # Campo 'from' es palabra reservada en Python → alias
+    from_number: str = Field("", alias="from")
+
+    text: Optional[dict] = None
+    audio: Optional[MetaMediaPayload] = None
+    voice: Optional[MetaMediaPayload] = None
+    image: Optional[MetaMediaPayload] = None
+    sticker: Optional[MetaMediaPayload] = None
+    document: Optional[MetaMediaPayload] = None
+
+    class Config:
+        populate_by_name = True
+
+
+class MetaValue(BaseModel):
+    """El objeto 'value' dentro de changes[]."""
+    messages: list[MetaMensaje] = []
+
+
+class MetaChange(BaseModel):
+    """Un cambio dentro de entry[].changes[]."""
+    value: MetaValue = MetaValue()
+
+
+class MetaEntry(BaseModel):
+    """Una entrada del webhook."""
+    changes: list[MetaChange] = []
+
+
+class MetaWebhookPayload(BaseModel):
+    """Payload completo del webhook de Meta WhatsApp Cloud API."""
+    object: str = ""
+    entry: list[MetaEntry] = []
 
 
 class ProveedorMeta(ProveedorWhatsApp):
@@ -102,31 +155,35 @@ class ProveedorMeta(ProveedorWhatsApp):
         if not self._verificar_firma(body_bytes, signature):
             return []  # Rechazar payload sin firma válida
 
+        # Validar y parsear con Pydantic
         try:
             import json as _json
-            body = _json.loads(body_bytes)
+            raw = _json.loads(body_bytes)
         except Exception as e:
             logger.error(f"[META] Error al parsear JSON del webhook: {e}")
             return []
 
-        logger.debug(f"[META] Payload recibido: {body}")
+        try:
+            payload = MetaWebhookPayload.model_validate(raw)
+        except ValidationError as e:
+            logger.warning(f"[META] Payload no pasó validación Pydantic: {e.error_count()} errores")
+            logger.debug(f"[META] Detalle validación: {e}")
+            return []
+
+        logger.debug(f"[META] Payload validado: {raw}")
         mensajes = []
 
         try:
-            entries = body.get("entry", [])
-            for entry in entries:
-                for change in entry.get("changes", []):
-                    value = change.get("value", {})
-                    msgs = value.get("messages", [])
-
-                    for msg in msgs:
-                        tipo = msg.get("type", "text")
-                        telefono = msg.get("from", "")
-                        mensaje_id = msg.get("id", "")
-                        timestamp = int(msg.get("timestamp", 0))
+            for entry in payload.entry:
+                for change in entry.changes:
+                    for msg in change.value.messages:
+                        tipo = msg.type
+                        telefono = msg.from_number
+                        mensaje_id = msg.id
+                        timestamp = int(msg.timestamp) if msg.timestamp.isdigit() else 0
 
                         if tipo == "text":
-                            texto = msg.get("text", {}).get("body", "")
+                            texto = (msg.text or {}).get("body", "")
                             mensajes.append(MensajeEntrante(
                                 telefono=telefono,
                                 texto=texto,
@@ -136,11 +193,9 @@ class ProveedorMeta(ProveedorWhatsApp):
                             ))
 
                         elif tipo in TIPOS_AUDIO:
-                            audio_data = msg.get("audio") or msg.get("voice") or {}
-                            if not isinstance(audio_data, dict):
-                                audio_data = {}
-                            audio_id = audio_data.get("id", mensaje_id)
-                            mime_type = audio_data.get("mime_type", "audio/ogg; codecs=opus")
+                            audio_data = msg.audio or msg.voice
+                            audio_id = audio_data.id if audio_data else mensaje_id
+                            mime_type = audio_data.mime_type if audio_data else "audio/ogg; codecs=opus"
                             logger.info(f"[META] Nota de voz de {telefono}: audio_id={audio_id} mime={mime_type}")
                             mensajes.append(MensajeEntrante(
                                 telefono=telefono,
@@ -148,16 +203,14 @@ class ProveedorMeta(ProveedorWhatsApp):
                                 mensaje_id=mensaje_id,
                                 es_propio=False,
                                 timestamp=timestamp,
-                                audio_id=audio_id,
-                                audio_mime=mime_type,
+                                audio_id=audio_id or mensaje_id,
+                                audio_mime=mime_type or "audio/ogg; codecs=opus",
                             ))
 
                         elif tipo in TIPOS_IMAGEN:
-                            image_data = msg.get("image") or msg.get("sticker") or {}
-                            if not isinstance(image_data, dict):
-                                image_data = {}
-                            image_id = image_data.get("id", "")
-                            caption = image_data.get("caption", "")
+                            image_data = msg.image or msg.sticker
+                            image_id = image_data.id if image_data else ""
+                            caption = image_data.caption if image_data else ""
                             logger.info(f"[META] Imagen de {telefono}: image_id={image_id}")
                             if image_id:
                                 mensajes.append(MensajeEntrante(
@@ -171,16 +224,13 @@ class ProveedorMeta(ProveedorWhatsApp):
                                 ))
 
                         elif tipo in TIPOS_DOCUMENTO:
-                            doc_data = msg.get("document") or {}
-                            if not isinstance(doc_data, dict):
-                                doc_data = {}
-                            doc_id = doc_data.get("id", "")
-                            filename = doc_data.get("filename", "documento")
-                            caption = doc_data.get("caption", "")
+                            doc_data = msg.document
+                            doc_id = doc_data.id if doc_data else ""
+                            filename = doc_data.filename if doc_data else "documento"
+                            caption = doc_data.caption if doc_data else ""
                             logger.info(f"[META] Documento de {telefono}: doc_id={doc_id} filename={filename}")
-                            # Tratar documentos como mensaje de texto descriptivo
                             if doc_id:
-                                texto_doc = f"[El usuario envió un documento: {filename}]"
+                                texto_doc = f"[El usuario envió un documento: {filename or 'documento'}]"
                                 if caption:
                                     texto_doc += f" con el mensaje: {caption}"
                                 mensajes.append(MensajeEntrante(
@@ -234,3 +284,97 @@ class ProveedorMeta(ProveedorWhatsApp):
         except Exception as e:
             logger.error(f"[META] Excepción al enviar mensaje ({type(e).__name__}): {e}")
             return False
+
+    async def enviar_botones(
+        self, telefono: str, texto: str, botones: list[BotonRespuesta]
+    ) -> bool:
+        """Envía mensaje con botones interactivos via Meta Cloud API (max 3 botones)."""
+        if not self.access_token or not self.phone_number_id:
+            return await super().enviar_botones(telefono, texto, botones)
+
+        # Meta permite máximo 3 botones
+        botones = botones[:3]
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": telefono,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": texto[:1024]},
+                "action": {
+                    "buttons": [
+                        {
+                            "type": "reply",
+                            "reply": {"id": b.id[:256], "title": b.titulo[:20]},
+                        }
+                        for b in botones
+                    ]
+                },
+            },
+        }
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(self.url_envio, json=payload, headers=headers)
+                if r.status_code not in (200, 201):
+                    logger.warning(f"[META] Botones fallaron ({r.status_code}), fallback a texto")
+                    return await super().enviar_botones(telefono, texto, botones)
+                return True
+        except Exception as e:
+            logger.error(f"[META] Error enviando botones: {e}")
+            return await super().enviar_botones(telefono, texto, botones)
+
+    async def enviar_lista(
+        self, telefono: str, texto: str, boton_menu: str, opciones: list[OpcionLista]
+    ) -> bool:
+        """Envía mensaje con lista desplegable via Meta Cloud API (max 10 opciones)."""
+        if not self.access_token or not self.phone_number_id:
+            return await super().enviar_lista(telefono, texto, boton_menu, opciones)
+
+        opciones = opciones[:10]
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": telefono,
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": texto[:1024]},
+                "action": {
+                    "button": boton_menu[:20],
+                    "sections": [
+                        {
+                            "title": "Opciones",
+                            "rows": [
+                                {
+                                    "id": o.id[:200],
+                                    "title": o.titulo[:24],
+                                    **({"description": o.descripcion[:72]} if o.descripcion else {}),
+                                }
+                                for o in opciones
+                            ],
+                        }
+                    ],
+                },
+            },
+        }
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(self.url_envio, json=payload, headers=headers)
+                if r.status_code not in (200, 201):
+                    logger.warning(f"[META] Lista falló ({r.status_code}), fallback a texto")
+                    return await super().enviar_lista(telefono, texto, boton_menu, opciones)
+                return True
+        except Exception as e:
+            logger.error(f"[META] Error enviando lista: {e}")
+            return await super().enviar_lista(telefono, texto, boton_menu, opciones)
