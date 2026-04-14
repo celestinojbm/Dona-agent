@@ -56,13 +56,17 @@ class ConfirmacionPendiente:
 _confirmaciones: dict[str, ConfirmacionPendiente] = {}
 
 
+def _normalizar_telefono(telefono: str) -> str:
+    """Normaliza un número de teléfono a solo dígitos para comparación."""
+    return "".join(c for c in telefono if c.isdigit())
+
+
 def _es_owner(telefono: str) -> bool:
-    """Verifica si el número corresponde al owner."""
+    """Verifica si el número corresponde al owner. Comparación exacta por dígitos."""
     if not OWNER_PHONE:
         logger.warning("[SAFE] OWNER_PHONE no configurado — acciones owner deshabilitadas")
         return False
-    # Comparar los últimos 10 dígitos para manejar variaciones de formato (+52, 52, etc.)
-    return telefono[-10:] == OWNER_PHONE[-10:] if len(telefono) >= 10 and len(OWNER_PHONE) >= 10 else telefono == OWNER_PHONE
+    return _normalizar_telefono(telefono) == _normalizar_telefono(OWNER_PHONE)
 
 
 def _confirmacion_expirada(conf: ConfirmacionPendiente) -> bool:

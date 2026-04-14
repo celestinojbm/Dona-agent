@@ -105,6 +105,143 @@ def _resultado_reauth_google(telefono: str) -> str:
         f"'Para acceder a tu Gmail necesito que re-autorices Google. Abre este enlace:\n{link}'"
     )
 
+# ── Selección dinámica de herramientas ────────────────────────────────────────
+# En lugar de enviar las 20 tools (~4k tokens) en cada request,
+# clasificamos el mensaje por categoría con regex (costo cero) y
+# enviamos solo las herramientas relevantes (~800-1500 tokens).
+
+_CATEGORIAS_KEYWORDS = {
+    "recordatorios": {
+        "recuérdame", "recuerdame", "recordatorio", "recuérdamelo", "recuerdamelo",
+        "avísame", "avisame", "alarma", "despiértame", "despiertame",
+        "recordatorios", "mis recordatorios", "cancela el recordatorio",
+        "borra el recordatorio", "elimina el recordatorio",
+    },
+    "notas": {
+        "anota", "apunta", "nota", "idea", "guarda esto", "escribe esto",
+        "apúntame", "apuntame", "mis notas", "qué anoté", "que anoté",
+        "busca en mis notas", "notas sobre",
+    },
+    "gmail": {
+        "correo", "correos", "email", "emails", "gmail", "inbox",
+        "manda un correo", "escríbele", "escribele", "envíale", "enviale",
+        "respóndele", "respondele", "no leídos", "no leidos",
+        "redacta", "borrador", "envíalo", "envialo", "mándalo", "mandalo",
+    },
+    "sheets": {
+        "hoja", "hojas", "spreadsheet", "sheets", "excel",
+        "mi hoja", "pipeline", "registra en", "agrega a mi hoja",
+        "actualiza en mi hoja", "mis hojas", "qué hojas",
+    },
+    "calendario": {
+        "calendario", "calendar", "agenda", "agéndame", "agendame",
+        "evento", "cita", "reunión", "reunion", "qué tengo hoy",
+        "que tengo hoy", "mi agenda", "conectar google", "conecta google",
+        "google calendar",
+    },
+    "simulacion": {
+        "qué pasaría", "que pasaria", "qué pasa si", "que pasa si",
+        "consecuencias", "simula", "analiza qué", "analiza que",
+        "impacto de", "cómo reaccionaría", "como reaccionaria",
+    },
+    "timezone": {
+        "son las", "la hora", "qué hora", "que hora",
+    },
+}
+
+# Tools que siempre se incluyen (bajo costo, alta utilidad)
+_TOOLS_SIEMPRE = {"guardar_zona_horaria"}
+
+# Mapeo categoría → nombres de tools
+_CATEGORIA_TOOLS = {
+    "recordatorios": {"crear_recordatorio", "listar_recordatorios", "cancelar_recordatorio", "guardar_zona_horaria"},
+    "notas": {"guardar_nota", "buscar_notas"},
+    "gmail": {"leer_correos", "leer_correo_completo", "redactar_y_enviar_correo", "confirmar_envio_correo", "responder_correo", "buscar_correos"},
+    "sheets": {"registrar_hoja", "leer_hoja", "agregar_fila", "actualizar_celda", "listar_hojas"},
+    "calendario": {"conectar_google_calendar", "gestionar_calendario", "guardar_zona_horaria"},
+    "simulacion": {"simular_escenario"},
+    "timezone": {"guardar_zona_horaria"},
+}
+
+
+def _clasificar_mensaje(texto: str) -> set[str] | None:
+    """
+    Clasifica el mensaje en categorías usando regex (costo cero).
+    Retorna:
+      - set de nombres de tools relevantes si se detecta intención de herramienta
+      - set vacío si el mensaje es claramente conversacional (no necesita tools)
+      - None si no se puede clasificar (fallback: enviar todas)
+    """
+    texto_lower = texto.lower()
+    tools_necesarias: set[str] = set()
+    match_encontrado = False
+
+    for categoria, keywords in _CATEGORIAS_KEYWORDS.items():
+        if any(kw in texto_lower for kw in keywords):
+            tools_necesarias.update(_CATEGORIA_TOOLS[categoria])
+            match_encontrado = True
+
+    # Si hay confirmación de envío de correo pendiente, incluir gmail tools
+    if any(kw in texto_lower for kw in ("sí", "si", "envíalo", "envialo", "dale", "mándalo", "mandalo", "ok")):
+        tools_necesarias.update(_CATEGORIA_TOOLS["gmail"])
+        match_encontrado = True
+
+    if match_encontrado:
+        tools_necesarias.update(_TOOLS_SIEMPRE)
+        return tools_necesarias
+
+    # Detectar mensajes claramente conversacionales (no necesitan tools)
+    # Mensajes cortos, saludos, preguntas generales, etc.
+    palabras = texto_lower.split()
+    if len(palabras) <= 6:
+        _conversacional = {
+            "hola", "hey", "buenas", "buenos días", "buenos dias", "buenas tardes",
+            "buenas noches", "cómo estás", "como estas", "qué tal", "que tal",
+            "gracias", "ok", "vale", "genial", "perfecto", "bien", "mal",
+            "sí", "si", "no", "claro", "dale", "listo",
+        }
+        if texto_lower.rstrip("!.,?¡¿ ") in _conversacional:
+            return set()  # Conversacional → sin tools
+
+    # Si el mensaje es largo (>15 palabras) y no matcheó keywords,
+    # probablemente es una pregunta o reflexión → sin tools
+    if len(palabras) > 15 and not match_encontrado:
+        return set()
+
+    # No se puede clasificar con certeza → fallback a todas
+    return None
+
+
+def seleccionar_tools(texto: str, telefono: str = "") -> list[dict]:
+    """
+    Retorna solo las herramientas relevantes para el mensaje.
+    - Mensaje con keywords de tool → solo tools relevantes (~2-6 tools)
+    - Mensaje conversacional → sin tools (0 tokens de tools)
+    - No clasificable → todas las tools (fallback seguro)
+    """
+    nombres = _clasificar_mensaje(texto)
+
+    # Si hay borrador pendiente de este usuario, siempre incluir gmail
+    if telefono and telefono in _borradores_pendientes:
+        if nombres is None:
+            nombres = set()
+        nombres.update(_CATEGORIA_TOOLS["gmail"])
+
+    # None = no clasificable → enviar todas
+    if nombres is None:
+        logger.debug("[TOOLS] No clasificable → enviando todas las tools")
+        return TOOLS
+
+    # set vacío = conversacional, sin tools necesarias
+    if not nombres:
+        logger.debug("[TOOLS] Mensaje conversacional → 0 tools")
+        return []
+
+    seleccion = [t for t in TOOLS if t["name"] in nombres]
+    logger.debug(f"[TOOLS] {len(seleccion)}/{len(TOOLS)} tools seleccionadas")
+    return seleccion
+
+
 # Herramientas que Claude puede llamar
 TOOLS = [
     {
@@ -927,20 +1064,33 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     mensajes = [{"role": m["role"], "content": m["content"]} for m in historial]
     mensajes.append({"role": "user", "content": mensaje})
 
+    # Seleccionar solo las herramientas relevantes para este mensaje
+    tools_para_request = seleccionar_tools(mensaje, telefono)
+
+    # Construir kwargs — omitir tools si lista vacía (conversación pura)
+    _api_kwargs = dict(
+        model="claude-sonnet-4-5",
+        max_tokens=1024,
+        system=system_prompt,
+        messages=mensajes,
+    )
+    if tools_para_request:
+        _api_kwargs["tools"] = tools_para_request
+
     # Retry con backoff para errores transitorios (529 Overloaded, 500, etc.)
     import asyncio as _asyncio
     _max_reintentos = 3
     for _intento in range(_max_reintentos):
         try:
-            response = await client.messages.create(
-                model="claude-sonnet-4-5",
-                max_tokens=1024,
-                system=system_prompt,
-                messages=mensajes,
-                tools=TOOLS
-            )
+            response = await client.messages.create(**_api_kwargs)
 
-            logger.info(f"Claude respuesta ({response.usage.input_tokens} in / {response.usage.output_tokens} out) stop={response.stop_reason}")
+            _tin = response.usage.input_tokens
+            _tout = response.usage.output_tokens
+            logger.info(f"Claude respuesta ({_tin} in / {_tout} out) stop={response.stop_reason}")
+
+            # Registrar uso de tokens en background (no bloquear)
+            if telefono:
+                _asyncio.create_task(_registrar_tokens_bg(telefono, _tin, _tout))
 
             # Si Claude quiere usar una herramienta
             if response.stop_reason == "tool_use":
@@ -2136,6 +2286,15 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
         )
 
     return _extraer_texto(respuesta_final)
+
+
+async def _registrar_tokens_bg(telefono: str, tokens_in: int, tokens_out: int):
+    """Registra uso de tokens en DB (background, no bloquea respuesta)."""
+    try:
+        from agent.memory import registrar_uso_tokens
+        await registrar_uso_tokens(telefono, tokens_in, tokens_out)
+    except Exception as e:
+        logger.debug(f"Error registrando tokens: {e}")
 
 
 async def _guardar_emocion_background(telefono: str, emotion: dict):

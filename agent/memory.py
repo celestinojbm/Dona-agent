@@ -404,6 +404,19 @@ _MIGRACIONES = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_gcal_enviados_fecha ON recordatorios_gcal_enviados (enviado_en)",
+    # ── Fase 4: Tracking de uso de tokens por usuario ────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS uso_tokens (
+        id              SERIAL PRIMARY KEY,
+        telefono        VARCHAR(50)  NOT NULL,
+        fecha           DATE         NOT NULL,
+        tokens_entrada  INTEGER      NOT NULL DEFAULT 0,
+        tokens_salida   INTEGER      NOT NULL DEFAULT 0,
+        requests_count  INTEGER      NOT NULL DEFAULT 0,
+        UNIQUE(telefono, fecha)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_uso_tokens_tel_fecha ON uso_tokens (telefono, fecha)",
 ]
 
 
@@ -1739,6 +1752,56 @@ async def obtener_todos_con_google_calendar() -> list[str]:
         return [row[0] for row in result.fetchall()]
 
 
+async def registrar_uso_tokens(telefono: str, tokens_in: int, tokens_out: int):
+    """Registra el uso de tokens de una llamada a Claude. Acumula por usuario/día."""
+    try:
+        from datetime import date
+        hoy = date.today()
+        async with async_session() as session:
+            from sqlalchemy import text
+            # UPSERT: incrementar si ya existe, crear si no
+            await session.execute(
+                text("""
+                    INSERT INTO uso_tokens (telefono, fecha, tokens_entrada, tokens_salida, requests_count)
+                    VALUES (:tel, :fecha, :tin, :tout, 1)
+                    ON CONFLICT (telefono, fecha)
+                    DO UPDATE SET
+                        tokens_entrada = uso_tokens.tokens_entrada + :tin,
+                        tokens_salida = uso_tokens.tokens_salida + :tout,
+                        requests_count = uso_tokens.requests_count + 1
+                """),
+                {"tel": telefono, "fecha": hoy, "tin": tokens_in, "tout": tokens_out},
+            )
+            await session.commit()
+    except Exception as e:
+        logger.debug(f"registrar_uso_tokens: {e}")
+
+
+async def obtener_uso_tokens(telefono: str, dias: int = 30) -> list[dict]:
+    """Obtiene el uso de tokens de un usuario en los últimos N días."""
+    try:
+        from datetime import date, timedelta
+        desde = date.today() - timedelta(days=dias)
+        async with async_session() as session:
+            from sqlalchemy import text
+            result = await session.execute(
+                text("""
+                    SELECT fecha, tokens_entrada, tokens_salida, requests_count
+                    FROM uso_tokens
+                    WHERE telefono = :tel AND fecha >= :desde
+                    ORDER BY fecha DESC
+                """),
+                {"tel": telefono, "desde": desde},
+            )
+            return [
+                {"fecha": str(r[0]), "tokens_in": r[1], "tokens_out": r[2], "requests": r[3]}
+                for r in result.fetchall()
+            ]
+    except Exception as e:
+        logger.debug(f"obtener_uso_tokens: {e}")
+        return []
+
+
 async def borrar_datos_usuario(telefono: str) -> dict:
     """
     Elimina TODOS los datos de un usuario de todas las tablas.
@@ -1798,6 +1861,17 @@ async def borrar_datos_usuario(telefono: str) -> dict:
             conteos["listas"] = r_listas.rowcount
         except Exception as e:
             conteos["listas"] = f"error: {e}"
+
+        # Tabla uso_tokens
+        try:
+            from sqlalchemy import text as _text
+            r_tokens = await session.execute(
+                _text("DELETE FROM uso_tokens WHERE telefono = :tel"),
+                {"tel": telefono},
+            )
+            conteos["uso_tokens"] = r_tokens.rowcount
+        except Exception as e:
+            conteos["uso_tokens"] = f"error: {e}"
 
         # Tablas enhanced/ (si existen)
         try:
