@@ -275,20 +275,32 @@ async def _generar_morning_brief(
         contexto_resumido = contexto[:600] if contexto else "No disponible"
         saludo = "Buenos días" if not bajo_demanda else "Aquí va tu resumen"
 
+        # Enriquecer con datos de negocio si el usuario tiene perfil
+        negocio_str = ""
+        try:
+            from agent.business.reportes import generar_reporte_diario
+            reporte_neg = await generar_reporte_diario(telefono)
+            if reporte_neg:
+                negocio_str = reporte_neg
+        except Exception:
+            pass
+
         prompt = (
             f"Eres Dona, asistente personal de WhatsApp. "
-            f"Tono: cálido, directo, motivador. Máximo 130 palabras. Sin markdown pesado.\n\n"
+            f"Tono: cálido, directo, motivador. Máximo {'180' if negocio_str else '130'} palabras. Sin markdown pesado.\n\n"
             f"Genera el resumen matutino para {nombre or 'el usuario'}.\n\n"
             f"Recordatorios de hoy:\n{recordatorios_str}\n\n"
             + (f"Clima de hoy: {clima_str}\n\n" if clima_str else "")
+            + (f"Datos de su negocio:\n{negocio_str}\n\n" if negocio_str else "")
             + f"Contexto del usuario (proyectos, rutina, metas):\n{contexto_resumido}\n\n"
             f"El mensaje debe:\n"
             f"1. Saludar con '{saludo} {nombre or ''}' y el día de la semana\n"
             f"2. Mencionar el clima brevemente si hay algo relevante (lluvia, temperatura extrema)\n"
             f"3. Mencionar el recordatorio más importante si hay alguno\n"
-            f"4. Una motivación corta alineada con sus metas\n"
-            f"5. Terminar con una pregunta de acción concreta\n"
-            f"6. Emojis con moderación (máx 3)\n\n"
+            + (f"4. Incluir un dato clave de su negocio (pedidos pendientes, ventas del mes, seguimientos)\n" if negocio_str else "")
+            + f"{'5' if negocio_str else '4'}. Una motivación corta alineada con sus metas\n"
+            f"{'6' if negocio_str else '5'}. Terminar con una pregunta de acción concreta\n"
+            f"{'7' if negocio_str else '6'}. Emojis con moderación (máx 3)\n\n"
             f"REGLAS ABSOLUTAS:\n"
             f"- NUNCA menciones la calidad, completitud o estado del contexto ('el contexto está mezclado', 'no tengo suficiente info', etc.)\n"
             f"- NUNCA expongas tu razonamiento interno ni tus limitaciones\n"
@@ -444,18 +456,30 @@ async def _generar_weekly_review(telefono: str, nombre: str, contexto: str) -> s
         )
         contexto_resumido = contexto[:500] if contexto else "No disponible"
 
+        # Datos de negocio de la semana
+        negocio_str = ""
+        try:
+            from agent.business.reportes import generar_reporte_semanal
+            reporte_neg = await generar_reporte_semanal(telefono)
+            if reporte_neg:
+                negocio_str = reporte_neg
+        except Exception:
+            pass
+
         prompt = (
             f"Eres Dona, asistente personal de WhatsApp. "
-            f"Tono: motivador, estratégico, cálido. Máximo 130 palabras. Sin markdown pesado.\n\n"
+            f"Tono: motivador, estratégico, cálido. Máximo {'200' if negocio_str else '130'} palabras. Sin markdown pesado.\n\n"
             f"Genera el resumen semanal de fin de viernes para {nombre or 'el usuario'}.\n\n"
             f"Recordatorios de la próxima semana:\n{proximos_str}\n\n"
-            f"Metas y proyectos del usuario:\n{contexto_resumido}\n\n"
+            + (f"Resumen de negocio esta semana:\n{negocio_str}\n\n" if negocio_str else "")
+            + f"Metas y proyectos del usuario:\n{contexto_resumido}\n\n"
             f"El mensaje debe:\n"
             f"1. Reconocer que terminó otra semana\n"
-            f"2. Conectar la próxima semana con sus metas grandes\n"
-            f"3. Destacar la prioridad más importante para el lunes\n"
-            f"4. Terminar con una pregunta motivadora\n"
-            f"5. Emojis con moderación\n\n"
+            + (f"2. Mencionar resultados clave del negocio (ventas, clientes, tendencias)\n" if negocio_str else "")
+            + f"{'3' if negocio_str else '2'}. Conectar la próxima semana con sus metas grandes\n"
+            f"{'4' if negocio_str else '3'}. Destacar la prioridad más importante para el lunes\n"
+            f"{'5' if negocio_str else '4'}. Terminar con una pregunta motivadora\n"
+            f"{'6' if negocio_str else '5'}. Emojis con moderación\n\n"
             f"REGLAS ABSOLUTAS:\n"
             f"- NUNCA menciones la calidad o completitud del contexto disponible\n"
             f"- NUNCA expongas tu razonamiento interno ni tus limitaciones\n"

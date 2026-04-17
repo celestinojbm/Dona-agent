@@ -457,7 +457,14 @@ async def _migrar_columnas():
     aborta toda la transacción y las migraciones siguientes fallan con
     'InFailedSQLTransactionError: current transaction is aborted'.
     """
-    for sql in _MIGRACIONES:
+    # Incluir migraciones del módulo de negocio
+    try:
+        from agent.business.models import MIGRACIONES_NEGOCIO
+        todas = _MIGRACIONES + MIGRACIONES_NEGOCIO
+    except ImportError:
+        todas = _MIGRACIONES
+
+    for sql in todas:
         try:
             async with engine.begin() as conn:
                 await conn.execute(text(sql))

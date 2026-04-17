@@ -147,6 +147,46 @@ _CATEGORIAS_KEYWORDS = {
     "timezone": {
         "son las", "la hora", "qué hora", "que hora",
     },
+    "clientes": {
+        "cliente", "clientes", "prospecto", "lead", "contacto",
+        "seguimiento", "follow up", "followup", "dar seguimiento",
+    },
+    "ventas": {
+        "vendí", "vendi", "venta", "ventas", "cobré", "cobre",
+        "me pagaron", "ingreso", "ingresos", "facturé", "facture",
+    },
+    "gastos": {
+        "gasté", "gaste", "gasto", "gastos", "compré", "compre",
+        "pagué", "pague", "invertí", "inverti", "costo",
+    },
+    "finanzas": {
+        "finanzas", "números", "numeros", "utilidad", "margen",
+        "resumen financiero", "cómo van mis ventas", "como van mis ventas",
+        "cuánto he ganado", "cuanto he ganado", "mis números",
+    },
+    "productos": {
+        "producto", "productos", "catálogo", "catalogo", "precio",
+        "precios", "mi menú", "mi menu", "servicio", "servicios",
+        "cuánto cuesta", "cuanto cuesta",
+    },
+    "pedidos": {
+        "pedido", "pedidos", "orden", "órdenes", "ordenes",
+        "encargo", "encargaron", "entrega", "entregar",
+    },
+    "cotizaciones": {
+        "cotización", "cotizacion", "cotizar", "presupuesto",
+        "cuánto le cobro", "cuanto le cobro",
+    },
+    "contenido": {
+        "post", "publicación", "publicacion", "instagram", "redes",
+        "contenido", "historia", "story", "promoción", "promocion",
+        "campaña", "campaña", "redacta un post", "genera contenido",
+    },
+    "negocio_config": {
+        "mi negocio", "mi empresa", "mi tienda", "mi local",
+        "mi pastelería", "mi pasteleria", "meta de ventas",
+        "meta mensual", "configurar negocio",
+    },
 }
 
 # Tools que siempre se incluyen (bajo costo, alta utilidad)
@@ -161,6 +201,15 @@ _CATEGORIA_TOOLS = {
     "calendario": {"conectar_google_calendar", "gestionar_calendario", "guardar_zona_horaria"},
     "simulacion": {"simular_escenario"},
     "timezone": {"guardar_zona_horaria"},
+    "clientes": {"registrar_cliente", "buscar_clientes", "crear_seguimiento"},
+    "ventas": {"registrar_venta", "resumen_financiero", "registrar_cliente"},
+    "gastos": {"registrar_gasto", "resumen_financiero"},
+    "finanzas": {"resumen_financiero", "registrar_venta", "registrar_gasto"},
+    "productos": {"registrar_producto", "listar_productos"},
+    "pedidos": {"crear_pedido", "actualizar_pedido", "listar_pedidos"},
+    "cotizaciones": {"crear_cotizacion", "listar_productos"},
+    "contenido": {"generar_contenido_redes"},
+    "negocio_config": {"configurar_negocio"},
 }
 
 
@@ -790,7 +839,272 @@ TOOLS = [
             },
             "required": ["palabras_clave"]
         }
-    }
+    },
+    # ── TOOLS DE NEGOCIO ─────────────────────────────────────────────────────
+    {
+        "name": "registrar_cliente",
+        "description": (
+            "Registra un nuevo cliente del negocio del usuario. "
+            "Úsala cuando el usuario mencione un cliente nuevo, alguien que le compró, "
+            "o pida guardar datos de contacto de un cliente."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nombre": {"type": "string", "description": "Nombre del cliente"},
+                "telefono_cliente": {"type": "string", "description": "Teléfono del cliente (opcional)", "default": ""},
+                "email": {"type": "string", "description": "Email del cliente (opcional)", "default": ""},
+                "notas": {"type": "string", "description": "Notas sobre el cliente (preferencias, contexto)", "default": ""},
+            },
+            "required": ["nombre"]
+        }
+    },
+    {
+        "name": "buscar_clientes",
+        "description": (
+            "Busca clientes del negocio por nombre, teléfono o email. "
+            "Úsala cuando el usuario pregunte por un cliente específico o quiera ver su lista de clientes."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Texto a buscar (nombre, teléfono o email). Vacío para listar todos.", "default": ""},
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "crear_seguimiento",
+        "description": (
+            "Crea un follow-up programado para un cliente. "
+            "Úsala cuando el usuario diga 'darle seguimiento a X', 'recuérdame contactar a Y', "
+            "'tengo que llamar a Z mañana'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cliente_nombre": {"type": "string", "description": "Nombre del cliente"},
+                "descripcion": {"type": "string", "description": "Qué hacer en el seguimiento"},
+                "fecha_programada": {"type": "string", "description": "Fecha y hora UTC en ISO 8601 (ej: 2026-04-20T15:00:00)"},
+            },
+            "required": ["cliente_nombre", "descripcion", "fecha_programada"]
+        }
+    },
+    {
+        "name": "registrar_venta",
+        "description": (
+            "Registra una venta del negocio. "
+            "Úsala cuando el usuario diga 'vendí X', 'me pagaron', 'hoy hice una venta de $X', "
+            "'cobré $X por Y'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "monto": {"type": "number", "description": "Monto total de la venta"},
+                "descripcion": {"type": "string", "description": "Qué se vendió (producto, servicio, cantidad)", "default": ""},
+                "cliente_nombre": {"type": "string", "description": "Nombre del cliente (si lo menciona)", "default": ""},
+            },
+            "required": ["monto"]
+        }
+    },
+    {
+        "name": "registrar_gasto",
+        "description": (
+            "Registra un gasto del negocio. "
+            "Úsala cuando el usuario diga 'gasté $X en Y', 'compré ingredientes', "
+            "'pagué la renta', 'invertí en publicidad'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "monto": {"type": "number", "description": "Monto del gasto"},
+                "descripcion": {"type": "string", "description": "En qué se gastó", "default": ""},
+                "categoria": {"type": "string", "description": "Categoría: ingredientes, renta, publicidad, equipo, transporte, otro", "default": "general"},
+            },
+            "required": ["monto"]
+        }
+    },
+    {
+        "name": "resumen_financiero",
+        "description": (
+            "Muestra el resumen financiero del negocio (ventas, gastos, utilidad, margen). "
+            "Úsala cuando el usuario pregunte 'cómo van mis ventas', 'cuánto he ganado', "
+            "'mis números del mes', 'resumen de hoy'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "periodo": {
+                    "type": "string",
+                    "enum": ["hoy", "semana", "mes", "año"],
+                    "description": "Periodo del resumen. Default: mes",
+                    "default": "mes"
+                },
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "registrar_producto",
+        "description": (
+            "Registra un producto o servicio en el catálogo del negocio. "
+            "Úsala cuando el usuario diga 'mi pastel de chocolate cuesta $400', "
+            "'agrega este servicio', 'el corte de cabello vale $200'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nombre": {"type": "string", "description": "Nombre del producto/servicio"},
+                "precio": {"type": "number", "description": "Precio de venta"},
+                "costo": {"type": "number", "description": "Costo de producción (opcional, para margen)", "default": 0},
+                "categoria": {"type": "string", "description": "Categoría del producto", "default": "general"},
+            },
+            "required": ["nombre", "precio"]
+        }
+    },
+    {
+        "name": "listar_productos",
+        "description": (
+            "Lista los productos/servicios registrados del negocio. "
+            "Úsala cuando el usuario pregunte 'qué productos tengo', 'mi catálogo', 'mis precios'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "crear_pedido",
+        "description": (
+            "Crea un nuevo pedido/orden. "
+            "Úsala cuando el usuario diga 'me encargaron X', 'tengo un pedido de Y para el sábado', "
+            "'Laura quiere un pastel para el viernes'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "descripcion": {"type": "string", "description": "Qué se pidió"},
+                "cliente_nombre": {"type": "string", "description": "Nombre del cliente", "default": ""},
+                "monto": {"type": "number", "description": "Monto del pedido", "default": 0},
+                "fecha_entrega": {"type": "string", "description": "Fecha/hora de entrega en ISO 8601 UTC (opcional)", "default": ""},
+                "direccion": {"type": "string", "description": "Dirección de entrega (si aplica)", "default": ""},
+                "notas": {"type": "string", "description": "Notas adicionales", "default": ""},
+            },
+            "required": ["descripcion"]
+        }
+    },
+    {
+        "name": "actualizar_pedido",
+        "description": (
+            "Actualiza el estado de un pedido existente. "
+            "Úsala cuando el usuario diga 'ya entregué el pedido X', 'el pedido está listo', "
+            "'cancela el pedido de Y'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pedido_id": {"type": "integer", "description": "Número/ID del pedido"},
+                "estado": {
+                    "type": "string",
+                    "enum": ["pendiente", "en_preparacion", "listo", "entregado", "cancelado"],
+                    "description": "Nuevo estado del pedido"
+                },
+            },
+            "required": ["pedido_id", "estado"]
+        }
+    },
+    {
+        "name": "listar_pedidos",
+        "description": (
+            "Lista pedidos del negocio (pendientes por default). "
+            "Úsala cuando el usuario pregunte 'qué pedidos tengo', 'pendientes de entrega', "
+            "'mis órdenes de esta semana'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "estado": {"type": "string", "description": "Filtrar por estado (vacío = pendientes activos)", "default": ""},
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "crear_cotizacion",
+        "description": (
+            "Crea una cotización/presupuesto para un cliente. "
+            "Úsala cuando el usuario diga 'hazme una cotización', 'presupuesto para X', "
+            "'cuánto le cobro a Y por Z'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "concepto": {"type": "string"},
+                            "cantidad": {"type": "integer", "default": 1},
+                            "precio_unitario": {"type": "number"},
+                        },
+                        "required": ["concepto", "precio_unitario"]
+                    },
+                    "description": "Lista de conceptos con cantidad y precio unitario"
+                },
+                "cliente_nombre": {"type": "string", "description": "Nombre del cliente", "default": ""},
+                "notas": {"type": "string", "description": "Notas o condiciones", "default": ""},
+            },
+            "required": ["items"]
+        }
+    },
+    {
+        "name": "generar_contenido_redes",
+        "description": (
+            "Genera contenido para redes sociales del negocio (posts, historias, promociones). "
+            "Úsala cuando el usuario diga 'hazme un post', 'necesito contenido para Instagram', "
+            "'redacta una promoción', 'genera una historia'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tipo": {
+                    "type": "string",
+                    "enum": ["post_instagram", "historia", "promocion", "descripcion_producto"],
+                    "description": "Tipo de contenido a generar",
+                    "default": "post_instagram"
+                },
+                "tema": {"type": "string", "description": "De qué trata el contenido (producto, servicio, evento, etc.)"},
+                "tono": {"type": "string", "description": "Tono del contenido", "default": "profesional y amigable"},
+            },
+            "required": ["tema"]
+        }
+    },
+    {
+        "name": "configurar_negocio",
+        "description": (
+            "Configura el perfil de negocio del usuario. "
+            "Úsala cuando el usuario mencione datos de su negocio por primera vez: "
+            "'tengo una pastelería', 'soy freelancer', 'mi negocio se llama X', "
+            "'vendo productos de belleza'. También cuando diga 'mi meta es vender $X al mes'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nombre": {"type": "string", "description": "Nombre del negocio", "default": ""},
+                "industria": {
+                    "type": "string",
+                    "enum": ["restaurante", "servicios", "retail", "freelancer", "otro"],
+                    "description": "Tipo de negocio",
+                    "default": "otro"
+                },
+                "descripcion": {"type": "string", "description": "Descripción breve del negocio", "default": ""},
+                "moneda": {"type": "string", "description": "Moneda (MXN, USD, COP, etc.)", "default": "MXN"},
+                "meta_mensual": {"type": "number", "description": "Meta de ventas mensuales", "default": 0},
+            },
+            "required": []
+        }
+    },
 ]
 
 
@@ -2262,6 +2576,252 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 "tool_use_id": bloque.id,
                 "content": resultado
             })
+
+        # ── TOOLS DE NEGOCIO ─────────────────────────────────────────────
+        elif bloque.name == "registrar_cliente":
+            try:
+                from agent.business.crm import registrar_cliente
+                r = await registrar_cliente(
+                    telefono,
+                    nombre=bloque.input["nombre"],
+                    telefono_cliente=bloque.input.get("telefono_cliente", ""),
+                    email=bloque.input.get("email", ""),
+                    notas=bloque.input.get("notas", ""),
+                )
+                resultado = f"Cliente registrado: {r['nombre']} (ID #{r['id']})"
+            except Exception as e:
+                resultado = f"Error registrando cliente: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "buscar_clientes":
+            try:
+                from agent.business.crm import buscar_clientes
+                clientes = await buscar_clientes(telefono, query=bloque.input.get("query", ""))
+                if not clientes:
+                    resultado = "No se encontraron clientes. El usuario puede registrar clientes al mencionarlos."
+                else:
+                    lineas = [f"Clientes encontrados ({len(clientes)}):"]
+                    for c in clientes:
+                        extra = f" — {c['num_compras']} compras, ${c['total_compras']:,.0f}" if c['num_compras'] > 0 else ""
+                        lineas.append(f"• #{c['id']} {c['nombre']}{extra}")
+                    resultado = "\n".join(lineas)
+            except Exception as e:
+                resultado = f"Error buscando clientes: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "crear_seguimiento":
+            try:
+                from agent.business.crm import crear_seguimiento, buscar_cliente_por_nombre
+                from datetime import datetime as _dt_seg
+                fecha = _dt_seg.fromisoformat(bloque.input["fecha_programada"])
+                cliente_nombre = bloque.input.get("cliente_nombre", "")
+                # Intentar asociar con cliente existente
+                cliente_id = None
+                if cliente_nombre:
+                    c = await buscar_cliente_por_nombre(telefono, cliente_nombre)
+                    if c:
+                        cliente_id = c["id"]
+                r = await crear_seguimiento(
+                    telefono, bloque.input["descripcion"], fecha,
+                    cliente_id=cliente_id, cliente_nombre=cliente_nombre,
+                )
+                resultado = f"Seguimiento creado para {cliente_nombre}: '{r['descripcion']}' el {r['fecha']}"
+            except Exception as e:
+                resultado = f"Error creando seguimiento: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "registrar_venta":
+            try:
+                from agent.business.finanzas import registrar_venta
+                from agent.business.crm import buscar_cliente_por_nombre
+                cliente_nombre = bloque.input.get("cliente_nombre", "")
+                cliente_id = None
+                if cliente_nombre:
+                    c = await buscar_cliente_por_nombre(telefono, cliente_nombre)
+                    if c:
+                        cliente_id = c["id"]
+                r = await registrar_venta(
+                    telefono, monto=bloque.input["monto"],
+                    descripcion=bloque.input.get("descripcion", ""),
+                    cliente_id=cliente_id,
+                )
+                resultado = f"Venta registrada: ${r['monto']:,.2f}"
+                if r['descripcion']:
+                    resultado += f" ({r['descripcion']})"
+            except Exception as e:
+                resultado = f"Error registrando venta: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "registrar_gasto":
+            try:
+                from agent.business.finanzas import registrar_gasto
+                r = await registrar_gasto(
+                    telefono, monto=bloque.input["monto"],
+                    descripcion=bloque.input.get("descripcion", ""),
+                    categoria=bloque.input.get("categoria", "general"),
+                )
+                resultado = f"Gasto registrado: ${r['monto']:,.2f} ({r['descripcion'] or r['tipo']})"
+            except Exception as e:
+                resultado = f"Error registrando gasto: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "resumen_financiero":
+            try:
+                from agent.business.finanzas import resumen_financiero
+                periodo = bloque.input.get("periodo", "mes")
+                r = await resumen_financiero(telefono, periodo)
+                lineas = [f"Resumen financiero ({periodo}):"]
+                lineas.append(f"• Ventas: ${r['ventas']['total']:,.2f} ({r['ventas']['count']} transacciones)")
+                lineas.append(f"• Gastos: ${r['gastos']['total']:,.2f} ({r['gastos']['count']} transacciones)")
+                lineas.append(f"• Utilidad: ${r['utilidad']:,.2f}")
+                lineas.append(f"• Margen: {r['margen_pct']}%")
+                if r.get('progreso_meta_pct') is not None:
+                    lineas.append(f"• Meta mensual: {r['progreso_meta_pct']}% de ${r['meta_mensual']:,.0f}")
+                resultado = "\n".join(lineas)
+            except Exception as e:
+                resultado = f"Error obteniendo resumen: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "registrar_producto":
+            try:
+                from agent.business.finanzas import registrar_producto
+                r = await registrar_producto(
+                    telefono, nombre=bloque.input["nombre"],
+                    precio=bloque.input["precio"],
+                    costo=bloque.input.get("costo", 0),
+                    categoria=bloque.input.get("categoria", "general"),
+                )
+                resultado = f"Producto registrado: {r['nombre']} — ${r['precio']:,.2f}"
+                if r.get('margen_pct') is not None:
+                    resultado += f" (margen {r['margen_pct']}%)"
+            except Exception as e:
+                resultado = f"Error registrando producto: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "listar_productos":
+            try:
+                from agent.business.finanzas import listar_productos
+                prods = await listar_productos(telefono)
+                if not prods:
+                    resultado = "No hay productos registrados. El usuario puede registrar productos mencionando nombre y precio."
+                else:
+                    lineas = [f"Catálogo ({len(prods)} productos):"]
+                    for p in prods:
+                        lineas.append(f"• {p['nombre']} — ${p['precio']:,.2f}")
+                    resultado = "\n".join(lineas)
+            except Exception as e:
+                resultado = f"Error listando productos: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "crear_pedido":
+            try:
+                from agent.business.pedidos import crear_pedido
+                from agent.business.crm import buscar_cliente_por_nombre
+                from datetime import datetime as _dt_ped
+                cliente_nombre = bloque.input.get("cliente_nombre", "")
+                cliente_id = None
+                if cliente_nombre:
+                    c = await buscar_cliente_por_nombre(telefono, cliente_nombre)
+                    if c:
+                        cliente_id = c["id"]
+                fecha_str = bloque.input.get("fecha_entrega", "")
+                fecha_entrega = _dt_ped.fromisoformat(fecha_str) if fecha_str else None
+                r = await crear_pedido(
+                    telefono, descripcion=bloque.input["descripcion"],
+                    monto=bloque.input.get("monto", 0),
+                    cliente_id=cliente_id, cliente_nombre=cliente_nombre,
+                    fecha_entrega=fecha_entrega,
+                    direccion=bloque.input.get("direccion", ""),
+                    notas=bloque.input.get("notas", ""),
+                )
+                resultado = f"Pedido #{r['id']} creado: {r['descripcion']}"
+                if r.get('fecha_entrega'):
+                    resultado += f" (entrega: {r['fecha_entrega']})"
+            except Exception as e:
+                resultado = f"Error creando pedido: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "actualizar_pedido":
+            try:
+                from agent.business.pedidos import actualizar_estado_pedido
+                r = await actualizar_estado_pedido(
+                    telefono, bloque.input["pedido_id"], bloque.input["estado"]
+                )
+                if r:
+                    resultado = f"Pedido #{r['id']}: {r['estado_anterior']} → {r['estado_nuevo']}"
+                else:
+                    resultado = "Pedido no encontrado o estado inválido."
+            except Exception as e:
+                resultado = f"Error actualizando pedido: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "listar_pedidos":
+            try:
+                from agent.business.pedidos import listar_pedidos
+                pedidos = await listar_pedidos(telefono, estado=bloque.input.get("estado", ""))
+                if not pedidos:
+                    resultado = "No hay pedidos activos."
+                else:
+                    lineas = [f"Pedidos ({len(pedidos)}):"]
+                    for p in pedidos:
+                        fecha = ""
+                        if p.get("fecha_entrega"):
+                            fecha = f" — entrega: {p['fecha_entrega'][:16]}"
+                        lineas.append(f"• #{p['id']} [{p['estado']}] {p['descripcion'][:50]}{fecha}")
+                        if p.get('cliente'):
+                            lineas.append(f"  Cliente: {p['cliente']}")
+                    resultado = "\n".join(lineas)
+            except Exception as e:
+                resultado = f"Error listando pedidos: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "crear_cotizacion":
+            try:
+                from agent.business.cotizaciones import crear_cotizacion, formatear_cotizacion_texto
+                from agent.business.finanzas import obtener_perfil_negocio
+                r = await crear_cotizacion(
+                    telefono, items=bloque.input["items"],
+                    cliente_nombre=bloque.input.get("cliente_nombre", ""),
+                    notas=bloque.input.get("notas", ""),
+                )
+                perfil = await obtener_perfil_negocio(telefono)
+                nombre_neg = perfil.get("nombre", "") if perfil else ""
+                resultado = formatear_cotizacion_texto(r, nombre_neg)
+            except Exception as e:
+                resultado = f"Error creando cotización: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "generar_contenido_redes":
+            try:
+                from agent.business.contenido import generar_contenido
+                from agent.business.finanzas import obtener_perfil_negocio
+                perfil = await obtener_perfil_negocio(telefono)
+                nombre_neg = perfil.get("nombre", "") if perfil else ""
+                resultado = await generar_contenido(
+                    tipo=bloque.input.get("tipo", "post_instagram"),
+                    tema=bloque.input["tema"],
+                    negocio=nombre_neg,
+                    tono=bloque.input.get("tono", "profesional y amigable"),
+                )
+            except Exception as e:
+                resultado = f"Error generando contenido: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        elif bloque.name == "configurar_negocio":
+            try:
+                from agent.business.finanzas import guardar_perfil_negocio
+                r = await guardar_perfil_negocio(
+                    telefono,
+                    nombre=bloque.input.get("nombre", ""),
+                    industria=bloque.input.get("industria", "otro"),
+                    descripcion=bloque.input.get("descripcion", ""),
+                    moneda=bloque.input.get("moneda", "MXN"),
+                    meta_mensual=bloque.input.get("meta_mensual", 0),
+                )
+                resultado = f"Negocio configurado: {r['nombre']} ({r['industria']})"
+            except Exception as e:
+                resultado = f"Error configurando negocio: {e}"
+            resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
 
     # Siguiente llamada a Claude con los resultados de las herramientas
     mensajes_con_tool = mensajes + [
