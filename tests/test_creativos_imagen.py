@@ -63,11 +63,56 @@ class TestDetectores:
         assert es_comando_imagen("dona imágen con acento")
         assert es_comando_imagen("dona image in english word")
 
+    def test_comando_imagen_natural_verbo_sustantivo(self):
+        from agent.creativos.comandos import es_comando_imagen, parsear_imagen
+        assert es_comando_imagen("hazme una imagen de un gato")
+        assert es_comando_imagen("Genérame una foto del logo")
+        assert es_comando_imagen("creame un dibujo de gato")
+        assert es_comando_imagen("dame una imagen de paisaje")
+        assert es_comando_imagen("quiero una imagen de gato")
+        assert es_comando_imagen("necesito un banner para mi negocio")
+        assert es_comando_imagen("mándame una imagen de sol")
+        assert es_comando_imagen("¿puedes hacerme una imagen de perro?")
+        # El prompt se extrae limpio, sin el prefijo verbo+sustantivo
+        d = parsear_imagen("hazme una imagen de un gato astronauta")
+        assert "gato astronauta" in d["prompt"]
+        assert "imagen" not in d["prompt"].lower()
+
+    def test_comando_imagen_natural_verbo_fuerte(self):
+        from agent.creativos.comandos import es_comando_imagen, parsear_imagen
+        assert es_comando_imagen("dibuja un gato")
+        assert es_comando_imagen("dibújame una montaña al atardecer")
+        assert es_comando_imagen("ilústrame una escena de batalla")
+        assert es_comando_imagen("píntame un paisaje")
+        d = parsear_imagen("dibuja un gato astronauta")
+        assert d["prompt"] == "un gato astronauta"
+
+    def test_comando_imagen_natural_sustantivo(self):
+        from agent.creativos.comandos import es_comando_imagen, parsear_imagen
+        assert es_comando_imagen("imagen gato")
+        assert es_comando_imagen("imagen de un perro en la playa")
+        assert es_comando_imagen("foto del logo nuevo")
+        assert es_comando_imagen("dibujo gato astronauta")
+        d = parsear_imagen("imagen de un perro en la playa")
+        assert "perro" in d["prompt"] and "playa" in d["prompt"]
+
+    def test_comando_imagen_falsos_positivos(self):
+        """Mensajes que NO deben matchear el comando imagen."""
+        from agent.creativos.comandos import es_comando_imagen
+        assert not es_comando_imagen("la imagen está borrosa")
+        assert not es_comando_imagen("qué imagen usamos ayer")
+        assert not es_comando_imagen("el dibujo del niño")
+        assert not es_comando_imagen("hola cómo estás")
+        assert not es_comando_imagen("quiero un café")           # verbo débil sin sustantivo_img
+        assert not es_comando_imagen("puedes ayudarme con algo") # verbo sin "hacer/generar imagen"
+        assert not es_comando_imagen("me gusta tu logo")
+
     def test_comando_imagen_sin_prompt_rechaza(self):
         from agent.creativos.comandos import es_comando_imagen
         assert not es_comando_imagen("dona imagen")
         assert not es_comando_imagen("dona imagen   ")
-        assert not es_comando_imagen("imagen gato")
+        assert not es_comando_imagen("imagen")
+        assert not es_comando_imagen("dibuja")
         assert not es_comando_imagen("")
 
     def test_parsear_simple(self):

@@ -1,9 +1,12 @@
 # agent/creativos/comandos.py — Detección y render de comandos creativos
 
 """
-Comandos tipo "dona imagen <prompt>" + "confirmar" / "cancelar" para
-el flujo 2 pasos. Se invocan desde main.py antes del routing al LLM,
-para que queden determinísticos (no dependen de que Claude llame un tool).
+Comandos de generación de imagen (directos tipo "dona imagen <prompt>" y
+variantes en lenguaje natural tipo "hazme una imagen de X", "dibuja X",
+"imagen de X") + "confirmar" / "cancelar" para el flujo 2 pasos.
+
+Se invocan desde main.py ANTES del routing al LLM para que queden
+determinísticos (no dependen de que Claude llame un tool).
 """
 
 from __future__ import annotations
@@ -16,10 +19,60 @@ logger = logging.getLogger("agentkit")
 
 # ── Detectores ──────────────────────────────────────────────────────────────
 
-# "dona imagen <prompt>" o "dona imágen <prompt>" o "dona image <prompt>"
-_RE_IMAGEN = re.compile(
-    r"^\s*dona\s+im[aá]gen?\b\s*(.*)$",
+# Sustantivos que referencian "imagen" en español/inglés usuales
+_SUSTANTIVOS_IMG = r"(?:im[aá]gen?|image|foto|dibujo|ilustraci[oó]n|poster|banner)"
+
+# 1) "dona imagen <prompt>" — patrón original, se mantiene por retrocompat.
+_RE_IMAGEN_DIRECTO = re.compile(
+    r"^[\s¿¡]*dona\s+im[aá]gen?\b\s*(.*)$",
     re.IGNORECASE | re.DOTALL,
+)
+
+# 2) Verbo imperativo DÉBIL (haz/genera/quiero/...) + sustantivo de imagen + prompt.
+#    Requiere el sustantivo porque el verbo solo no implica imagen
+#    ("quiero un café" no debe matchear, pero "quiero una imagen de X" sí).
+_RE_IMAGEN_VERBO_SUST = re.compile(
+    r"^[\s¿¡]*(?:dona[,\s]+)?"
+    r"(?:h[aá]z(?:me)?|haga(?:me)?|genera(?:me)?|gen[eé]ra(?:me)?|"
+    r"cr[eé]a(?:me)?|dame|p[oó]n(?:me)?|m[aá]nda(?:me)?|"
+    r"quiero|necesito|"
+    r"puedes\s+(?:hacer|generar|crear|dibujar|mandar|dar|enviar)(?:me)?|"
+    r"me\s+puedes\s+(?:hacer|generar|crear|dibujar|mandar|dar|enviar)(?:me)?|"
+    r"podr[ií]as\s+(?:hacer|generar|crear|dibujar|mandar|dar|enviar)(?:me)?)"
+    r"\s+(?:(?:una?|el|la|mi|unos?|unas?)\s+)?"
+    + _SUSTANTIVOS_IMG +
+    r"(?:\s+(?:de|con|que|sobre|para|del))?"
+    r"\s+(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# 3) Verbos FUERTES que ya implican imagen (sin sustantivo obligatorio).
+#    Ej: "dibuja un gato", "ilústrame una escena", "píntame un paisaje"
+_RE_IMAGEN_VERBO_FUERTE = re.compile(
+    r"^[\s¿¡]*(?:dona[,\s]+)?"
+    r"(?:dib[uú]ja(?:me)?|il[uú]stra(?:me)?|p[ií]nta(?:me)?)"
+    r"\s+(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# 4) Sustantivo de imagen al inicio + prompt.
+#    Ej: "imagen de gato", "foto del logo", "dibujo gato astronauta"
+#    Este es el más amplio: por eso se prueba al final.
+_RE_IMAGEN_SUSTANTIVO = re.compile(
+    r"^[\s¿¡]*(?:dona[,\s]+)?"
+    + _SUSTANTIVOS_IMG +
+    r"\s+(?:de\s+|con\s+|que\s+|sobre\s+|para\s+|del\s+)?"
+    r"(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Orden: más específico primero (el original "dona imagen" → verbo+sustantivo →
+# verbo fuerte → sustantivo solo). El primero que case gana.
+_PATRONES_IMAGEN = (
+    _RE_IMAGEN_DIRECTO,
+    _RE_IMAGEN_VERBO_SUST,
+    _RE_IMAGEN_VERBO_FUERTE,
+    _RE_IMAGEN_SUSTANTIVO,
 )
 
 # Premium: "dona imagen premium <prompt>" o "dona imagen hd <prompt>"
@@ -32,14 +85,23 @@ _CONFIRMAR = {"confirmar", "si", "sí", "dale", "ok", "confirmo", "dona confirma
 _CANCELAR  = {"cancelar", "no", "dona cancelar", "dona no"}
 
 
+def _match_imagen(texto: str):
+    """Devuelve (regex, cuerpo) del primer patrón que acepte el texto, o (None, '')."""
+    for pat in _PATRONES_IMAGEN:
+        m = pat.match(texto)
+        if m:
+            cuerpo = (m.group(1) or "").strip()
+            if cuerpo:
+                return pat, cuerpo
+    return None, ""
+
+
 def es_comando_imagen(texto: str) -> bool:
-    """True si el mensaje inicia con 'dona imagen' y trae prompt."""
+    """True si el mensaje es una solicitud de generación de imagen (directa o natural)."""
     if not texto:
         return False
-    m = _RE_IMAGEN.match(texto)
-    if not m:
-        return False
-    return bool((m.group(1) or "").strip())
+    pat, cuerpo = _match_imagen(texto)
+    return pat is not None and bool(cuerpo)
 
 
 def parsear_imagen(texto: str) -> dict:
@@ -47,8 +109,7 @@ def parsear_imagen(texto: str) -> dict:
     Extrae prompt, calidad y aspect_ratio del comando.
     Asume `es_comando_imagen(texto)` == True.
     """
-    m = _RE_IMAGEN.match(texto)
-    cuerpo = (m.group(1) or "").strip() if m else ""
+    _, cuerpo = _match_imagen(texto)
 
     calidad = "standard"
     mp = _RE_PREMIUM.match(cuerpo)
