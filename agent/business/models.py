@@ -30,6 +30,8 @@ class PerfilNegocio(Base):
     moneda: Mapped[str] = mapped_column(String(10), default="MXN")
     meta_mensual: Mapped[float] = mapped_column(Float, default=0.0)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    onboarding_paso: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # None = onboarding completado, 0-3 = en progreso
     creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -235,4 +237,16 @@ MIGRACIONES_NEGOCIO = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_cotizaciones_neg_tel ON cotizaciones_negocio (telefono)",
+    # Migración: campo de onboarding para perfil_negocio
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'perfil_negocio' AND column_name = 'onboarding_paso'
+        ) THEN
+            ALTER TABLE perfil_negocio ADD COLUMN onboarding_paso INTEGER;
+        END IF;
+    END $$
+    """,
 ]

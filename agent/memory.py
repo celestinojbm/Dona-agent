@@ -326,6 +326,82 @@ class SesionConversacion(Base):
     activa: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+# ── Sprint 1 — Fundaciones creativas ──────────────────────────────────────
+# Assets generados (imágenes/videos/audios/webs), jobs asíncronos y billing.
+# Estas tablas son la infra sobre la que montamos las capacidades creativas.
+
+class AssetGenerado(Base):
+    """
+    Registro de un asset creativo generado por Dona (imagen, video, audio, web, etc.).
+    El contenido binario vive en R2 / filesystem; acá sólo metadatos + URL.
+    """
+    __tablename__ = "assets_generados"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    tipo: Mapped[str] = mapped_column(String(30), index=True)        # image | video | audio | web | doc
+    url_publica: Mapped[str] = mapped_column(Text, default="")
+    key_storage: Mapped[str] = mapped_column(Text, default="")       # key en R2 o path relativo filesystem
+    backend: Mapped[str] = mapped_column(String(20), default="r2")   # r2 | fs
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    modelo: Mapped[str] = mapped_column(String(80), default="")      # "nanobanana", "ideogram-v2", etc.
+    costo_usd: Mapped[str] = mapped_column(String(20), default="0")  # decimal serializado — evita float
+    costo_creditos: Mapped[int] = mapped_column(Integer, default=0)
+    mime_type: Mapped[str] = mapped_column(String(80), default="")
+    bytes_size: Mapped[int] = mapped_column(Integer, default=0)
+    meta_json: Mapped[str] = mapped_column(Text, default="{}")       # extras libres (dimensiones, duración, etc.)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class JobCreativo(Base):
+    """
+    Tracking de jobs asíncronos (generación de video/imagen lenta, publicación web, etc.).
+    No guarda el payload completo — sólo estado + referencia al asset resultante.
+    """
+    __tablename__ = "jobs_creativos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    tipo: Mapped[str] = mapped_column(String(60))                    # "generar_video_runway", etc.
+    estado: Mapped[str] = mapped_column(String(20), default="pending", index=True)  # pending|running|done|error|cancelled
+    params_json: Mapped[str] = mapped_column(Text, default="{}")
+    asset_id_resultado: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_msg: Mapped[str] = mapped_column(Text, default="")
+    intentos: Mapped[int] = mapped_column(Integer, default=0)
+    backend: Mapped[str] = mapped_column(String(20), default="arq")  # arq | inproc
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SaldoCreditos(Base):
+    """Balance de créditos prepagos del usuario. 1 fila por número."""
+    __tablename__ = "saldo_creditos"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    saldo: Mapped[int] = mapped_column(Integer, default=0)
+    total_comprado: Mapped[int] = mapped_column(Integer, default=0)
+    total_consumido: Mapped[int] = mapped_column(Integer, default=0)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TransaccionCredito(Base):
+    """
+    Audit trail de movimientos de créditos. INSERT-only, nunca se edita.
+    `delta` positivo = acreditación (compra, regalo), negativo = consumo.
+    """
+    __tablename__ = "transacciones_credito"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    delta: Mapped[int] = mapped_column(Integer)
+    razon: Mapped[str] = mapped_column(String(120), default="")
+    stripe_session_id: Mapped[str] = mapped_column(String(200), default="", index=True)  # idempotencia
+    asset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    saldo_resultante: Mapped[int] = mapped_column(Integer, default=0)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 # Timeout de sesión: 30 minutos de inactividad → nueva sesión
 SESION_TIMEOUT_MINUTOS = 30
 
@@ -446,6 +522,71 @@ _MIGRACIONES = [
     """,
     "CREATE INDEX IF NOT EXISTS ix_sesiones_conv_tel ON sesiones_conversacion (telefono)",
     "CREATE INDEX IF NOT EXISTS ix_sesiones_conv_activa ON sesiones_conversacion (telefono, activa)",
+    # ── Sprint 1: Storage + Jobs + Billing ───────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS assets_generados (
+        id             SERIAL PRIMARY KEY,
+        telefono       VARCHAR(50)  NOT NULL,
+        tipo           VARCHAR(30)  NOT NULL,
+        url_publica    TEXT         NOT NULL DEFAULT '',
+        key_storage    TEXT         NOT NULL DEFAULT '',
+        backend        VARCHAR(20)  NOT NULL DEFAULT 'r2',
+        prompt         TEXT         NOT NULL DEFAULT '',
+        modelo         VARCHAR(80)  NOT NULL DEFAULT '',
+        costo_usd      VARCHAR(20)  NOT NULL DEFAULT '0',
+        costo_creditos INTEGER      NOT NULL DEFAULT 0,
+        mime_type      VARCHAR(80)  NOT NULL DEFAULT '',
+        bytes_size     INTEGER      NOT NULL DEFAULT 0,
+        meta_json      TEXT         NOT NULL DEFAULT '{}',
+        creado         TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_assets_tel ON assets_generados (telefono)",
+    "CREATE INDEX IF NOT EXISTS ix_assets_tipo ON assets_generados (tipo)",
+    "CREATE INDEX IF NOT EXISTS ix_assets_creado ON assets_generados (creado)",
+    """
+    CREATE TABLE IF NOT EXISTS jobs_creativos (
+        id                 SERIAL PRIMARY KEY,
+        telefono           VARCHAR(50) NOT NULL,
+        tipo               VARCHAR(60) NOT NULL,
+        estado             VARCHAR(20) NOT NULL DEFAULT 'pending',
+        params_json        TEXT        NOT NULL DEFAULT '{}',
+        asset_id_resultado INTEGER,
+        error_msg          TEXT        NOT NULL DEFAULT '',
+        intentos           INTEGER     NOT NULL DEFAULT 0,
+        backend            VARCHAR(20) NOT NULL DEFAULT 'arq',
+        creado             TIMESTAMP,
+        actualizado        TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_jobs_tel ON jobs_creativos (telefono)",
+    "CREATE INDEX IF NOT EXISTS ix_jobs_estado ON jobs_creativos (estado)",
+    "CREATE INDEX IF NOT EXISTS ix_jobs_creado ON jobs_creativos (creado)",
+    """
+    CREATE TABLE IF NOT EXISTS saldo_creditos (
+        telefono        VARCHAR(50) PRIMARY KEY,
+        saldo           INTEGER     NOT NULL DEFAULT 0,
+        total_comprado  INTEGER     NOT NULL DEFAULT 0,
+        total_consumido INTEGER     NOT NULL DEFAULT 0,
+        actualizado     TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS transacciones_credito (
+        id                 SERIAL PRIMARY KEY,
+        telefono           VARCHAR(50) NOT NULL,
+        delta              INTEGER     NOT NULL,
+        razon              VARCHAR(120) NOT NULL DEFAULT '',
+        stripe_session_id  VARCHAR(200) NOT NULL DEFAULT '',
+        asset_id           INTEGER,
+        job_id             INTEGER,
+        saldo_resultante   INTEGER      NOT NULL DEFAULT 0,
+        creado             TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_trans_tel ON transacciones_credito (telefono)",
+    "CREATE INDEX IF NOT EXISTS ix_trans_stripe ON transacciones_credito (stripe_session_id)",
+    "CREATE INDEX IF NOT EXISTS ix_trans_creado ON transacciones_credito (creado)",
 ]
 
 
@@ -1841,12 +1982,18 @@ async def obtener_uso_tokens(telefono: str, dias: int = 30) -> list[dict]:
 async def borrar_datos_usuario(telefono: str) -> dict:
     """
     Elimina TODOS los datos de un usuario de todas las tablas.
-    Implementa el derecho al olvido (GDPR/LFPDPPP).
+    Implementa el derecho al olvido (CCPA/CPRA §1798.105 + GDPR Art. 17 + estados similares).
+
+    Cobertura:
+      - Tablas principales de agent/memory.py (perfil, mensajes, recordatorios, etc.)
+      - Tablas de agent/business/models.py (clientes, productos, ventas, pedidos, etc.)
+      - Tablas de enhanced/models.py (sistemas de usuario, activity log)
+      - Deduplicación y caché con referencias al teléfono
 
     Returns:
         dict con el conteo de registros eliminados por tabla.
     """
-    from sqlalchemy import delete
+    from sqlalchemy import delete, or_
 
     conteos = {}
 
@@ -1868,6 +2015,7 @@ async def borrar_datos_usuario(telefono: str) -> dict:
         ("noticias", NoticiaEnviada, NoticiaEnviada.telefono),
         ("tareas", Tarea, Tarea.telefono),
         ("eventos_usuario", EventoUsuario, EventoUsuario.telefono),
+        ("mensajes_procesados", MensajeProcesado, MensajeProcesado.telefono),
     ]
 
     async with async_session() as session:
@@ -1928,11 +2076,138 @@ async def borrar_datos_usuario(telefono: str) -> dict:
         except Exception as e:
             conteos["enhanced"] = f"error: {e}"
 
+        # Tablas de business/ (negocio self-service)
+        try:
+            from agent.business.models import (
+                PerfilNegocio, ClienteNegocio, Producto, Transaccion,
+                Pedido, Seguimiento, Cotizacion,
+            )
+            for nombre, modelo, col in [
+                ("perfil_negocio", PerfilNegocio, PerfilNegocio.telefono),
+                ("productos_negocio", Producto, Producto.telefono),
+                ("transacciones_negocio", Transaccion, Transaccion.telefono),
+                ("pedidos_negocio", Pedido, Pedido.telefono),
+                ("seguimientos_negocio", Seguimiento, Seguimiento.telefono),
+                ("cotizaciones_negocio", Cotizacion, Cotizacion.telefono),
+            ]:
+                try:
+                    r = await session.execute(delete(modelo).where(col == telefono))
+                    conteos[nombre] = r.rowcount
+                except Exception as e:
+                    conteos[nombre] = f"error: {e}"
+            # ClienteNegocio usa telefono_owner
+            try:
+                r_cli = await session.execute(
+                    delete(ClienteNegocio).where(ClienteNegocio.telefono_owner == telefono)
+                )
+                conteos["clientes_negocio"] = r_cli.rowcount
+            except Exception as e:
+                conteos["clientes_negocio"] = f"error: {e}"
+        except ImportError as e:
+            conteos["business"] = f"módulo no disponible: {e}"
+
+        # Caché de recordatorios GCal enviados — la clave incluye el teléfono
+        try:
+            from sqlalchemy import text as _text
+            r_gcal = await session.execute(
+                _text("DELETE FROM recordatorios_gcal_enviados WHERE clave LIKE :patron"),
+                {"patron": f"%{telefono}%"},
+            )
+            conteos["recordatorios_gcal_enviados"] = r_gcal.rowcount
+        except Exception as e:
+            conteos["recordatorios_gcal_enviados"] = f"error: {e}"
+
         await session.commit()
 
     total = sum(v for v in conteos.values() if isinstance(v, int))
     logger.info(f"[BORRAR] Datos eliminados para {telefono}: {total} registros en {len(conteos)} tablas")
     return conteos
+
+
+async def exportar_datos_usuario(telefono: str) -> dict:
+    """
+    Retorna un dict con todos los datos del usuario (CCPA/CPRA derecho de portabilidad).
+    Formato JSON-serializable. Incluye conteo por tabla y un total global.
+
+    El llamador es responsable de enviar el resultado por un canal seguro
+    (email firmado, descarga autenticada, etc.) — no por WhatsApp en claro.
+    """
+    export = {}
+    total = 0
+
+    async with async_session() as session:
+        # Helper genérico: todas las filas de una tabla por teléfono
+        async def _dump(nombre: str, modelo, col):
+            nonlocal total
+            try:
+                result = await session.execute(select(modelo).where(col == telefono))
+                filas = result.scalars().all()
+                dumped = []
+                for f in filas:
+                    fila_dict = {}
+                    for c in f.__table__.columns:
+                        val = getattr(f, c.name, None)
+                        if isinstance(val, datetime):
+                            fila_dict[c.name] = val.isoformat()
+                        elif isinstance(val, (str, int, float, bool)) or val is None:
+                            fila_dict[c.name] = val
+                        else:
+                            fila_dict[c.name] = str(val)
+                    dumped.append(fila_dict)
+                export[nombre] = dumped
+                total += len(dumped)
+            except Exception as e:
+                export[nombre] = {"error": str(e)}
+
+        # Tablas principales
+        await _dump("mensajes", Mensaje, Mensaje.telefono)
+        await _dump("recordatorios", Recordatorio, Recordatorio.telefono)
+        await _dump("timezone", TimezoneUsuario, TimezoneUsuario.telefono)
+        await _dump("ubicacion", UsuarioUbicacion, UsuarioUbicacion.telefono)
+        await _dump("onboarding", UsuarioOnboarding, UsuarioOnboarding.telefono)
+        await _dump("proactividad", UsuarioProactividad, UsuarioProactividad.telefono)
+        await _dump("memoria_largo_plazo", MemoriaLargoPlazo, MemoriaLargoPlazo.telefono)
+        await _dump("tareas", Tarea, Tarea.telefono)
+        await _dump("listas", Lista, Lista.telefono)
+        await _dump("eventos_usuario", EventoUsuario, EventoUsuario.telefono)
+        # Google auth: enmascarar tokens para evitar leaks si se imprime
+        try:
+            from sqlalchemy import select as _sel
+            res = await session.execute(_sel(UsuarioGoogleAuth).where(UsuarioGoogleAuth.telefono == telefono))
+            ga = res.scalar_one_or_none()
+            if ga:
+                export["google_auth"] = [{
+                    "telefono": ga.telefono,
+                    "email": getattr(ga, "email", ""),
+                    "access_token": "***REDACTED***",
+                    "refresh_token": "***REDACTED***",
+                    "expires_at": ga.expires_at.isoformat() if getattr(ga, "expires_at", None) else None,
+                }]
+                total += 1
+            else:
+                export["google_auth"] = []
+        except Exception as e:
+            export["google_auth"] = {"error": str(e)}
+
+        # Tablas business (si existen)
+        try:
+            from agent.business.models import (
+                PerfilNegocio, ClienteNegocio, Producto, Transaccion,
+                Pedido, Seguimiento, Cotizacion,
+            )
+            await _dump("perfil_negocio", PerfilNegocio, PerfilNegocio.telefono)
+            await _dump("productos_negocio", Producto, Producto.telefono)
+            await _dump("transacciones_negocio", Transaccion, Transaccion.telefono)
+            await _dump("pedidos_negocio", Pedido, Pedido.telefono)
+            await _dump("seguimientos_negocio", Seguimiento, Seguimiento.telefono)
+            await _dump("cotizaciones_negocio", Cotizacion, Cotizacion.telefono)
+            await _dump("clientes_negocio", ClienteNegocio, ClienteNegocio.telefono_owner)
+        except ImportError:
+            pass
+
+    export["_total_registros"] = total
+    logger.info(f"[PRIVACY] Export generado para {telefono}: {total} registros")
+    return export
 
 
 # ── Sesiones de conversación ────────────────────────────────────────────────

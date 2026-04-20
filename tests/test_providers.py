@@ -10,8 +10,14 @@ import pytest
 import json
 import hmac
 import hashlib
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 from dataclasses import asdict
+
+
+def _now_ts() -> str:
+    """Timestamp actual en segundos (string) para pasar la validación de replay."""
+    return str(int(time.time()))
 
 # ── Pydantic models ─────────────────────────────────────────────────────────
 
@@ -54,7 +60,7 @@ def _make_text_msg(text: str, from_number: str = "5215551234567") -> dict:
     return {
         "from": from_number,
         "id": "wamid.abc123",
-        "timestamp": "1700000000",
+        "timestamp": _now_ts(),
         "type": "text",
         "text": {"body": text},
     }
@@ -64,7 +70,7 @@ def _make_audio_msg(from_number: str = "5215551234567") -> dict:
     return {
         "from": from_number,
         "id": "wamid.audio1",
-        "timestamp": "1700000000",
+        "timestamp": _now_ts(),
         "type": "audio",
         "audio": {"id": "audio_media_id", "mime_type": "audio/ogg; codecs=opus"},
     }
@@ -74,7 +80,7 @@ def _make_image_msg(from_number: str = "5215551234567") -> dict:
     return {
         "from": from_number,
         "id": "wamid.img1",
-        "timestamp": "1700000000",
+        "timestamp": _now_ts(),
         "type": "image",
         "image": {"id": "image_media_id", "caption": "foto de producto"},
     }
@@ -84,7 +90,7 @@ def _make_document_msg(from_number: str = "5215551234567") -> dict:
     return {
         "from": from_number,
         "id": "wamid.doc1",
-        "timestamp": "1700000000",
+        "timestamp": _now_ts(),
         "type": "document",
         "document": {"id": "doc_media_id", "filename": "reporte.pdf", "caption": ""},
     }

@@ -106,3 +106,45 @@ class ProveedorWhapi(ProveedorWhatsApp):
         except Exception as e:
             logger.error(f"Excepción al enviar mensaje Whapi ({type(e).__name__}): {e}")
             return False
+
+    async def enviar_imagen(
+        self, telefono: str, url: str = "", imagen_bytes: bytes = b"",
+        caption: str = "", mime_type: str = "image/png",
+    ) -> bool:
+        """
+        Envía una imagen via Whapi.cloud. Prefiere URL pública (más eficiente);
+        si sólo hay bytes, los manda en base64 vía `media` del endpoint.
+        """
+        if not self.token:
+            logger.warning("WHAPI_TOKEN no configurado — imagen no enviada")
+            return False
+        endpoint = "https://gate.whapi.cloud/messages/image"
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+        }
+        payload: dict = {"to": telefono}
+        if caption:
+            payload["caption"] = caption[:1024]
+
+        if url and not url.startswith("file://"):
+            payload["media"] = url
+        elif imagen_bytes:
+            import base64
+            b64 = base64.b64encode(imagen_bytes).decode("ascii")
+            payload["media"] = f"data:{mime_type};base64,{b64}"
+        else:
+            logger.warning("enviar_imagen sin url ni bytes")
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.post(endpoint, json=payload, headers=headers)
+                if r.status_code != 200:
+                    logger.error(f"Error Whapi imagen {r.status_code}: {r.text}")
+                    return False
+                logger.info(f"Imagen enviada a {telefono} via Whapi")
+                return True
+        except Exception as e:
+            logger.error(f"Excepción enviando imagen Whapi ({type(e).__name__}): {e}")
+            return False

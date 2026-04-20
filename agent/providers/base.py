@@ -71,6 +71,29 @@ class ProveedorWhatsApp(ABC):
         )
         return await self.enviar_mensaje(telefono, f"{texto}\n\n{items}")
 
+    async def enviar_audio(self, telefono: str, audio_bytes: bytes, mime_type: str = "audio/ogg") -> bool:
+        """Envía una nota de voz. Los proveedores sin soporte devuelven False (no fallback a texto;
+        el caller decide si manda el texto por separado)."""
+        return False
+
+    async def enviar_documento(
+        self, telefono: str, archivo_bytes: bytes, filename: str, mime_type: str = "text/csv", caption: str = ""
+    ) -> bool:
+        """Envía un documento adjunto. Devuelve False si no hay soporte nativo."""
+        return False
+
+    async def enviar_imagen(
+        self, telefono: str, url: str = "", imagen_bytes: bytes = b"",
+        caption: str = "", mime_type: str = "image/png",
+    ) -> bool:
+        """
+        Envía una imagen. El proveedor decide si usar `url` (si es pública,
+        preferente — más barato que reupload) o `imagen_bytes` (fallback).
+        Default: sin soporte → devolver False; el caller puede mandar la URL
+        como texto.
+        """
+        return False
+
     async def validar_webhook(self, request: Request) -> dict | int | None:
         """Verificación GET del webhook (solo Meta la requiere). Retorna respuesta o None."""
         return None

@@ -17,6 +17,7 @@ import os
 import hmac
 import hashlib
 import logging
+import time as _time
 import httpx
 from typing import Optional
 from pydantic import BaseModel, Field, ValidationError
@@ -24,6 +25,11 @@ from fastapi import Request
 from agent.providers.base import ProveedorWhatsApp, MensajeEntrante, BotonRespuesta, OpcionLista
 
 logger = logging.getLogger("agentkit")
+
+# Ventana máxima de antigüedad aceptada para mensajes entrantes (replay protection).
+# Mensajes con timestamp más viejo que esto se descartan (defensa en profundidad
+# además de la firma HMAC y la deduplicación por mensaje_id).
+_MAX_MENSAJE_EDAD_SEGUNDOS = 600  # 10 minutos
 
 # Tipos de mensaje de audio que WhatsApp puede enviar
 TIPOS_AUDIO = {"audio", "voice"}
@@ -181,6 +187,24 @@ class ProveedorMeta(ProveedorWhatsApp):
                         telefono = msg.from_number
                         mensaje_id = msg.id
                         timestamp = int(msg.timestamp) if msg.timestamp.isdigit() else 0
+
+                        # Replay protection: rechazar mensajes con timestamp muy antiguo.
+                        # timestamp==0 se permite (algunos eventos no lo incluyen) pero loguea.
+                        if timestamp > 0:
+                            edad = int(_time.time()) - timestamp
+                            if edad > _MAX_MENSAJE_EDAD_SEGUNDOS:
+                                logger.warning(
+                                    f"[META] Mensaje descartado por antigüedad: "
+                                    f"id={mensaje_id} edad={edad}s (>{_MAX_MENSAJE_EDAD_SEGUNDOS}s)"
+                                )
+                                continue
+                            # Timestamps futuros también son sospechosos (margen 5 min para clock skew)
+                            if edad < -300:
+                                logger.warning(
+                                    f"[META] Mensaje con timestamp futuro descartado: "
+                                    f"id={mensaje_id} delta={edad}s"
+                                )
+                                continue
 
                         if tipo == "text":
                             texto = (msg.text or {}).get("body", "")
@@ -378,3 +402,151 @@ class ProveedorMeta(ProveedorWhatsApp):
         except Exception as e:
             logger.error(f"[META] Error enviando lista: {e}")
             return await super().enviar_lista(telefono, texto, boton_menu, opciones)
+
+    async def _subir_media(self, archivo_bytes: bytes, mime_type: str, filename: str = "archivo.bin") -> str | None:
+        """
+        Sube un archivo binario a la Media API de Meta y devuelve el media_id.
+        Paso 1 de 2 para enviar audio/imagen/documento.
+        """
+        if not self.access_token or not self.phone_number_id:
+            return None
+        url = f"https://graph.facebook.com/{self.api_version}/{self.phone_number_id}/media"
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        # Meta requiere multipart con campos: messaging_product, type, file
+        files = {
+            "file": (filename, archivo_bytes, mime_type),
+        }
+        data = {
+            "messaging_product": "whatsapp",
+            "type": mime_type,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.post(url, headers=headers, data=data, files=files)
+                if r.status_code not in (200, 201):
+                    logger.error(f"[META] Subida de media falló {r.status_code}: {r.text[:200]}")
+                    return None
+                media_id = r.json().get("id")
+                if media_id:
+                    logger.info(f"[META] Media subida: {media_id}")
+                return media_id
+        except Exception as e:
+            logger.error(f"[META] Excepción subiendo media ({type(e).__name__}): {e}")
+            return None
+
+    async def enviar_audio(self, telefono: str, audio_bytes: bytes, mime_type: str = "audio/ogg") -> bool:
+        """
+        Envía un audio (nota de voz) via Meta Cloud API.
+        Sube los bytes a la Media API y luego manda un mensaje tipo 'audio'.
+        """
+        if not audio_bytes:
+            return False
+        ext = "ogg" if "ogg" in mime_type or "opus" in mime_type else "bin"
+        media_id = await self._subir_media(audio_bytes, mime_type, filename=f"audio.{ext}")
+        if not media_id:
+            return False
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": telefono,
+            "type": "audio",
+            "audio": {"id": media_id},
+        }
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(self.url_envio, json=payload, headers=headers)
+                if r.status_code not in (200, 201):
+                    logger.error(f"[META] Error {r.status_code} enviando audio: {r.text[:200]}")
+                    return False
+                logger.info(f"[META] Audio enviado a {telefono}")
+                return True
+        except Exception as e:
+            logger.error(f"[META] Excepción enviando audio ({type(e).__name__}): {e}")
+            return False
+
+    async def enviar_imagen(
+        self, telefono: str, url: str = "", imagen_bytes: bytes = b"",
+        caption: str = "", mime_type: str = "image/png",
+    ) -> bool:
+        """
+        Envía una imagen via Meta Cloud API. Prefiere URL pública (Meta
+        la descarga directamente). Si sólo hay bytes, los sube primero via
+        `_subir_media` para obtener un `media_id`.
+        """
+        img_payload: dict = {}
+        if url and url.startswith("http"):
+            img_payload["link"] = url
+        elif imagen_bytes:
+            ext = (mime_type.split("/", 1)[-1] or "png").split(";")[0]
+            media_id = await self._subir_media(imagen_bytes, mime_type, filename=f"imagen.{ext}")
+            if not media_id:
+                return False
+            img_payload["id"] = media_id
+        else:
+            logger.warning("[META] enviar_imagen sin url ni bytes")
+            return False
+
+        if caption:
+            img_payload["caption"] = caption[:1024]
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": telefono,
+            "type": "image",
+            "image": img_payload,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.post(self.url_envio, json=payload, headers=headers)
+                if r.status_code not in (200, 201):
+                    logger.error(f"[META] Error {r.status_code} enviando imagen: {r.text[:200]}")
+                    return False
+                logger.info(f"[META] Imagen enviada a {telefono}")
+                return True
+        except Exception as e:
+            logger.error(f"[META] Excepción enviando imagen ({type(e).__name__}): {e}")
+            return False
+
+    async def enviar_documento(
+        self, telefono: str, archivo_bytes: bytes, filename: str, mime_type: str = "text/csv", caption: str = ""
+    ) -> bool:
+        """Envía un documento adjunto (CSV, PDF, etc.) via Meta Cloud API."""
+        if not archivo_bytes:
+            return False
+        media_id = await self._subir_media(archivo_bytes, mime_type, filename=filename)
+        if not media_id:
+            return False
+        doc_payload: dict = {"id": media_id, "filename": filename}
+        if caption:
+            doc_payload["caption"] = caption[:1024]
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": telefono,
+            "type": "document",
+            "document": doc_payload,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(self.url_envio, json=payload, headers=headers)
+                if r.status_code not in (200, 201):
+                    logger.error(f"[META] Error {r.status_code} enviando documento: {r.text[:200]}")
+                    return False
+                logger.info(f"[META] Documento enviado a {telefono}: {filename}")
+                return True
+        except Exception as e:
+            logger.error(f"[META] Excepción enviando documento ({type(e).__name__}): {e}")
+            return False

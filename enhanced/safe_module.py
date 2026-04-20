@@ -13,6 +13,7 @@ Cada módulo puede deshabilitarse con feature flags.
 """
 
 import os
+import hmac
 import logging
 from datetime import datetime
 from enum import Enum
@@ -62,11 +63,14 @@ def _normalizar_telefono(telefono: str) -> str:
 
 
 def _es_owner(telefono: str) -> bool:
-    """Verifica si el número corresponde al owner. Comparación exacta por dígitos."""
+    """Verifica si el número corresponde al owner. Comparación timing-safe por dígitos."""
     if not OWNER_PHONE:
         logger.warning("[SAFE] OWNER_PHONE no configurado — acciones owner deshabilitadas")
         return False
-    return _normalizar_telefono(telefono) == _normalizar_telefono(OWNER_PHONE)
+    return hmac.compare_digest(
+        _normalizar_telefono(telefono),
+        _normalizar_telefono(OWNER_PHONE),
+    )
 
 
 def _confirmacion_expirada(conf: ConfirmacionPendiente) -> bool:

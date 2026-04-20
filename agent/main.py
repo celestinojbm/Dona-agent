@@ -7,6 +7,8 @@ Funciona con cualquier proveedor (Whapi, Meta, Twilio) gracias a la capa de prov
 """
 
 import os
+import re
+import hmac
 import logging
 import httpx
 from time import monotonic
@@ -31,7 +33,11 @@ from agent.memory import (
 from agent.location import parece_viaje, detectar_viaje, es_ciudad_suelta
 from agent.learning import registrar_interaccion
 from agent.onboarding import procesar_mensaje_onboarding, es_onboarding_activo
-from agent.proactivity import es_comando_proactividad, manejar_comando_proactividad
+from agent.proactivity import (
+    es_comando_proactividad, manejar_comando_proactividad,
+    es_comando_stop_tcpa, es_comando_start_tcpa,
+    manejar_stop_tcpa, manejar_start_tcpa,
+)
 from agent.memory import (
     contar_eventos_estres_recientes, ya_avisado_sobrecarga_hoy, marcar_aviso_sobrecarga,
     incrementar_mensajes_proactivos,
@@ -181,6 +187,76 @@ app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 
+@app.get("/privacy")
+async def privacy_policy():
+    """Política de privacidad (CCPA/CPRA + marco multi-estado EEUU)."""
+    from agent.legal_pages import privacy_policy_html
+    return HTMLResponse(privacy_policy_html())
+
+
+@app.get("/terms")
+async def terms_of_service():
+    """Términos de servicio."""
+    from agent.legal_pages import terms_html
+    return HTMLResponse(terms_html())
+
+
+@app.get("/privacy/export")
+async def privacy_export(telefono: str):
+    """
+    Export de datos del usuario (portabilidad — CCPA/CPRA derecho de acceso).
+    Requiere que el usuario se autentique enviando un código de verificación
+    por WhatsApp primero. Por ahora retorna instrucciones de contacto.
+    """
+    if not _telefono_valido(telefono):
+        raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
+    # MVP: exigir confirmación por WhatsApp antes de exportar (evita scraping).
+    # Implementación completa requiere flujo de verificación de código de un solo uso.
+    return {
+        "status": "pending_verification",
+        "mensaje": (
+            "Para ejercer tu derecho de acceso/portabilidad, escríbenos a "
+            f"{os.getenv('LEGAL_EMAIL', 'privacy@dona.ai')} desde una dirección de correo "
+            "asociada a tu cuenta, o envía el comando 'dona exportar datos' por WhatsApp. "
+            "Responderemos dentro de 45 días (CCPA/CPRA)."
+        ),
+    }
+
+
+@app.post("/privacy/delete")
+async def privacy_delete(
+    request: Request,
+    telefono: str,
+    confirmacion: str = "",
+):
+    """
+    Solicitud de borrado de datos (CCPA/CPRA derecho de eliminación).
+    Requiere que el usuario confirme enviando el comando 'dona borrar mis datos'
+    por WhatsApp. Este endpoint inicia el ticket; la verificación ocurre por WhatsApp.
+    """
+    if not _telefono_valido(telefono):
+        raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
+    if confirmacion != "BORRAR":
+        return {
+            "status": "instrucciones",
+            "mensaje": (
+                "Para confirmar el borrado de tus datos envía por WhatsApp el mensaje: "
+                "'dona borrar mis datos'. Dona te pedirá confirmación antes de proceder. "
+                "Alternativamente, escribe a "
+                f"{os.getenv('LEGAL_EMAIL', 'privacy@dona.ai')} desde un correo asociado."
+            ),
+        }
+    # Confirmación explícita: registrar solicitud.
+    logger.info(f"[PRIVACY] Solicitud de borrado registrada para {telefono}")
+    return {
+        "status": "registered",
+        "mensaje": (
+            "Tu solicitud ha sido registrada. Responde al mensaje de confirmación que "
+            "te enviaremos por WhatsApp para completar el borrado (45 días máx.)."
+        ),
+    }
+
+
 @app.get("/")
 async def health_check():
     """Endpoint de salud para Railway/monitoreo. Verifica DB real."""
@@ -195,17 +271,28 @@ async def health_check():
         return {"status": "degraded", "service": "dona", "db": "error"}
 
 
+_TELEFONO_RE = re.compile(r"^\+?\d{10,15}$")
+
+
+def _telefono_valido(telefono: str) -> bool:
+    """Valida formato E.164 laxo (10-15 dígitos, '+' opcional)."""
+    return bool(telefono) and bool(_TELEFONO_RE.match(telefono.strip()))
+
+
 def _verificar_admin(request: Request, token_query: str = "") -> bool:
-    """Verifica autenticación admin via header (preferido) o query param (legacy)."""
+    """Verifica autenticación admin via header (preferido) o query param (legacy).
+    Usa hmac.compare_digest para evitar timing attacks."""
     admin_token = os.getenv("ADMIN_TOKEN", "")
     if not admin_token:
         return False
     # Preferir header Authorization: Bearer <token>
     auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer ") and auth_header[7:] == admin_token:
-        return True
+    if auth_header.startswith("Bearer "):
+        return hmac.compare_digest(auth_header[7:], admin_token)
     # Fallback a query param (legacy, menos seguro)
-    return token_query == admin_token
+    if token_query:
+        return hmac.compare_digest(token_query, admin_token)
+    return False
 
 
 @app.get("/diagnostico")
@@ -268,6 +355,8 @@ async def admin_onboarding_estado(request: Request, telefono: str, token: str = 
     """
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
+    if not _telefono_valido(telefono):
+        raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
     from agent.memory import obtener_onboarding, obtener_ubicacion
     estado = await obtener_onboarding(telefono)
     ubicacion = await obtener_ubicacion(telefono)
@@ -286,6 +375,8 @@ async def admin_onboarding_reset(request: Request, telefono: str, fase: int = 0,
     """
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
+    if not _telefono_valido(telefono):
+        raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
     from agent.memory import guardar_onboarding
     await guardar_onboarding(telefono, fase=fase, paso=paso)
     return {"status": "ok", "telefono": telefono, "fase": fase, "paso": paso}
@@ -299,6 +390,8 @@ async def admin_recordatorios(request: Request, telefono: str, token: str = ""):
     """
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
+    if not _telefono_valido(telefono):
+        raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
     from agent.memory import obtener_recordatorios_activos, obtener_timezone
     from datetime import datetime as dt, timedelta
     activos = await obtener_recordatorios_activos(telefono)
@@ -311,6 +404,65 @@ async def admin_recordatorios(request: Request, telefono: str, token: str = ""):
         "recordatorios_activos": activos,
         "total": len(activos),
     }
+
+
+@app.get("/admin/inbound/token")
+async def admin_generar_token_inbound(request: Request, telefono: str, token: str = ""):
+    """
+    Genera una URL de webhook inbound firmada para el usuario dado.
+    El usuario pega esta URL en Zapier/Make/n8n para que servicios externos
+    puedan enviarle mensajes proactivos por WhatsApp.
+
+    Uso: GET /admin/inbound/token?telefono=14076936023 + Authorization: Bearer <admin>
+    """
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    if not _telefono_valido(telefono):
+        raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
+    from agent.inbound_tokens import generar_token
+    tok = generar_token(telefono.lstrip("+"))
+    base_url = os.getenv("BASE_URL", "").rstrip("/")
+    url = f"{base_url}/webhook/inbound/{tok}" if base_url else f"/webhook/inbound/{tok}"
+    return {
+        "telefono": telefono,
+        "token": tok,
+        "url_webhook": url,
+        "metodo": "POST",
+        "content_type": "application/json",
+        "body_ejemplo": {"mensaje": "Texto que Dona reenviará al usuario"},
+    }
+
+
+@app.post("/webhook/inbound/{token}")
+async def webhook_inbound(token: str, request: Request):
+    """
+    Recibe un JSON de un servicio externo (Zapier/Make/n8n) y reenvía el
+    mensaje al WhatsApp del usuario asociado al token.
+
+    El token se genera con /admin/inbound/token y es opaco para el servicio externo.
+
+    Body JSON: {"mensaje": "texto a enviar"}
+    """
+    from agent.inbound_tokens import verificar_token
+    telefono = verificar_token(token)
+    if not telefono:
+        raise HTTPException(status_code=403, detail="Token inválido")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido")
+    mensaje = (body or {}).get("mensaje", "").strip() if isinstance(body, dict) else ""
+    if not mensaje:
+        raise HTTPException(status_code=400, detail="Falta campo 'mensaje'")
+    # Límite defensivo para no quemar quota con un payload gigante de un Zap mal configurado
+    if len(mensaje) > 4000:
+        mensaje = mensaje[:4000] + "…"
+    ok = await proveedor.enviar_mensaje(telefono, mensaje)
+    if not ok:
+        logger.error(f"[INBOUND] Fallo enviando a {telefono[:4]}***")
+        raise HTTPException(status_code=502, detail="Fallo enviando a WhatsApp")
+    logger.info(f"[INBOUND] Mensaje proactivo entregado a {telefono[:4]}*** ({len(mensaje)} chars)")
+    return {"status": "ok", "chars": len(mensaje)}
 
 
 @app.get("/auth/google/login")
@@ -326,6 +478,8 @@ async def google_oauth_login(telefono: str):
             status_code=503,
             detail="Google Calendar no está configurado (faltan GOOGLE_CLIENT_ID/SECRET)"
         )
+    if not _telefono_valido(telefono):
+        raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
     url = generar_url_oauth(telefono)
     logger.info(f"[GOOGLE] Iniciando OAuth para {telefono}")
     return RedirectResponse(url)
@@ -355,8 +509,19 @@ async def google_oauth_callback(
 
     try:
         telefono = decodificar_state(state)
-    except Exception:
-        return HTMLResponse(_html_oauth_resultado(exito=False, mensaje="State inválido."))
+    except ValueError as ve:
+        logger.warning(f"[GOOGLE] State OAuth rechazado: {ve}")
+        return HTMLResponse(_html_oauth_resultado(
+            exito=False,
+            mensaje="Enlace de autorización inválido o expirado. Inicia el proceso de nuevo."
+        ))
+    except Exception as e:
+        logger.error(f"[GOOGLE] Error decodificando state: {e}")
+        return HTMLResponse(_html_oauth_resultado(exito=False, mensaje="Enlace inválido."))
+
+    if not _telefono_valido(telefono):
+        logger.warning(f"[GOOGLE] Teléfono inválido tras decodificar state")
+        return HTMLResponse(_html_oauth_resultado(exito=False, mensaje="Enlace inválido."))
 
     exito, email = await intercambiar_codigo(code, telefono)
 
@@ -428,15 +593,25 @@ def _html_oauth_resultado(exito: bool, email: str = "", mensaje: str = "") -> st
 
 
 async def _notificar_google_conectado(telefono: str, email: str):
-    """Envía un WhatsApp de confirmación cuando el usuario conecta Google Calendar."""
+    """Envía un WhatsApp de confirmación cuando el usuario conecta Google.
+
+    El mensaje lista las capacidades que quedan habilitadas con los scopes
+    actuales (Calendar + Gmail + Sheets + Drive + Tasks + Contacts). Se
+    mantiene relativamente breve — los ejemplos están pensados para que el
+    usuario pueda copiarlos y probarlos.
+    """
     try:
         email_str = f" ({email})" if email else ""
         mensaje = (
-            f"¡Tu Google Calendar está conectado{email_str}! 🗓️\n\n"
-            "Ahora puedo:\n"
-            "• Ver tus eventos del día — *\"qué tengo hoy?\"*\n"
-            "• Crear eventos directamente — *\"agéndame reunión mañana a las 3pm\"*\n\n"
-            "Todo se sincroniza con tu Google Calendar real."
+            f"¡Tu Google está conectado{email_str}! 🔗\n\n"
+            "Ahora puedo ayudarte con:\n"
+            "📅 *Calendario* — \"qué tengo hoy?\", \"agéndame reunión mañana 3pm\"\n"
+            "✉️ *Correo* — \"lee mis correos no leídos\", \"mándale un correo a Juan\"\n"
+            "✅ *Tareas* — \"agrega tarea llamar al banco\", \"qué tengo pendiente?\"\n"
+            "📊 *Sheets* — \"registra en mi hoja\", \"qué hojas tengo\"\n"
+            "📁 *Drive* — respaldo automático de tus exports CSV\n"
+            "👥 *Contactos* — te busco por nombre al escribir correos\n\n"
+            "Prueba con *\"dona ayuda\"* para ver todo lo que sé hacer."
         )
         await proveedor.enviar_mensaje(telefono, mensaje)
     except Exception as e:
@@ -520,6 +695,7 @@ async def procesar_webhook(request: Request):
                 continue
 
             # Si es una nota de voz, transcribirla primero
+            _es_audio = False
             if msg.audio_id and not msg.texto:
                 _proveedor_nombre = os.getenv("WHATSAPP_PROVIDER", "whapi").lower()
                 logger.info(f"Transcribiendo nota de voz de {msg.telefono} (proveedor: {_proveedor_nombre})...")
@@ -535,6 +711,7 @@ async def procesar_webhook(request: Request):
                     )
                     continue
                 msg.texto = texto_transcrito
+                _es_audio = True
                 logger.info(f"Nota de voz transcrita: \"{texto_transcrito}\"")
 
             # Si es una imagen, procesarla con visión
@@ -559,6 +736,22 @@ async def procesar_webhook(request: Request):
 
             metricas.registrar_mensaje()
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto[:120]}")
+
+            # ── Auto-popular nombre desde Google Contacts (best-effort, una vez) ──
+            # Si el usuario no tiene nombre aún, intentar resolverlo desde sus propios
+            # contactos (algunos tienen una entrada "Me" / "Yo"). Silencioso si no hay
+            # match o si aún no autorizó Google — el onboarding tradicional lo cubrirá.
+            try:
+                from agent.memory import obtener_onboarding, guardar_onboarding
+                _ob = await obtener_onboarding(msg.telefono)
+                if not _ob or not (_ob.get("nombre") or "").strip():
+                    from agent.google_contacts import buscar_por_telefono
+                    _match = await buscar_por_telefono(msg.telefono, msg.telefono)
+                    if _match and _match.get("nombre"):
+                        await guardar_onboarding(msg.telefono, nombre=_match["nombre"])
+                        logger.info(f"[CONTACTS] Auto-populated nombre='{_match['nombre']}' para {msg.telefono}")
+            except Exception as _e_ac:
+                logger.debug(f"[CONTACTS] auto-populate skip ({type(_e_ac).__name__}): {_e_ac}")
 
             # ── Dona 2.0: Confirmaciones pendientes (SafeModule) ─────────
             try:
@@ -666,9 +859,40 @@ async def procesar_webhook(request: Request):
                     await proveedor.enviar_mensaje(msg.telefono, "Este comando requiere permisos de administrador.")
                 continue
 
+            # ── Exportar datos (CCPA/CPRA derecho de portabilidad) ───────
+            if _texto_lower in (
+                "dona exportar datos", "exportar mis datos", "dona export datos",
+                "dona export my data", "export my data",
+            ):
+                try:
+                    from agent.memory import exportar_datos_usuario
+                    export = await exportar_datos_usuario(msg.telefono)
+                    total = export.get("_total_registros", 0)
+                    _msg_export = (
+                        f"📦 *Export de tus datos (CCPA §1798.100)*\n\n"
+                        f"Total: {total} registros en {len(export)-1} categorías.\n\n"
+                        f"Por el tamaño, te enviaremos el archivo JSON completo "
+                        f"al email asociado en las próximas 24 horas. "
+                        f"Si no lo recibes, escríbenos a "
+                        f"{os.getenv('LEGAL_EMAIL', 'privacy@dona.ai')}."
+                    )
+                    logger.info(f"[PRIVACY] Export solicitado por {msg.telefono}: {total} registros")
+                except Exception as _e_exp:
+                    logger.error(f"[PRIVACY] Error exportando datos: {_e_exp}")
+                    _msg_export = (
+                        "No pudimos generar el export automáticamente. "
+                        f"Escríbenos a {os.getenv('LEGAL_EMAIL', 'privacy@dona.ai')} "
+                        "y responderemos dentro de 45 días."
+                    )
+                await proveedor.enviar_mensaje(msg.telefono, _msg_export)
+                continue
+
             # ── Borrado de datos del usuario (derecho al olvido) ─────────
             if _texto_cmd in ("!borrarmisdatos", "!deletemydata") or \
-               _texto_lower in ("!borrar mis datos", "borrar mis datos", "eliminar mis datos"):
+               _texto_lower in (
+                   "!borrar mis datos", "borrar mis datos", "eliminar mis datos",
+                   "dona borrar mis datos", "dona eliminar mis datos",
+               ):
                 from enhanced.safe_module import tiene_confirmacion_pendiente as _tcp
                 # Usar flujo de confirmación CONFIRMAR
                 if _texto_lower == "confirmar":
@@ -729,6 +953,279 @@ async def procesar_webhook(request: Request):
             except Exception as _e_cat:
                 logger.error(f"[ENHANCED] Error en catálogo/sistemas: {_e_cat}")
 
+            # ── TCPA opt-out (STOP/UNSUBSCRIBE/BAJA) — PRIORIDAD MÁXIMA ────────
+            # Ley federal de EEUU requiere respuesta inmediata a opt-out.
+            # Se procesa ANTES que cualquier otro flujo (onboarding, comandos, IA).
+            if es_comando_stop_tcpa(msg.texto):
+                try:
+                    respuesta_stop = await manejar_stop_tcpa(msg.telefono)
+                except Exception as _e_stop:
+                    logger.error(f"[TCPA] Error en opt-out: {_e_stop}")
+                    respuesta_stop = "Has sido dado de baja. No te enviaremos más mensajes proactivos."
+                await proveedor.enviar_mensaje(msg.telefono, respuesta_stop)
+                logger.info(f"[TCPA] STOP → {msg.telefono}")
+                continue
+
+            if es_comando_start_tcpa(msg.texto):
+                try:
+                    respuesta_start = await manejar_start_tcpa(msg.telefono)
+                except Exception as _e_start:
+                    logger.error(f"[TCPA] Error en re-opt-in: {_e_start}")
+                    respuesta_start = "Proactividad reactivada."
+                await proveedor.enviar_mensaje(msg.telefono, respuesta_start)
+                logger.info(f"[TCPA] START → {msg.telefono}")
+                continue
+
+            # ── Recordatorio en lenguaje natural ("recuérdame mañana 9am que...") ──
+            try:
+                from agent.reminders_nl import parsear as _parsear_nl
+                from agent.memory import obtener_timezone, guardar_recordatorio
+                _offset = await obtener_timezone(msg.telefono) or 0
+                _rec = _parsear_nl(msg.texto, offset_tz_minutos=_offset)
+            except Exception:
+                _rec = None
+            if _rec:
+                fecha_utc, mensaje_rec = _rec
+                try:
+                    await guardar_recordatorio(
+                        telefono=msg.telefono,
+                        mensaje=mensaje_rec,
+                        fecha_hora=fecha_utc,
+                        offset_tz_minutos=_offset,
+                    )
+                    from datetime import timedelta as _td
+                    fecha_local = fecha_utc + _td(minutes=_offset)
+                    confirm = (
+                        f"Listo ✅ Te recuerdo: \"{mensaje_rec}\"\n"
+                        f"📅 {fecha_local.strftime('%d/%m/%Y %H:%M')} (tu hora local)"
+                    )
+                    await proveedor.enviar_mensaje(msg.telefono, confirm)
+                    logger.info(f"[REMINDER_NL] '{mensaje_rec}' para {fecha_utc.isoformat()} → {msg.telefono}")
+                except Exception as _e_rec:
+                    logger.error(f"[REMINDER_NL] Error guardando: {_e_rec}")
+                    await proveedor.enviar_mensaje(
+                        msg.telefono,
+                        "No pude guardar el recordatorio. ¿Puedes intentar de nuevo?"
+                    )
+                continue
+
+            # ── Comandos informativos ("dona ayuda", "dona estado") ───────
+            try:
+                from agent.comandos_info import (
+                    es_comando_ayuda,
+                    es_comando_estado,
+                    generar_texto_ayuda,
+                    generar_texto_estado,
+                )
+                if es_comando_ayuda(msg.texto):
+                    texto_ayuda = await generar_texto_ayuda(msg.telefono)
+                    await proveedor.enviar_mensaje(msg.telefono, texto_ayuda)
+                    logger.info(f"[CMD] ayuda → {msg.telefono}")
+                    continue
+                if es_comando_estado(msg.texto):
+                    texto_estado = await generar_texto_estado(msg.telefono)
+                    await proveedor.enviar_mensaje(msg.telefono, texto_estado)
+                    logger.info(f"[CMD] estado → {msg.telefono}")
+                    continue
+            except Exception as _e_info:
+                logger.error(f"[CMD] Error en comando informativo: {_e_info}")
+
+            # ── Comandos de billing ("dona saldo", "dona recargar", "dona mis assets") ──
+            try:
+                from agent.billing_commands import (
+                    es_comando_saldo, es_comando_recargar, es_comando_mis_assets,
+                    texto_saldo, texto_recargar, texto_mis_assets,
+                )
+                if es_comando_saldo(msg.texto):
+                    await proveedor.enviar_mensaje(msg.telefono, await texto_saldo(msg.telefono))
+                    logger.info(f"[CMD] saldo → {msg.telefono}")
+                    continue
+                if es_comando_recargar(msg.texto):
+                    await proveedor.enviar_mensaje(msg.telefono, await texto_recargar(msg.telefono))
+                    logger.info(f"[CMD] recargar → {msg.telefono}")
+                    continue
+                if es_comando_mis_assets(msg.texto):
+                    await proveedor.enviar_mensaje(msg.telefono, await texto_mis_assets(msg.telefono))
+                    logger.info(f"[CMD] mis_assets → {msg.telefono}")
+                    continue
+            except Exception as _e_bil:
+                logger.error(f"[CMD] Error en comando billing: {_e_bil}")
+
+            # ── Comandos creativos ("dona imagen <prompt>" + confirmar/cancelar) ──
+            try:
+                from agent.creativos.comandos import (
+                    es_comando_imagen, parsear_imagen,
+                    es_comando_confirmar, es_comando_cancelar,
+                    texto_preview, texto_encolada, texto_sin_pendiente, texto_cancelada,
+                )
+                from agent.creativos.imagen import (
+                    preparar_imagen, confirmar_imagen, cancelar_imagen, obtener_pendiente,
+                )
+
+                if es_comando_imagen(msg.texto):
+                    datos = parsear_imagen(msg.texto)
+                    preview = await preparar_imagen(
+                        msg.telefono,
+                        prompt=datos["prompt"],
+                        calidad=datos["calidad"],
+                        aspect_ratio=datos["aspect_ratio"],
+                    )
+                    await proveedor.enviar_mensaje(msg.telefono, texto_preview(preview))
+                    logger.info(f"[CMD] preparar_imagen → {msg.telefono} costo={preview['costo_creditos']}")
+                    continue
+
+                # confirmar/cancelar sólo aplican si HAY pendiente — si no, dejamos
+                # que el mensaje caiga al flujo normal (LLM) para no consumir 'sí'
+                # que el usuario estaba diciendo a otra cosa.
+                _pend = obtener_pendiente(msg.telefono)
+                if _pend and es_comando_confirmar(msg.texto):
+                    resultado = await confirmar_imagen(msg.telefono)
+                    if resultado["estado"] == "ok":
+                        await proveedor.enviar_mensaje(
+                            msg.telefono,
+                            texto_encolada(resultado["job_id"], resultado["prompt"]),
+                        )
+                    elif resultado["estado"] == "saldo_insuficiente":
+                        await proveedor.enviar_mensaje(msg.telefono, resultado["mensaje"])
+                    else:
+                        await proveedor.enviar_mensaje(msg.telefono, texto_sin_pendiente())
+                    logger.info(f"[CMD] confirmar_imagen → {msg.telefono} estado={resultado['estado']}")
+                    continue
+
+                if _pend and es_comando_cancelar(msg.texto):
+                    cancelar_imagen(msg.telefono)
+                    await proveedor.enviar_mensaje(msg.telefono, texto_cancelada())
+                    logger.info(f"[CMD] cancelar_imagen → {msg.telefono}")
+                    continue
+            except Exception as _e_cr:
+                logger.error(f"[CMD] Error en comando creativo: {_e_cr}")
+
+            # ── Comandos de reporte financiero ("dona resumen del mes", "dona exporta") ──
+            try:
+                from agent.reporting import detectar_comando_reporte
+                _rep = detectar_comando_reporte(msg.texto)
+            except Exception:
+                _rep = None
+            if _rep:
+                try:
+                    if _rep["tipo"] == "resumen":
+                        from agent.reporting import resumen_mes
+                        texto_resumen = await resumen_mes(msg.telefono, _rep.get("año"), _rep.get("mes"))
+                        await proveedor.enviar_mensaje(msg.telefono, texto_resumen)
+                    else:  # exportar
+                        from agent.reporting import exportar_transacciones_csv
+                        csv_bytes = await exportar_transacciones_csv(msg.telefono, _rep.get("año"), _rep.get("mes"))
+                        año = _rep.get("año") or __import__("datetime").datetime.utcnow().year
+                        mes = _rep.get("mes")
+                        filename = f"transacciones_{año}{f'_{mes:02d}' if mes else ''}.csv"
+                        destino = _rep.get("destino", "whatsapp")
+
+                        # ── Ruta "email": adjuntar CSV en Gmail al propio usuario ──
+                        if destino == "email":
+                            email_destinatario = ""
+                            try:
+                                from agent.memory import obtener_google_auth
+                                auth = await obtener_google_auth(msg.telefono)
+                                if auth:
+                                    email_destinatario = auth.get("email", "") or ""
+                            except Exception:
+                                pass
+
+                            if not email_destinatario:
+                                await proveedor.enviar_mensaje(
+                                    msg.telefono,
+                                    "Para mandar el CSV por correo necesito que conectes Google. "
+                                    "Escribe 'dona conectar google' y lo autorizas."
+                                )
+                            else:
+                                periodo_str = (
+                                    f"{_rep.get('mes'):02d}/{año}" if _rep.get("mes") else f"todo {año}"
+                                )
+                                try:
+                                    from agent.gmail import enviar_correo_con_adjunto, GmailScopeError
+                                    ok_mail = await enviar_correo_con_adjunto(
+                                        msg.telefono,
+                                        email_destinatario,
+                                        f"Tu export de Dona — {periodo_str}",
+                                        (
+                                            f"Hola, te envío el export de transacciones de {periodo_str}.\n\n"
+                                            f"Archivo: {filename} ({len(csv_bytes)} bytes).\n\n"
+                                            "Generado automáticamente por Dona."
+                                        ),
+                                        adjuntos=[{
+                                            "nombre": filename,
+                                            "contenido": csv_bytes,
+                                            "mime_type": "text/csv",
+                                        }],
+                                    )
+                                    if ok_mail:
+                                        await proveedor.enviar_mensaje(
+                                            msg.telefono,
+                                            f"Listo, te envié el CSV a {email_destinatario}."
+                                        )
+                                    else:
+                                        await proveedor.enviar_mensaje(
+                                            msg.telefono,
+                                            "No pude enviar el correo con el adjunto. Intenta de nuevo en un momento."
+                                        )
+                                except GmailScopeError:
+                                    await proveedor.enviar_mensaje(
+                                        msg.telefono,
+                                        "Me faltan permisos de Gmail. Re-autoriza con 'dona conectar google'."
+                                    )
+                        else:
+                            # ── Ruta WhatsApp (default): adjuntar + backup en Drive ──
+                            enviar_doc_fn = getattr(proveedor, "enviar_documento", None)
+                            ok_doc = False
+                            if enviar_doc_fn:
+                                ok_doc = await enviar_doc_fn(
+                                    msg.telefono, csv_bytes, filename, "text/csv",
+                                    caption=f"Export de transacciones ({len(csv_bytes)} bytes)",
+                                )
+
+                            # Backup en Google Drive (best-effort, no bloquea)
+                            drive_link = None
+                            try:
+                                from agent.google_drive import subir_archivo, compartir_con_link
+                                subida = await subir_archivo(
+                                    msg.telefono, filename, csv_bytes,
+                                    mime_type="text/csv",
+                                    descripcion=f"Export de transacciones generado por Dona ({len(csv_bytes)} bytes)",
+                                )
+                                if subida and subida.get("id"):
+                                    drive_link = await compartir_con_link(msg.telefono, subida["id"])
+                                    if not drive_link:
+                                        drive_link = subida.get("webViewLink")
+                            except Exception as _e_drv:
+                                logger.warning(f"[REPORTE] Drive upload falló (no bloqueante): {_e_drv}")
+
+                            if ok_doc and drive_link:
+                                await proveedor.enviar_mensaje(
+                                    msg.telefono,
+                                    f"También lo guardé en tu Drive: {drive_link}"
+                                )
+                            elif not ok_doc:
+                                # No se pudo adjuntar por WhatsApp → mandar link de Drive si existe
+                                if drive_link:
+                                    await proveedor.enviar_mensaje(
+                                        msg.telefono,
+                                        f"No pude adjuntar el CSV por este canal, pero lo subí a tu Drive:\n{drive_link}"
+                                    )
+                                else:
+                                    await proveedor.enviar_mensaje(
+                                        msg.telefono,
+                                        "No pude adjuntar el CSV por este canal. "
+                                        f"Generado localmente: {filename} ({len(csv_bytes)} bytes)."
+                                    )
+                    logger.info(f"[REPORTE] {_rep['tipo']} → {msg.telefono}")
+                except Exception as _e_rep:
+                    logger.error(f"[REPORTE] Error generando {_rep['tipo']}: {_e_rep}")
+                    await proveedor.enviar_mensaje(
+                        msg.telefono,
+                        "Hubo un problema generando el reporte. Intenta de nuevo."
+                    )
+                continue
+
             # ── Comandos de proactividad ("dona pausa", "dona resumen", etc.) ──
             if es_comando_proactividad(msg.texto):
                 try:
@@ -761,6 +1258,30 @@ async def procesar_webhook(request: Request):
                     logger.info(f"[ONBOARDING] Mensaje fuera de flujo, pasa a Claude: '{msg.texto[:60]}'")
             elif _onboarding_activo and _es_imagen:
                 logger.info(f"[ONBOARDING] Imagen recibida durante onboarding — pasa a Claude sin avanzar estado")
+
+            # ── Onboarding de negocio: flujo guiado de configuración ────────
+            try:
+                from agent.business.onboarding_negocio import (
+                    esta_en_onboarding_negocio, procesar_paso_onboarding,
+                    necesita_onboarding_negocio, iniciar_onboarding_negocio,
+                )
+                if await esta_en_onboarding_negocio(msg.telefono):
+                    resp_biz = await procesar_paso_onboarding(msg.telefono, msg.texto)
+                    if resp_biz:
+                        await proveedor.enviar_mensaje(msg.telefono, resp_biz)
+                        await guardar_mensaje(msg.telefono, "user", msg.texto)
+                        await guardar_mensaje(msg.telefono, "assistant", resp_biz)
+                        logger.info(f"[BIZ-ONBOARD] → {msg.telefono}: {resp_biz[:60]}...")
+                        continue
+                elif not _es_imagen and await necesita_onboarding_negocio(msg.telefono, msg.texto):
+                    resp_biz = await iniciar_onboarding_negocio(msg.telefono)
+                    await proveedor.enviar_mensaje(msg.telefono, resp_biz)
+                    await guardar_mensaje(msg.telefono, "user", msg.texto)
+                    await guardar_mensaje(msg.telefono, "assistant", resp_biz)
+                    logger.info(f"[BIZ-ONBOARD] Iniciado → {msg.telefono}")
+                    continue
+            except Exception as _e_biz:
+                logger.error(f"[BIZ-ONBOARD] Error: {_e_biz}")
 
             # ── Detección de ciudad base (solo si el usuario no tiene ninguna) ─
             try:
@@ -856,6 +1377,19 @@ async def procesar_webhook(request: Request):
                 logger.error(f"[WEBHOOK] Fallo al enviar respuesta a {msg.telefono} — proveedor retornó False")
             else:
                 logger.info(f"Respuesta a {msg.telefono}: {respuesta[:120]}")
+
+            # ── Si el usuario mandó audio, responder también con audio (TTS) ──
+            # No es fatal si falla: ya le enviamos el texto.
+            if _es_audio and os.getenv("DONA_TTS_HABILITADO", "1") != "0":
+                try:
+                    from agent.tts import sintetizar_audio
+                    audio_bytes = await sintetizar_audio(respuesta)
+                    if audio_bytes:
+                        enviar_audio_fn = getattr(proveedor, "enviar_audio", None)
+                        if enviar_audio_fn:
+                            await enviar_audio_fn(msg.telefono, audio_bytes, "audio/ogg")
+                except Exception as _e_tts:
+                    logger.error(f"[TTS] Error generando/enviando audio: {_e_tts}")
 
             # ── Tareas de background (no bloquean la respuesta) ───────────────
             import agent.mirofish_client as _mf
@@ -1105,6 +1639,48 @@ async def _detectar_y_guardar_viaje(telefono: str, texto: str):
             )
     except Exception as e:
         logger.debug(f"_detectar_y_guardar_viaje ({telefono}): {e}")
+
+
+@app.post("/webhook/stripe")
+async def webhook_stripe(request: Request):
+    """
+    Webhook de Stripe para eventos de pago. Verifica firma, procesa el evento,
+    y acredita créditos al usuario cuando corresponde.
+    Idempotente: reentregas del mismo `session_id` no duplican créditos.
+    """
+    from agent.billing import verificar_firma_stripe, procesar_evento_stripe
+
+    body = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    evento = verificar_firma_stripe(body, sig)
+    if evento is None:
+        logger.warning("[STRIPE] Firma inválida o payload no parseable — rechazando")
+        raise HTTPException(status_code=400, detail="signature_invalid")
+
+    try:
+        resultado = await procesar_evento_stripe(evento)
+    except Exception as e:
+        logger.exception(f"[STRIPE] Error procesando evento: {e}")
+        # Retornamos 500 para que Stripe reintente
+        raise HTTPException(status_code=500, detail="processing_error")
+
+    # Notificar al usuario por WhatsApp si fue una acreditación exitosa
+    if resultado.get("handled"):
+        tel = resultado.get("telefono", "")
+        creditos = resultado.get("creditos", 0)
+        saldo = resultado.get("saldo", 0)
+        if tel and creditos:
+            try:
+                await proveedor.enviar_mensaje(
+                    tel,
+                    f"✅ ¡Gracias por tu compra!\n"
+                    f"Se acreditaron *{creditos} créditos* a tu cuenta.\n"
+                    f"Saldo actual: *{saldo} créditos*."
+                )
+            except Exception as _e_notif:
+                logger.warning(f"[STRIPE] No se pudo notificar por WhatsApp a {tel}: {_e_notif}")
+
+    return {"status": "ok", **resultado}
 
 
 @app.post("/webhook")

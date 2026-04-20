@@ -27,6 +27,21 @@ MAX_MENSAJES_DIARIOS = 2   # Límite para no ser molesto
 # Cliente de Claude para generación de mensajes proactivos
 _claude = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+# Palabras clave TCPA / CAN-SPAM: cuando el usuario envía cualquiera de estas
+# en aislamiento (como primer/único contenido del mensaje), DEBE desactivarse
+# la proactividad inmediatamente. Son palabras clave reconocidas por la FCC
+# como opt-out estándar en mensajería SMS/WhatsApp en EEUU.
+COMANDOS_STOP_TCPA = {
+    "stop", "unsubscribe", "cancel", "end", "quit",
+    "baja", "dar de baja", "no molestar",
+}
+
+# Palabras para reactivar tras STOP (TCPA-compliant re-opt-in)
+COMANDOS_START_TCPA = {
+    "start", "subscribe", "unstop", "yes",
+    "alta", "reactivar", "activar proactividad",
+}
+
 # Comandos que el usuario puede enviar para controlar la proactividad
 COMANDOS_PROACTIVIDAD = {
     "dona pausa",
@@ -40,6 +55,43 @@ COMANDOS_PROACTIVIDAD = {
     "dona olvida mis patrones",
     "dona olvida patrones",
 }
+
+
+def es_comando_stop_tcpa(texto: str) -> bool:
+    """Retorna True si el texto es un opt-out TCPA (STOP, UNSUBSCRIBE, BAJA, etc.).
+    La detección ignora mayúsculas/minúsculas y espacios/puntuación al final."""
+    normalizado = texto.strip().lower().rstrip(".!?;,")
+    return normalizado in COMANDOS_STOP_TCPA
+
+
+def es_comando_start_tcpa(texto: str) -> bool:
+    """Retorna True si el texto es un re-opt-in tras STOP."""
+    normalizado = texto.strip().lower().rstrip(".!?;,")
+    return normalizado in COMANDOS_START_TCPA
+
+
+async def manejar_stop_tcpa(telefono: str) -> str:
+    """Desactiva toda proactividad para el usuario. Mensaje compliant con TCPA 47 CFR 64.1200."""
+    from agent.memory import guardar_proactividad
+    await guardar_proactividad(telefono, proactive_enabled=False)
+    logger.info(f"[TCPA] Opt-out registrado para {telefono}")
+    return (
+        "✅ Has sido dado de baja de mensajes proactivos de Dona.\n\n"
+        "No te enviaré recordatorios ni resúmenes automáticos. "
+        "Sigues pudiendo escribirme cuando necesites algo.\n\n"
+        "_Envía *START* si más adelante quieres reactivar los mensajes proactivos._"
+    )
+
+
+async def manejar_start_tcpa(telefono: str) -> str:
+    """Reactiva proactividad tras un STOP previo."""
+    from agent.memory import guardar_proactividad
+    await guardar_proactividad(telefono, proactive_enabled=True)
+    logger.info(f"[TCPA] Re-opt-in registrado para {telefono}")
+    return (
+        "✅ ¡Bienvenido de vuelta! Los mensajes proactivos están activos nuevamente.\n\n"
+        "_Recuerda: siempre puedes enviar *STOP* para desactivarlos._"
+    )
 
 
 def es_comando_proactividad(texto: str) -> bool:

@@ -11,9 +11,13 @@ Scopes necesarios (agregados en google_calendar.py):
 import asyncio
 import base64
 import logging
+import mimetypes
 import re
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate
+from email import encoders
 
 import httpx
 
@@ -339,13 +343,99 @@ async def enviar_correo(
         return True
 
 
+async def enviar_correo_con_adjunto(
+    telefono: str,
+    destinatario: str,
+    asunto: str,
+    cuerpo: str,
+    adjuntos: list[dict],
+) -> bool:
+    """
+    Envía un correo con uno o más archivos adjuntos.
+
+    Args:
+        adjuntos: lista de {"nombre": str, "contenido": bytes, "mime_type": str | None}.
+                  Si mime_type es None se infiere del nombre del archivo
+                  (fallback: application/octet-stream).
+
+    Returns:
+        True si fue exitoso.
+
+    Nota de tamaño: Gmail acepta payloads hasta ~35 MB en base64 (~25 MB crudos).
+    Archivos más grandes requieren el endpoint de subida reanudable — no cubierto acá.
+    """
+    tok = await _token(telefono)
+    if not tok:
+        return False
+    if not adjuntos:
+        # Sin adjuntos, delegamos al flujo simple
+        return await enviar_correo(telefono, destinatario, asunto, cuerpo)
+
+    raiz = MIMEMultipart()
+    raiz["To"] = destinatario
+    raiz["Subject"] = asunto
+    raiz["Date"] = formatdate(localtime=False)
+    raiz.attach(MIMEText(cuerpo, "plain", "utf-8"))
+
+    for adj in adjuntos:
+        nombre = adj.get("nombre") or "adjunto.bin"
+        contenido = adj.get("contenido") or b""
+        mime_type = adj.get("mime_type")
+        if not mime_type:
+            guess, _ = mimetypes.guess_type(nombre)
+            mime_type = guess or "application/octet-stream"
+        tipo_principal, _, subtipo = mime_type.partition("/")
+        parte = MIMEBase(tipo_principal or "application", subtipo or "octet-stream")
+        parte.set_payload(contenido)
+        encoders.encode_base64(parte)
+        parte.add_header(
+            "Content-Disposition",
+            f'attachment; filename="{nombre}"',
+        )
+        raiz.attach(parte)
+
+    raw = base64.urlsafe_b64encode(raiz.as_bytes()).decode()
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{_GMAIL_API}/messages/send",
+            json={"raw": raw},
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "Content-Type": "application/json",
+            },
+        )
+        if resp.status_code == 403:
+            raise GmailScopeError("Token sin scope de Gmail")
+        if resp.status_code not in (200, 201):
+            logger.error(f"Gmail send (adjunto): {resp.status_code} {resp.text[:300]}")
+            return False
+
+    logger.info(
+        f"Correo con {len(adjuntos)} adjunto(s) enviado para {telefono} → {destinatario}"
+    )
+    return True
+
+
 def _traducir_query_natural(query_natural: str) -> str:
     """
     Traduce una query en lenguaje natural a sintaxis de Gmail.
     Conversión heurística básica.
+
+    Por default filtra `category:primary` (bandeja principal) — excluye Promociones,
+    Social, Updates, Foros. El usuario puede desactivarlo pidiendo explícitamente
+    "promociones", "todas las categorías", "incluye spam", etc.
     """
     q = query_natural.lower()
     partes = []
+
+    # Detectar si el usuario pide explícitamente categorías NO-primary
+    _pide_no_primary = any(kw in q for kw in (
+        "promocion", "promoción", "social", "updates", "foros", "foro",
+        "todas las categorias", "todas las categorías", "todos los correos",
+        "spam", "bandeja completa", "todo gmail",
+        "cualquier categoria", "cualquier categoría",
+    ))
 
     # Patrones comunes
     if "de " in q:
@@ -371,11 +461,28 @@ def _traducir_query_natural(query_natural: str) -> str:
     if "adjunto" in q or "archivo" in q:
         partes.append("has:attachment")
 
-    # Si no se detectó nada específico, hacer búsqueda general
-    if not partes:
+    # Si el usuario pide categorías específicas, agregarlas
+    if "promocion" in q or "promoción" in q:
+        partes.append("category:promotions")
+    elif "social" in q:
+        partes.append("category:social")
+    elif "updates" in q:
+        partes.append("category:updates")
+
+    # Por default: limitar a bandeja principal (category:primary) salvo que
+    # el usuario pida explícitamente otra categoría o el scope completo.
+    if not _pide_no_primary:
+        partes.append("category:primary")
+
+    # Si no se detectó nada específico, hacer búsqueda general (manteniendo primary)
+    if len([p for p in partes if not p.startswith("category:")]) == 0:
         # Remover palabras comunes y usar el resto como texto libre
         palabras_ignorar = {"correo", "email", "busca", "muéstrame", "sobre", "con", "que", "los", "mis"}
         palabras = [w for w in q.split() if w not in palabras_ignorar and len(w) > 2]
-        return " ".join(palabras[:5]) if palabras else "in:inbox"
+        texto_libre = " ".join(palabras[:5])
+        if texto_libre:
+            partes.insert(0, texto_libre)
+        else:
+            partes.insert(0, "in:inbox")
 
     return " ".join(partes)

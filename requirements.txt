@@ -1,23 +1,39 @@
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-anthropic>=0.40.0
-httpx>=0.25.0
-python-dotenv>=1.0.0
-sqlalchemy>=2.0.0
-pyyaml>=6.0.1
-aiosqlite>=0.19.0
-asyncpg>=0.29.0
-psycopg2-binary>=2.9.0
-tzdata>=2023.3
-python-multipart>=0.0.6
-APScheduler>=3.10.0,<4.0
-groq>=0.4.0
+fastapi>=0.104.0,<1.0.0
+uvicorn[standard]>=0.24.0,<1.0.0
+anthropic>=0.40.0,<1.0.0
+httpx>=0.25.0,<1.0.0
+python-dotenv>=1.0.0,<2.0.0
+sqlalchemy>=2.0.0,<3.0.0
+pyyaml>=6.0.1,<7.0.0
+aiosqlite>=0.19.0,<1.0.0
+asyncpg>=0.29.0,<1.0.0
+psycopg2-binary>=2.9.0,<3.0.0
 tzdata>=2024.1
-openai>=1.30.0
-cryptography>=42.0.0
-redis>=5.0.0
-gunicorn>=21.2.0
-pydantic>=2.5.0
-alembic>=1.13.0
-pytest>=8.0.0
-pytest-asyncio>=0.23.0
+python-multipart>=0.0.6,<1.0.0
+APScheduler>=3.10.0,<4.0
+groq>=0.4.0,<1.0.0
+openai>=1.30.0,<2.0.0
+cryptography>=42.0.0,<46.0.0
+redis>=5.0.0,<7.0.0
+gunicorn>=21.2.0,<24.0.0
+pydantic>=2.5.0,<3.0.0
+alembic>=1.13.0,<2.0.0
+pytest>=8.0.0,<9.0.0
+pytest-asyncio>=0.23.0,<1.0.0
+
+# --- Sprint 1: fundaciones creativas ---------------------------------------
+# Storage Cloudflare R2 (S3 compatible)
+aioboto3>=12.0.0,<14.0.0
+# Job queue asíncrona sobre Redis
+arq>=0.25.0,<1.0.0
+# Stripe Checkout + webhooks
+stripe>=7.0.0,<13.0.0
+
+# --- Opcionales --------------------------------------------------------------
+# Web-agent (automatización en navegador, patrón Twin.so). El runner de
+# agent/web_agent/ detecta si Playwright no está instalado y retorna un error
+# explicativo en vez de crashear — por eso se deja comentado por default.
+# Para habilitar:
+#   pip install playwright>=1.44.0
+#   python -m playwright install chromium
+# playwright>=1.44.0,<2.0.0

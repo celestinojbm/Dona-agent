@@ -19,6 +19,9 @@ Variables de entorno necesarias:
 
 import os
 import base64
+import hmac
+import hashlib
+import secrets
 import logging
 import urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -31,6 +34,15 @@ logger = logging.getLogger("agentkit")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+# Secret para firmar el parámetro `state` de OAuth (protección CSRF).
+# Reusa ENCRYPTION_KEY si existe, si no deriva de GOOGLE_CLIENT_SECRET.
+_OAUTH_STATE_SECRET = (
+    os.getenv("OAUTH_STATE_SECRET")
+    or os.getenv("ENCRYPTION_KEY")
+    or GOOGLE_CLIENT_SECRET
+    or "dona-oauth-state-fallback-DO-NOT-USE-IN-PROD"
+).encode()
+_OAUTH_STATE_TTL_SECONDS = 600  # 10 minutos
 BASE_URL = (
     os.getenv("BASE_URL")
     or os.getenv("RENDER_EXTERNAL_URL")
@@ -38,15 +50,21 @@ BASE_URL = (
 ).rstrip("/")
 REDIRECT_URI = f"{BASE_URL}/auth/google/callback"
 
-# Alcances de Google que Dona necesita (Calendar + Sheets + Drive + Gmail)
+# Alcances de Google que Dona necesita (Calendar + Sheets + Drive + Gmail + Contacts)
+# NOTA: agregar scopes obliga a los usuarios existentes a re-autorizar en Google
+# (se muestra la pantalla de consent con los permisos nuevos). No requiere
+# intervención del desarrollador.
 SCOPES = [
-    "https://www.googleapis.com/auth/calendar.events",   # leer y crear eventos
-    "https://www.googleapis.com/auth/spreadsheets",      # leer y escribir hojas
-    "https://www.googleapis.com/auth/drive.readonly",    # listar archivos Sheets
-    "https://www.googleapis.com/auth/gmail.readonly",    # leer correos
-    "https://www.googleapis.com/auth/gmail.send",        # enviar correos
+    "https://www.googleapis.com/auth/calendar.events",     # leer y crear eventos
+    "https://www.googleapis.com/auth/spreadsheets",        # leer y escribir hojas
+    "https://www.googleapis.com/auth/drive.readonly",      # listar Sheets del usuario
+    "https://www.googleapis.com/auth/drive.file",          # crear/subir archivos propios de Dona
+    "https://www.googleapis.com/auth/gmail.readonly",      # leer correos
+    "https://www.googleapis.com/auth/gmail.send",          # enviar correos
+    "https://www.googleapis.com/auth/contacts.readonly",   # leer contactos del usuario
+    "https://www.googleapis.com/auth/tasks",               # leer y gestionar Google Tasks
     "openid",
-    "https://www.googleapis.com/auth/userinfo.email",    # mostrar el email al confirmar
+    "https://www.googleapis.com/auth/userinfo.email",      # mostrar el email al confirmar
 ]
 
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -61,13 +79,64 @@ def esta_disponible() -> bool:
 
 
 def codificar_state(telefono: str) -> str:
-    """Codifica el teléfono en base64 URL-safe para el parámetro `state` de OAuth."""
-    return base64.urlsafe_b64encode(telefono.encode()).decode()
+    """
+    Codifica el `state` de OAuth con protección CSRF:
+      - nonce aleatorio (16 bytes → 128 bits de entropía)
+      - timestamp de expiración
+      - firma HMAC-SHA256 del payload
+    Formato: base64url(nonce | expira_ts | telefono) + "." + hex(hmac)
+    """
+    nonce = secrets.token_urlsafe(16)
+    expira_ts = int(datetime.utcnow().timestamp()) + _OAUTH_STATE_TTL_SECONDS
+    payload = f"{nonce}|{expira_ts}|{telefono}"
+    firma = hmac.new(_OAUTH_STATE_SECRET, payload.encode(), hashlib.sha256).hexdigest()
+    payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    return f"{payload_b64}.{firma}"
 
 
 def decodificar_state(state: str) -> str:
-    """Decodifica el `state` de OAuth para recuperar el teléfono del usuario."""
-    return base64.urlsafe_b64decode(state.encode()).decode()
+    """
+    Decodifica y valida el `state` de OAuth. Retorna el teléfono si es válido.
+    Lanza ValueError si la firma es inválida o el state expiró.
+    """
+    try:
+        payload_b64, firma = state.split(".", 1)
+    except ValueError:
+        # Compatibilidad: state legacy (solo base64 del teléfono, sin firma)
+        # Lo aceptamos en modo degradado pero logueamos warning.
+        try:
+            telefono_legacy = base64.urlsafe_b64decode(state.encode()).decode()
+            logger.warning(f"[OAUTH] State sin firma (legacy) para {telefono_legacy}")
+            return telefono_legacy
+        except Exception:
+            raise ValueError("State OAuth malformado")
+
+    # Re-agregar padding base64 si es necesario
+    padding = "=" * (-len(payload_b64) % 4)
+    try:
+        payload = base64.urlsafe_b64decode((payload_b64 + padding).encode()).decode()
+    except Exception:
+        raise ValueError("State OAuth malformado (base64)")
+
+    partes = payload.split("|", 2)
+    if len(partes) != 3:
+        raise ValueError("State OAuth malformado (payload)")
+    _nonce, expira_ts_str, telefono = partes
+
+    # Validar firma (timing-safe)
+    firma_esperada = hmac.new(_OAUTH_STATE_SECRET, payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(firma, firma_esperada):
+        raise ValueError("Firma de state OAuth inválida (posible CSRF)")
+
+    # Validar expiración
+    try:
+        expira_ts = int(expira_ts_str)
+    except ValueError:
+        raise ValueError("Timestamp de state OAuth inválido")
+    if datetime.utcnow().timestamp() > expira_ts:
+        raise ValueError("State OAuth expirado")
+
+    return telefono
 
 
 def generar_url_oauth(telefono: str) -> str:
@@ -114,7 +183,8 @@ async def intercambiar_codigo(code: str, telefono: str) -> tuple[bool, str]:
             if resp.status_code != 200:
                 error_detail = resp.text[:500]
                 logger.error(f"Google token exchange: {resp.status_code} {error_detail}")
-                return False, f"[DEBUG] Google {resp.status_code}: {error_detail}"
+                # No exponer detalles del error al usuario final (puede filtrar info del flujo OAuth)
+                return False, "No pudimos completar la autorización con Google. Intenta de nuevo."
 
             tokens = resp.json()
             access_token = tokens["access_token"]
@@ -151,7 +221,8 @@ async def intercambiar_codigo(code: str, telefono: str) -> tuple[bool, str]:
         import traceback
         tb = traceback.format_exc()
         logger.error(f"intercambiar_codigo error para {telefono}: {e}\n{tb}")
-        return False, f"[DEBUG] {type(e).__name__}: {str(e)[:300]}"
+        # No exponer traceback ni tipo de excepción al usuario final
+        return False, "Error interno al conectar con Google. Intenta de nuevo en unos momentos."
 
 
 async def _obtener_token_valido(telefono: str) -> str | None:

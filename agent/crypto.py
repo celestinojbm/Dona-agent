@@ -16,6 +16,7 @@ import logging
 logger = logging.getLogger("agentkit")
 
 _ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
+_ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 _fernet = None
 
 if _ENCRYPTION_KEY:
@@ -24,8 +25,21 @@ if _ENCRYPTION_KEY:
         _fernet = Fernet(_ENCRYPTION_KEY.encode())
         logger.info("[CRYPTO] Cifrado de tokens activado")
     except Exception as e:
+        if _ENVIRONMENT == "production":
+            raise RuntimeError(
+                f"[CRYPTO] ENCRYPTION_KEY inválida en producción: {e}. "
+                "Deploy abortado — genera una clave válida con "
+                "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            )
         logger.error(f"[CRYPTO] ENCRYPTION_KEY inválida: {e}. Tokens NO se cifrarán.")
 else:
+    if _ENVIRONMENT == "production":
+        raise RuntimeError(
+            "[CRYPTO] ENCRYPTION_KEY no configurada en producción — "
+            "almacenar tokens OAuth en texto plano es inaceptable. "
+            "Genera una con: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\" "
+            "y configúrala como variable de entorno antes de reintentar el deploy."
+        )
     logger.warning(
         "[CRYPTO] ENCRYPTION_KEY no configurada — tokens se almacenan en texto plano. "
         "Genera una con: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""

@@ -47,7 +47,7 @@ class TestClasificarMensaje:
     def test_gmail_email(self):
         result = _clasificar_mensaje("envía un email a juan")
         assert result is not None
-        assert "redactar_y_enviar_correo" in result
+        assert "preparar_borrador_correo" in result
 
     def test_calendario(self):
         result = _clasificar_mensaje("qué tengo en mi agenda mañana")

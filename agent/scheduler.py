@@ -10,6 +10,7 @@ Soporta recordatorios únicos y recurrentes (diario, semanal, dias_semana, mensu
 import os
 import asyncio
 import logging
+from datetime import datetime
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from agent.memory import (
@@ -226,6 +227,95 @@ async def _verificar_avance_onboarding(proveedor):
         logger.error(f"Error en scheduler de onboarding ({type(e).__name__}): {e}")
 
 
+async def _enviar_resumen_semanal(proveedor):
+    """
+    Job semanal (domingos 19:00 UTC).
+    Genera un recap proactivo de los últimos 7 días para cada usuario con
+    proactividad habilitada. Si no hay movimientos, `resumen_semana` retorna
+    "" y se salta el envío (para no ruidar).
+    """
+    try:
+        from agent.memory import obtener_usuarios_proactividad_activos
+        from agent.reporting import resumen_semana
+
+        usuarios = await obtener_usuarios_proactividad_activos()
+        if not usuarios:
+            return
+
+        logger.info(f"[RESUMEN-SEMANAL] Generando recap para {len(usuarios)} usuario(s)")
+
+        enviados = 0
+        for u in usuarios:
+            try:
+                texto = await resumen_semana(u["telefono"])
+                if not texto:
+                    continue
+                ok = await proveedor.enviar_mensaje(u["telefono"], texto)
+                if ok:
+                    enviados += 1
+            except Exception as e_u:
+                logger.debug(f"[RESUMEN-SEMANAL] Error para {u['telefono']}: {e_u}")
+
+        logger.info(f"[RESUMEN-SEMANAL] {enviados}/{len(usuarios)} recaps enviados")
+    except Exception as e:
+        logger.error(f"[RESUMEN-SEMANAL] Error en job ({type(e).__name__}): {e}")
+
+
+async def _verificar_seguimientos_vencidos(proveedor):
+    """
+    Job que corre cada 10 minutos.
+    Busca seguimientos de clientes cuya fecha_programada ya pasó y no están
+    completados. Manda un recordatorio por WhatsApp al dueño del negocio y
+    los marca como completados para no repetir.
+
+    Multi-tenant: cada seguimiento tiene su propio `telefono` (el dueño).
+    """
+    try:
+        from agent.business.models import Seguimiento
+        from agent.memory import async_session
+        from sqlalchemy import select, and_
+        from agent.business.crm import completar_seguimiento
+
+        ahora = datetime.utcnow()
+        async with async_session() as session:
+            result = await session.execute(
+                select(Seguimiento).where(
+                    and_(
+                        Seguimiento.completado == False,
+                        Seguimiento.fecha_programada <= ahora,
+                    )
+                ).limit(50)  # evitar avalancha si hay backlog
+            )
+            vencidos = result.scalars().all()
+
+        if not vencidos:
+            return
+
+        logger.info(f"[SEGUIMIENTOS] {len(vencidos)} seguimiento(s) vencido(s) a disparar")
+
+        for seg in vencidos:
+            cliente_str = f" con {seg.cliente_nombre}" if seg.cliente_nombre else ""
+            mensaje = (
+                f"📞 Recordatorio de seguimiento{cliente_str}:\n"
+                f"{seg.descripcion}\n\n"
+                f"(Programado para {seg.fecha_programada.strftime('%d/%m %H:%M')} UTC)"
+            )
+            enviado = await proveedor.enviar_mensaje(seg.telefono, mensaje)
+            if enviado:
+                await completar_seguimiento(seg.telefono, seg.id)
+                logger.info(
+                    f"[SEGUIMIENTOS] #{seg.id} enviado a {seg.telefono}: "
+                    f"'{seg.descripcion[:60]}'"
+                )
+            else:
+                logger.warning(
+                    f"[SEGUIMIENTOS] No se pudo enviar #{seg.id} a {seg.telefono} — "
+                    "se reintenta en el próximo ciclo"
+                )
+    except Exception as e:
+        logger.error(f"[SEGUIMIENTOS] Error en job ({type(e).__name__}): {e}")
+
+
 async def _self_ping():
     """
     Self-ping para mantener vivo el servicio en Render Free Tier.
@@ -308,6 +398,27 @@ def iniciar_scheduler(proveedor):
         id="dona2_reporte_semanal",
         replace_existing=True,
     )
+    # Seguimientos de clientes (CRM) — cada 10 minutos
+    scheduler.add_job(
+        _verificar_seguimientos_vencidos,
+        trigger="interval",
+        minutes=10,
+        args=[proveedor],
+        id="verificar_seguimientos_vencidos",
+        replace_existing=True,
+    )
+    # Resumen semanal proactivo a cada usuario — domingos 19:00 UTC
+    # (1h antes del reporte de insights de Dona 2.0 para no solaparse)
+    scheduler.add_job(
+        _enviar_resumen_semanal,
+        trigger="cron",
+        day_of_week="sun",
+        hour=19,
+        minute=0,
+        args=[proveedor],
+        id="resumen_semanal_usuarios",
+        replace_existing=True,
+    )
     # Self-ping para mantener vivo el servicio en Render Free Tier
     scheduler.add_job(
         _self_ping,
@@ -362,7 +473,7 @@ def iniciar_scheduler(proveedor):
     logger.info(
         "Scheduler iniciado — recordatorios cada minuto, Google Calendar cada 5 min, "
         "onboarding y proactividad cada hora, monitoreo Dona 2.0 cada 15 min, "
-        "self-ping cada 10 min, aprendizaje los domingos, "
+        "seguimientos CRM cada 10 min, self-ping cada 10 min, aprendizaje los domingos, "
         "simulaciones MiroFish lunes/miércoles/viernes a las 2 AM UTC"
     )
 

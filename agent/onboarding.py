@@ -34,7 +34,9 @@ Pero para ser realmente útil — no solo un bot genérico — necesito conocert
 
 Te haré algunas preguntas en los próximos días. Cada cosa que compartas me hace más inteligente para ayudarte.
 
-¿Empezamos? Responde *sí* cuando estés listo ✨"""
+¿Empezamos? Responde *sí* cuando estés listo ✨
+
+_Responde *STOP* en cualquier momento para desactivar mensajes proactivos._"""
 
 MENSAJE_PEDIR_NOMBRE = """\
 Genial! Antes de empezar — ¿cómo te llamas? 😊"""
