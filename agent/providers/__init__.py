@@ -1,5 +1,5 @@
 # agent/providers/__init__.py — Factory de proveedores
-# Generado por AgentKit
+# Dona
 
 """
 Selecciona el proveedor de WhatsApp según la variable WHATSAPP_PROVIDER en .env.

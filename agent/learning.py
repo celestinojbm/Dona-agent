@@ -1,5 +1,5 @@
 # agent/learning.py — Motor de aprendizaje continuo de Dona
-# Generado por AgentKit
+# Dona
 
 """
 Dona aprende de cada interacción y ajusta su comportamiento con el tiempo.

@@ -1,5 +1,5 @@
 # agent/mirofish_client.py — Cliente async para el motor MiroFish
-# Integrado en Dona por AgentKit
+# Integrado en Dona
 
 """
 Cliente HTTP asíncrono para comunicarse con el microservicio MiroFish.

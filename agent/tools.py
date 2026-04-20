@@ -1,5 +1,5 @@
 # agent/tools.py — Herramientas de Dona (persistentes en PostgreSQL)
-# Generado por AgentKit — Migrado a DB en Fase 1 de estabilización
+# Dona — Migrado a DB en Fase 1 de estabilización
 
 """
 Herramientas de gestión de productividad personal para Dona.

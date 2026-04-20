@@ -1,5 +1,5 @@
 # agent/main.py — Servidor FastAPI + Webhook de WhatsApp
-# Generado por AgentKit
+# Dona
 
 """
 Servidor principal del agente Dona.

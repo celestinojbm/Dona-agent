@@ -1,5 +1,5 @@
 # agent/proactivity.py — Motor de proactividad inteligente de Dona
-# Generado por AgentKit
+# Dona
 
 """
 Dona envía mensajes proactivos sin que el usuario los solicite.

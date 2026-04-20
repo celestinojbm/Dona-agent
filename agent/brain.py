@@ -1,5 +1,5 @@
 # agent/brain.py — Cerebro de Dona: conexión con Claude API
-# Generado por AgentKit
+# Dona
 
 """
 Lógica de IA de Dona. Lee el system prompt de prompts.yaml,

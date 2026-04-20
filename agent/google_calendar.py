@@ -1,5 +1,5 @@
 # agent/google_calendar.py — Integración con Google Calendar vía OAuth 2.0
-# Generado por AgentKit
+# Dona
 
 """
 Conecta Dona con el Google Calendar real del usuario.

@@ -1,5 +1,5 @@
 # agent/memory.py — Memoria de conversaciones con SQLite
-# Generado por AgentKit
+# Dona
 
 """
 Sistema de memoria de Dona. Guarda el historial de conversaciones
@@ -19,7 +19,7 @@ load_dotenv()
 logger = logging.getLogger("agentkit")
 
 # Configuración de base de datos
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./agentkit.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./dona.db")
 
 # Si es PostgreSQL en producción, ajustar el esquema de URL
 if DATABASE_URL.startswith("postgresql://"):

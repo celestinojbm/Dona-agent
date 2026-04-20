@@ -1,5 +1,5 @@
 # agent/onboarding.py — Flujo de onboarding conversacional de Dona
-# Generado por AgentKit
+# Dona
 
 """
 Onboarding de 3 fases distribuidas en 3 días.

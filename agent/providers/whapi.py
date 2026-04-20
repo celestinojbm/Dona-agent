@@ -1,5 +1,5 @@
 # agent/providers/whapi.py — Adaptador para Whapi.cloud
-# Generado por AgentKit
+# Dona
 
 import os
 import logging

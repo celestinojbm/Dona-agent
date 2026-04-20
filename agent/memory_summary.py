@@ -1,5 +1,5 @@
 # agent/memory_summary.py — Resumen de memoria a largo plazo
-# Generado por AgentKit
+# Dona
 
 """
 Sistema de compresión de historial para Dona.

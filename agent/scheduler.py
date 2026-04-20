@@ -1,5 +1,5 @@
 # agent/scheduler.py — Scheduler de recordatorios automáticos
-# Generado por AgentKit
+# Dona
 
 """
 Verifica cada minuto si hay recordatorios pendientes y los envía via WhatsApp.

@@ -1,5 +1,5 @@
 # agent/location.py — Detección inteligente de ubicación dinámica de Dona
-# Generado por AgentKit
+# Dona
 
 """
 Detecta dos situaciones de ubicación:

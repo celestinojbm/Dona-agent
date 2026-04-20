@@ -1,5 +1,5 @@
 # agent/emotion.py — Inteligencia emocional de Dona
-# Generado por AgentKit
+# Dona
 
 """
 Detecta el estado emocional del usuario en cada mensaje y adapta el tono de Dona.

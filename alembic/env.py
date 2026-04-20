@@ -12,7 +12,7 @@ load_dotenv()
 config = context.config
 
 # Usar DATABASE_URL de .env en lugar de alembic.ini
-db_url = os.getenv("DATABASE_URL", "sqlite:///./agentkit.db")
+db_url = os.getenv("DATABASE_URL", "sqlite:///./dona.db")
 # Alembic usa sync drivers
 if db_url.startswith("postgresql+asyncpg://"):
     db_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)

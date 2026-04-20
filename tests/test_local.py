@@ -1,5 +1,5 @@
 # tests/test_local.py — Simulador de chat con Dona en terminal
-# Generado por AgentKit
+# Dona
 
 """
 Prueba a Dona sin necesitar WhatsApp.
