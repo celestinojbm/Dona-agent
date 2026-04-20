@@ -394,6 +394,68 @@ async def admin_jobs_recientes(request: Request, telefono: str, limite: int = 10
     return {"telefono": telefono, "total": len(jobs), "jobs": jobs}
 
 
+@app.get("/admin/r2-check")
+async def admin_r2_check(request: Request, token: str = ""):
+    """
+    Diagnóstico de Cloudflare R2.
+    Reporta qué env vars están seteadas, intenta un put/get de prueba y retorna
+    el error exacto si falla. No registra nada en DB.
+    """
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+
+    from agent import storage as _st
+
+    presencia = {
+        "R2_ACCOUNT_ID": bool(_st.R2_ACCOUNT_ID),
+        "R2_ACCESS_KEY_ID": bool(_st.R2_ACCESS_KEY_ID),
+        "R2_SECRET_ACCESS_KEY": bool(_st.R2_SECRET_ACCESS_KEY),
+        "R2_BUCKET": _st.R2_BUCKET or None,
+        "R2_PUBLIC_URL": _st.R2_PUBLIC_URL or None,
+    }
+    longitudes = {
+        "R2_ACCOUNT_ID_len": len(_st.R2_ACCOUNT_ID),
+        "R2_ACCESS_KEY_ID_len": len(_st.R2_ACCESS_KEY_ID),
+        "R2_SECRET_ACCESS_KEY_len": len(_st.R2_SECRET_ACCESS_KEY),
+    }
+    disponible = _st._r2_disponible()
+    if not disponible:
+        return {
+            "status": "config_incompleta",
+            "disponible": False,
+            "presencia": presencia,
+            "longitudes": longitudes,
+            "mensaje": "Falta alguna de las 4 env vars obligatorias.",
+        }
+
+    # Intento real: put + delete de un objeto de prueba
+    import uuid as _uuid
+    key_prueba = f"diagnostico/r2-check-{_uuid.uuid4().hex[:8]}.txt"
+    try:
+        url = await _st._subir_r2(key_prueba, b"dona r2 ok", "text/plain")
+        # best-effort borrado
+        borrado = await _st._borrar_r2(key_prueba)
+        return {
+            "status": "ok",
+            "disponible": True,
+            "presencia": presencia,
+            "longitudes": longitudes,
+            "url_prueba": url,
+            "borrado": borrado,
+            "mensaje": "R2 funcional. La URL retornada es la que usaría para assets reales.",
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "disponible": True,
+            "presencia": presencia,
+            "longitudes": longitudes,
+            "excepcion_tipo": type(e).__name__,
+            "excepcion_mensaje": str(e)[:500],
+            "mensaje": "Credenciales presentes pero R2 tiró excepción al subir.",
+        }
+
+
 @app.post("/admin/seed-creditos")
 async def admin_seed_creditos(request: Request, telefono: str, creditos: int = 100, razon: str = "seed admin", token: str = ""):
     """
