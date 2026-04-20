@@ -382,6 +382,18 @@ async def admin_onboarding_reset(request: Request, telefono: str, fase: int = 0,
     return {"status": "ok", "telefono": telefono, "fase": fase, "paso": paso}
 
 
+@app.get("/admin/jobs-recientes")
+async def admin_jobs_recientes(request: Request, telefono: str, limite: int = 10, token: str = ""):
+    """Diagnóstico: últimos N jobs creativos del usuario con estado y error_msg."""
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    if not _telefono_valido(telefono):
+        raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
+    from agent.jobs import listar_jobs_usuario
+    jobs = await listar_jobs_usuario(telefono, limite=limite)
+    return {"telefono": telefono, "total": len(jobs), "jobs": jobs}
+
+
 @app.post("/admin/seed-creditos")
 async def admin_seed_creditos(request: Request, telefono: str, creditos: int = 100, razon: str = "seed admin", token: str = ""):
     """
