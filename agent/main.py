@@ -382,6 +382,31 @@ async def admin_onboarding_reset(request: Request, telefono: str, fase: int = 0,
     return {"status": "ok", "telefono": telefono, "fase": fase, "paso": paso}
 
 
+@app.post("/admin/seed-creditos")
+async def admin_seed_creditos(request: Request, telefono: str, creditos: int = 100, razon: str = "seed admin", token: str = ""):
+    """
+    Acredita N créditos al usuario indicado. Sirve para seed manual mientras
+    Stripe no está configurado, o para regalar créditos.
+    Uso: POST /admin/seed-creditos?telefono=14076936023&creditos=100 + Header Auth
+    """
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    if not _telefono_valido(telefono):
+        raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
+    if creditos <= 0 or creditos > 100000:
+        raise HTTPException(status_code=400, detail="creditos fuera de rango (1-100000)")
+    from agent.billing import acreditar, obtener_saldo
+    nuevo_saldo = await acreditar(telefono, creditos, razon)
+    saldo_actual = await obtener_saldo(telefono)
+    return {
+        "status": "ok",
+        "telefono": telefono,
+        "acreditado": creditos,
+        "saldo_retornado": nuevo_saldo,
+        "saldo_verificado": saldo_actual,
+    }
+
+
 @app.get("/admin/recordatorios")
 async def admin_recordatorios(request: Request, telefono: str, token: str = ""):
     """
