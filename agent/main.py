@@ -1155,7 +1155,9 @@ async def procesar_webhook(request: Request):
                 from agent.creativos.comandos import (
                     es_comando_imagen, parsear_imagen,
                     es_comando_confirmar, es_comando_cancelar,
+                    es_solicitud_imagen_sin_sujeto,
                     texto_preview, texto_encolada, texto_sin_pendiente, texto_cancelada,
+                    texto_pedir_sujeto,
                 )
                 from agent.creativos.imagen import (
                     preparar_imagen, confirmar_imagen, cancelar_imagen, obtener_pendiente,
@@ -1171,6 +1173,13 @@ async def procesar_webhook(request: Request):
                     )
                     await proveedor.enviar_mensaje(msg.telefono, texto_preview(preview))
                     logger.info(f"[CMD] preparar_imagen → {msg.telefono} costo={preview['costo_creditos']}")
+                    continue
+
+                # Solicitud de imagen sin sujeto ("genera una imagen", "dibuja") →
+                # preguntamos de qué, en lugar de delegar al LLM (que tiende a negar).
+                if es_solicitud_imagen_sin_sujeto(msg.texto):
+                    await proveedor.enviar_mensaje(msg.telefono, texto_pedir_sujeto())
+                    logger.info(f"[CMD] solicitud_imagen_sin_sujeto → {msg.telefono}")
                     continue
 
                 # confirmar/cancelar sólo aplican si HAY pendiente — si no, dejamos

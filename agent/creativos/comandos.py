@@ -75,6 +75,38 @@ _PATRONES_IMAGEN = (
     _RE_IMAGEN_SUSTANTIVO,
 )
 
+# Mismos prefijos que los anteriores pero SIN prompt/sujeto. Sirven para detectar
+# "genera una imagen" (sin decir de qué) y preguntarle al usuario qué quiere,
+# en lugar de dejar que caiga al LLM — que tiende a responder "no puedo".
+_PATRONES_IMAGEN_SIN_SUJETO = (
+    # "dona imagen" / "dona imagen." / "dona imagen?"
+    re.compile(
+        r"^[\s¿¡]*dona\s+im[aá]gen?\s*[\.\?\!]*$",
+        re.IGNORECASE,
+    ),
+    # "genera una imagen", "hazme una foto", "dame un dibujo"
+    re.compile(
+        r"^[\s¿¡]*(?:dona[,\s]+)?"
+        r"(?:h[aá]z(?:me)?|haga(?:me)?|genera(?:me)?|gen[eé]ra(?:me)?|"
+        r"cr[eé]a(?:me)?|dame|p[oó]n(?:me)?|m[aá]nda(?:me)?|"
+        r"quiero|necesito|"
+        r"puedes\s+(?:hacer|generar|crear|dibujar|mandar|dar|enviar)(?:me)?|"
+        r"me\s+puedes\s+(?:hacer|generar|crear|dibujar|mandar|dar|enviar)(?:me)?|"
+        r"podr[ií]as\s+(?:hacer|generar|crear|dibujar|mandar|dar|enviar)(?:me)?)"
+        r"\s+(?:(?:una?|el|la|mi|unos?|unas?)\s+)?"
+        + _SUSTANTIVOS_IMG +
+        r"\s*[\.\?\!]*$",
+        re.IGNORECASE,
+    ),
+    # "dibuja", "ilustra", "pinta" — verbos fuertes solos, sin complemento
+    re.compile(
+        r"^[\s¿¡]*(?:dona[,\s]+)?"
+        r"(?:dib[uú]ja(?:me)?|il[uú]stra(?:me)?|p[ií]nta(?:me)?)"
+        r"\s*[\.\?\!]*$",
+        re.IGNORECASE,
+    ),
+)
+
 # Premium: "dona imagen premium <prompt>" o "dona imagen hd <prompt>"
 _RE_PREMIUM = re.compile(r"^\s*(premium|hd|pro)\s+(.+)$", re.IGNORECASE | re.DOTALL)
 
@@ -102,6 +134,25 @@ def es_comando_imagen(texto: str) -> bool:
         return False
     pat, cuerpo = _match_imagen(texto)
     return pat is not None and bool(cuerpo)
+
+
+def es_solicitud_imagen_sin_sujeto(texto: str) -> bool:
+    """
+    True si el mensaje tiene intención de imagen pero le falta el sujeto.
+    Ej: "genera una imagen", "dona imagen", "dibuja", "hazme una foto".
+    Sirve para responder "¿De qué?" en lugar de dejar que caiga al LLM
+    (que tiende a negar la capacidad).
+    Solo aplica cuando es_comando_imagen(texto) == False.
+    """
+    if not texto:
+        return False
+    if es_comando_imagen(texto):
+        return False
+    t = texto.strip()
+    for pat in _PATRONES_IMAGEN_SIN_SUJETO:
+        if pat.match(t):
+            return True
+    return False
 
 
 def parsear_imagen(texto: str) -> dict:
@@ -188,6 +239,15 @@ def texto_sin_pendiente() -> str:
     return (
         "No tienes ninguna imagen pendiente de confirmar.\n"
         "Envía *dona imagen <descripción>* para generar una."
+    )
+
+
+def texto_pedir_sujeto() -> str:
+    """Respuesta cuando el usuario pide imagen pero no especifica sujeto."""
+    return (
+        "🎨 ¿De qué te gustaría la imagen?\n\n"
+        "Dime qué quieres y la genero. Ejemplo:\n"
+        "_genera una imagen de un perro astronauta en Marte_"
     )
 
 
