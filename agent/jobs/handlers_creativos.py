@@ -30,7 +30,7 @@ def _proveedor_whatsapp():
     return obtener_proveedor()
 
 
-async def _reembolsar(telefono: str, creditos: int, motivo: str) -> int | None:
+async def _reembolsar(telefono: str, creditos: int, motivo: str, scope: str = "gen_imagen") -> int | None:
     """
     Devuelve los créditos cobrados cuando la generación falla.
     Retorna el saldo nuevo o None si no se pudo reembolsar.
@@ -42,12 +42,12 @@ async def _reembolsar(telefono: str, creditos: int, motivo: str) -> int | None:
         saldo = await acreditar(
             telefono,
             creditos,
-            razon=f"Refund gen_imagen: {motivo}"[:120],
+            razon=f"Refund {scope}: {motivo}"[:120],
         )
-        logger.info(f"[HANDLER gen_imagen] refund {creditos} cr → {telefono} (saldo={saldo})")
+        logger.info(f"[HANDLER {scope}] refund {creditos} cr → {telefono} (saldo={saldo})")
         return saldo
     except Exception as e:
-        logger.exception(f"[HANDLER gen_imagen] Error reembolsando créditos: {e}")
+        logger.exception(f"[HANDLER {scope}] Error reembolsando créditos: {e}")
         return None
 
 
@@ -164,4 +164,144 @@ async def _handler_gen_imagen(telefono: str, params: dict[str, Any]) -> int | No
         )
 
     logger.info(f"[HANDLER gen_imagen] asset_id={asset_id} enviado a {telefono}")
+    return asset_id
+
+
+# ── bg_remove (Photoroom) ───────────────────────────────────────────────────
+
+async def _descargar_url(url: str, timeout_s: float = 30.0) -> tuple[bytes, str]:
+    """
+    Descarga bytes de una URL pública o firmada. Retorna `(bytes, mime_type)`.
+    Lanza Exception si falla.
+    """
+    import httpx
+    async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True) as client:
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            raise RuntimeError(f"GET {url[:120]} → {resp.status_code}")
+        mime = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+        return resp.content, mime or "image/jpeg"
+
+
+@registrar_handler("bg_remove")
+async def _handler_bg_remove(telefono: str, params: dict[str, Any]) -> int | None:
+    """
+    Handler de eliminación de fondo.
+
+    params:
+      - source_url (str): URL pública/firmada de la imagen original
+      - source_mime (str)
+      - source_asset_id (int | None)
+      - costo_creditos (int)
+    """
+    from agent.creativos.bg_remove import remove_background, PhotoroomError
+    from agent import storage
+
+    source_url = (params.get("source_url") or "").strip()
+    source_mime = params.get("source_mime") or "image/jpeg"
+    costo_creditos = int(params.get("costo_creditos", 0))
+
+    if not source_url:
+        raise ValueError("bg_remove: source_url vacío")
+
+    proveedor = _proveedor_whatsapp()
+
+    # 1) Descargar la imagen fuente
+    try:
+        src_bytes, src_mime_real = await _descargar_url(source_url)
+    except Exception as e:
+        logger.exception(f"[HANDLER bg_remove] Error descargando source: {e}")
+        await _reembolsar(telefono, costo_creditos, "no pude descargar tu imagen", scope="bg_remove")
+        try:
+            nota = f"Te devolví el *{costo_creditos}* crédito. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ No pude descargar tu imagen para procesarla. "
+                f"{nota}Intenta enviarla de nuevo.",
+            )
+        except Exception:
+            pass
+        raise
+
+    mime_efectivo = src_mime_real or source_mime
+
+    # 2) Procesar con Photoroom
+    try:
+        out_bytes, meta = await remove_background(src_bytes, mime_type=mime_efectivo)
+    except PhotoroomError as e:
+        logger.error(f"[HANDLER bg_remove] Photoroom error: {e}")
+        await _reembolsar(telefono, costo_creditos, "provider falló", scope="bg_remove")
+        try:
+            nota = f"Te devolví el *{costo_creditos}* crédito. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ No pude quitar el fondo (el servicio rechazó la imagen o hubo un error temporal). "
+                f"{nota}Prueba con otra imagen o escribe *dona soporte* si crees que es un bug.",
+            )
+        except Exception:
+            pass
+        raise
+
+    # 3) Subir el resultado
+    try:
+        guardado = await storage.subir_asset(
+            telefono=telefono,
+            tipo="image",
+            contenido=out_bytes,
+            mime_type=meta.get("mime_type", "image/png"),
+            nombre_sugerido="sin_fondo.png",
+        )
+    except Exception as e:
+        logger.exception(f"[HANDLER bg_remove] Error subiendo resultado: {e}")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="bg_remove")
+        try:
+            nota = f"Te devolví el *{costo_creditos}* crédito. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ Procesé la imagen pero no pude guardarla. "
+                f"{nota}Intenta de nuevo en un momento.",
+            )
+        except Exception:
+            pass
+        raise
+
+    # 4) Registrar
+    asset_id = await storage.registrar_asset(
+        telefono=telefono,
+        tipo="image",
+        guardado=guardado,
+        prompt="bg_remove",
+        modelo=meta.get("modelo", "photoroom"),
+        costo_creditos=costo_creditos,
+        meta={
+            "operacion": "bg_remove",
+            "source_asset_id": params.get("source_asset_id"),
+            "placeholder": meta.get("placeholder", False),
+        },
+    )
+
+    # 5) Enviar por WhatsApp
+    caption = "✂️ Sin fondo"
+    ok = False
+    if guardado.backend == "r2" and guardado.url_publica.startswith("http"):
+        ok = await proveedor.enviar_imagen(
+            telefono,
+            url=guardado.url_publica,
+            caption=caption,
+            mime_type=guardado.mime_type,
+        )
+    if not ok:
+        ok = await proveedor.enviar_imagen(
+            telefono,
+            imagen_bytes=out_bytes,
+            caption=caption,
+            mime_type=guardado.mime_type,
+        )
+    if not ok:
+        await proveedor.enviar_mensaje(
+            telefono,
+            f"✅ Imagen lista (sin fondo):\n{guardado.url_publica}",
+        )
+
+    logger.info(f"[HANDLER bg_remove] asset_id={asset_id} enviado a {telefono}")
     return asset_id

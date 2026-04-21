@@ -813,6 +813,39 @@ async def procesar_webhook(request: Request):
                 _es_audio = True
                 logger.info(f"Nota de voz transcrita: \"{texto_transcrito}\"")
 
+            # ── Imagen + caption "quita el fondo" → preparar bg_remove ──
+            # Se evalúa ANTES de Vision: si el caption es un comando creativo
+            # (quitar fondo) no tiene sentido gastar Claude Vision describiendo.
+            if msg.image_id and msg.image_caption:
+                try:
+                    from agent.creativos.comandos import (
+                        es_comando_bg_remove, texto_bg_remove_preview,
+                    )
+                    if es_comando_bg_remove(msg.image_caption):
+                        from agent.vision import descargar_imagen_meta
+                        from agent.creativos.bg_remove import preparar_bg_remove_desde_bytes
+
+                        img_bytes, img_mime = await descargar_imagen_meta(msg.image_id)
+                        if not img_bytes:
+                            await proveedor.enviar_mensaje(
+                                msg.telefono,
+                                "No pude descargar tu imagen 😅 ¿Puedes reenviarla?",
+                            )
+                            continue
+                        preview = await preparar_bg_remove_desde_bytes(
+                            msg.telefono, img_bytes, img_mime or "image/jpeg",
+                        )
+                        await proveedor.enviar_mensaje(
+                            msg.telefono, texto_bg_remove_preview(preview),
+                        )
+                        logger.info(
+                            f"[CMD] preparar_bg_remove (desde caption) → {msg.telefono} "
+                            f"costo={preview['costo_creditos']}"
+                        )
+                        continue
+                except Exception as _e_bg:
+                    logger.error(f"[CMD] Error en bg_remove desde caption: {_e_bg}")
+
             # Si es una imagen, procesarla con visión
             _es_imagen = False
             if msg.image_id and not msg.texto:
@@ -1156,12 +1189,33 @@ async def procesar_webhook(request: Request):
                     es_comando_imagen, parsear_imagen,
                     es_comando_confirmar, es_comando_cancelar,
                     es_solicitud_imagen_sin_sujeto,
+                    es_comando_bg_remove_ultima,
                     texto_preview, texto_encolada, texto_sin_pendiente, texto_cancelada,
                     texto_pedir_sujeto,
+                    texto_bg_remove_preview, texto_bg_remove_encolada,
+                    texto_bg_remove_sin_imagen, texto_bg_remove_no_servible,
                 )
                 from agent.creativos.imagen import (
                     preparar_imagen, confirmar_imagen, cancelar_imagen, obtener_pendiente,
                 )
+                from agent.creativos.bg_remove import (
+                    preparar_bg_remove_desde_ultimo_asset,
+                    confirmar_bg_remove, cancelar_bg_remove,
+                    obtener_pendiente as obtener_pendiente_bg,
+                )
+
+                # bg_remove sobre última imagen — chequear ANTES de es_comando_imagen
+                # (la regex de imagen es permisiva y podría engullir este intent).
+                if es_comando_bg_remove_ultima(msg.texto):
+                    res = await preparar_bg_remove_desde_ultimo_asset(msg.telefono)
+                    if res.get("estado") == "sin_imagen":
+                        await proveedor.enviar_mensaje(msg.telefono, texto_bg_remove_sin_imagen())
+                    elif res.get("estado") == "source_no_servible":
+                        await proveedor.enviar_mensaje(msg.telefono, texto_bg_remove_no_servible())
+                    else:
+                        await proveedor.enviar_mensaje(msg.telefono, texto_bg_remove_preview(res))
+                    logger.info(f"[CMD] preparar_bg_remove (desde última) → {msg.telefono} estado={res.get('estado','ok')}")
+                    continue
 
                 if es_comando_imagen(msg.texto):
                     datos = parsear_imagen(msg.texto)
@@ -1186,6 +1240,27 @@ async def procesar_webhook(request: Request):
                 # que el mensaje caiga al flujo normal (LLM) para no consumir 'sí'
                 # que el usuario estaba diciendo a otra cosa.
                 _pend = obtener_pendiente(msg.telefono)
+                _pend_bg = obtener_pendiente_bg(msg.telefono)
+
+                # Pendiente de bg_remove tiene precedencia si existe — flujo más corto.
+                if _pend_bg and es_comando_confirmar(msg.texto):
+                    resultado = await confirmar_bg_remove(msg.telefono)
+                    if resultado["estado"] == "ok":
+                        await proveedor.enviar_mensaje(
+                            msg.telefono, texto_bg_remove_encolada(resultado["job_id"]),
+                        )
+                    elif resultado["estado"] == "saldo_insuficiente":
+                        await proveedor.enviar_mensaje(msg.telefono, resultado["mensaje"])
+                    else:
+                        await proveedor.enviar_mensaje(msg.telefono, texto_sin_pendiente())
+                    logger.info(f"[CMD] confirmar_bg_remove → {msg.telefono} estado={resultado['estado']}")
+                    continue
+                if _pend_bg and es_comando_cancelar(msg.texto):
+                    cancelar_bg_remove(msg.telefono)
+                    await proveedor.enviar_mensaje(msg.telefono, texto_cancelada())
+                    logger.info(f"[CMD] cancelar_bg_remove → {msg.telefono}")
+                    continue
+
                 if _pend and es_comando_confirmar(msg.texto):
                     resultado = await confirmar_imagen(msg.telefono)
                     if resultado["estado"] == "ok":

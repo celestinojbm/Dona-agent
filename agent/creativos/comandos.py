@@ -117,6 +117,69 @@ _CONFIRMAR = {"confirmar", "si", "sí", "dale", "ok", "confirmo", "dona confirma
 _CANCELAR  = {"cancelar", "no", "dona cancelar", "dona no"}
 
 
+# ── Quitar fondo (Photoroom) ────────────────────────────────────────────────
+# Dos entradas:
+#   1) Imagen adjunta con caption → `es_comando_bg_remove(caption)`
+#   2) Texto suelto pidiendo hacerlo sobre la última imagen del usuario →
+#      `es_comando_bg_remove_ultima(texto)`
+
+# Frases como "quita el fondo", "quitame el fondo", "remueve el fondo",
+# "saca el fondo", "sin fondo", "fondo transparente", "remove background",
+# "bg remove". Case-insensitive, toleran signos y espacios.
+_RE_BG_REMOVE_BASE = re.compile(
+    r"(?:"
+    r"qu[ií]t(?:a|ame|a\s*me|alo|ar)\s+(?:el\s+)?fondo"
+    r"|elim[ií]na(?:me|r|lo)?\s+(?:el\s+)?fondo"
+    r"|b[oó]rra(?:me|r|lo)?\s+(?:el\s+)?fondo"
+    r"|rem[uú]e?ve(?:me|lo|r)?\s+(?:el\s+)?fondo"
+    r"|remover\s+(?:el\s+)?fondo"
+    r"|s[aá]ca(?:me|lo|r)?\s+(?:el\s+)?fondo"
+    r"|(?:deja(?:lo|la|me)?|d[eé]jalo)\s+sin\s+fondo"
+    r"|sin\s+fondo"
+    r"|fondo\s+transparente"
+    r"|(?:remove|delete|erase)\s+background"
+    r"|(?:^|\W)bg\s*remove(?:\W|$)"
+    r"|no\s+fondo"
+    r")",
+    re.IGNORECASE,
+)
+
+# Variante "a la última / esta / esa imagen" para texto suelto.
+_RE_BG_REMOVE_ULTIMA_HINT = re.compile(
+    r"(?:"
+    r"(?:a\s+)?(?:la|mi|esa|esta|la\s+última|la\s+ultima|lo|esto)\s+"
+    r"(?:im[aá]gen|foto|dibujo|ilustraci[oó]n|imagen)"
+    r"|(?:de|a|sobre)\s+(?:la|mi|esa|esta)\s+"
+    r"(?:im[aá]gen|foto)"
+    r"|(?:\b|_)(?:imagen|foto|dibujo)\s+(?:anterior|de\s+arriba|previa)"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def es_comando_bg_remove(caption: str) -> bool:
+    """
+    True si el caption de una imagen adjunta pide quitar el fondo.
+    Se llama SOLO cuando llega una imagen con caption.
+    """
+    if not caption:
+        return False
+    return bool(_RE_BG_REMOVE_BASE.search(caption))
+
+
+def es_comando_bg_remove_ultima(texto: str) -> bool:
+    """
+    True si el texto suelto (sin imagen adjunta) pide quitar el fondo a una
+    imagen previa. Requiere ambos: frase de 'quitar fondo' Y referencia a
+    imagen ('la imagen', 'la última', etc.).
+    """
+    if not texto:
+        return False
+    if not _RE_BG_REMOVE_BASE.search(texto):
+        return False
+    return bool(_RE_BG_REMOVE_ULTIMA_HINT.search(texto))
+
+
 def _match_imagen(texto: str):
     """Devuelve (regex, cuerpo) del primer patrón que acepte el texto, o (None, '')."""
     for pat in _PATRONES_IMAGEN:
@@ -253,3 +316,52 @@ def texto_pedir_sujeto() -> str:
 
 def texto_cancelada() -> str:
     return "Listo, descarté el pedido. No se cobró nada."
+
+
+# ── Render: bg_remove ───────────────────────────────────────────────────────
+
+def texto_bg_remove_preview(preview: dict) -> str:
+    """Mensaje mostrado al usuario tras `preparar_bg_remove_*`."""
+    costo = preview["costo_creditos"]
+    saldo = preview["saldo_actual"]
+    alcanza = preview["alcanza"]
+    ttl = preview["ttl_min"]
+
+    partes = [
+        "✂️ *Voy a quitar el fondo de la imagen*",
+        "",
+        f"• Costo: *{costo} crédito* (saldo: {saldo})",
+        "",
+    ]
+    if not alcanza:
+        partes.append(
+            f"⚠️ No te alcanzan los créditos ({saldo}/{costo}). "
+            "Escribe *dona recargar* para comprar más."
+        )
+    else:
+        partes.append(
+            f"Responde *confirmar* para procesar, o *cancelar* para descartar. "
+            f"(Expira en {ttl} min)"
+        )
+    return "\n".join(partes)
+
+
+def texto_bg_remove_encolada(job_id: int) -> str:
+    return (
+        f"⏳ *Quitando el fondo...*\n\n"
+        f"Te mando la versión sin fondo en unos segundos. (job #{job_id})"
+    )
+
+
+def texto_bg_remove_sin_imagen() -> str:
+    return (
+        "No encuentro ninguna imagen tuya reciente.\n\n"
+        "Envíame una foto con el mensaje _quita el fondo_ y lo hago al toque."
+    )
+
+
+def texto_bg_remove_no_servible() -> str:
+    return (
+        "Tengo registro de tu imagen pero está en almacenamiento local y "
+        "no puedo procesarla. Vuelve a enviármela con el mensaje _quita el fondo_."
+    )
