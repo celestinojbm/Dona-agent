@@ -13,7 +13,7 @@ import re
 import logging
 import httpx
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 _PEOPLE_API = "https://people.googleapis.com/v1"
 

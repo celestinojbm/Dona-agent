@@ -12,7 +12,7 @@ from sqlalchemy import select
 from agent.memory import async_session
 from agent.business.models import Pedido
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 async def crear_pedido(

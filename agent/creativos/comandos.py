@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 import logging
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 # ── Detectores ──────────────────────────────────────────────────────────────

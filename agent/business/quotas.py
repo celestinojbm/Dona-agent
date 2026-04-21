@@ -14,7 +14,7 @@ from agent.business.models import (
     ClienteNegocio, Producto, Transaccion, Pedido, Cotizacion, Seguimiento,
 )
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # ── Límites del plan gratuito ───────────────────────────────────────────────
 # Se pueden sobrescribir con variables de entorno en el futuro.

@@ -11,7 +11,7 @@ from agent.business.finanzas import resumen_financiero, top_productos_vendidos, 
 from agent.business.pedidos import listar_pedidos
 from agent.business.crm import obtener_seguimientos_pendientes
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 async def generar_reporte_diario(telefono: str) -> str | None:

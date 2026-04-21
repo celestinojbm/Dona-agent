@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 # ── Config ──────────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ para no romper deploys existentes. Loguea un warning en cada arranque.
 import os
 import logging
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 _ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
 _ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()

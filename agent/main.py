@@ -47,7 +47,7 @@ from agent.scheduler import iniciar_scheduler, detener_scheduler
 from agent.transcriber import procesar_audio_whapi, procesar_audio_meta
 from agent.memory_summary import actualizar_resumen_si_necesario
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 # Proveedor de WhatsApp (se configura en .env con WHATSAPP_PROVIDER)

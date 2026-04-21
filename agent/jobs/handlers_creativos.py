@@ -21,13 +21,34 @@ from typing import Any
 
 from agent.jobs.worker import registrar_handler
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 def _proveedor_whatsapp():
     """Import diferido — evita ciclo al cargar."""
     from agent.providers import obtener_proveedor
     return obtener_proveedor()
+
+
+async def _reembolsar(telefono: str, creditos: int, motivo: str) -> int | None:
+    """
+    Devuelve los créditos cobrados cuando la generación falla.
+    Retorna el saldo nuevo o None si no se pudo reembolsar.
+    """
+    if creditos <= 0:
+        return None
+    from agent.billing import acreditar
+    try:
+        saldo = await acreditar(
+            telefono,
+            creditos,
+            razon=f"Refund gen_imagen: {motivo}"[:120],
+        )
+        logger.info(f"[HANDLER gen_imagen] refund {creditos} cr → {telefono} (saldo={saldo})")
+        return saldo
+    except Exception as e:
+        logger.exception(f"[HANDLER gen_imagen] Error reembolsando créditos: {e}")
+        return None
 
 
 @registrar_handler("gen_imagen")
@@ -39,8 +60,8 @@ async def _handler_gen_imagen(telefono: str, params: dict[str, Any]) -> int | No
       - prompt (str)
       - calidad (str): "standard" | "premium"
       - aspect_ratio (str): "1:1", "16:9", etc.
-      - costo_creditos (int): ya cobrado por confirmar_imagen, lo guardamos
-        para auditoría en el asset.
+      - costo_creditos (int): ya cobrado por confirmar_imagen. Si la generación
+        o el guardado fallan, se reembolsa acá y se notifica al usuario.
     """
     from agent.creativos.imagen import generar_imagen, GeminiError
     from agent import storage
@@ -60,25 +81,46 @@ async def _handler_gen_imagen(telefono: str, params: dict[str, Any]) -> int | No
         img_bytes, meta = await generar_imagen(prompt, calidad=calidad, aspect_ratio=aspect_ratio)
     except GeminiError as e:
         logger.error(f"[HANDLER gen_imagen] Gemini error: {e}")
-        # Notificar al usuario — el job queda en 'error' desde _ejecutar_con_estado
+        await _reembolsar(telefono, costo_creditos, "provider falló")
         try:
+            nota = (
+                f"Te devolví los *{costo_creditos}* créditos. "
+                if costo_creditos > 0 else ""
+            )
             await proveedor.enviar_mensaje(
                 telefono,
-                "⚠️ No pude generar la imagen (provider rechazó o error temporal). "
-                "Tu saldo ya fue cobrado — escribe *dona soporte* si crees que es un bug.",
+                f"⚠️ No pude generar la imagen (el modelo rechazó el prompt o hubo un error temporal). "
+                f"{nota}Prueba reformulando el prompt o escribe *dona soporte* si crees que es un bug.",
             )
         except Exception:
             pass
         raise
 
     # 2) Subir
-    guardado = await storage.subir_asset(
-        telefono=telefono,
-        tipo="image",
-        contenido=img_bytes,
-        mime_type=meta.get("mime_type", "image/png"),
-        nombre_sugerido="imagen.png",
-    )
+    try:
+        guardado = await storage.subir_asset(
+            telefono=telefono,
+            tipo="image",
+            contenido=img_bytes,
+            mime_type=meta.get("mime_type", "image/png"),
+            nombre_sugerido="imagen.png",
+        )
+    except Exception as e:
+        logger.exception(f"[HANDLER gen_imagen] Error subiendo imagen: {e}")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar")
+        try:
+            nota = (
+                f"Te devolví los *{costo_creditos}* créditos. "
+                if costo_creditos > 0 else ""
+            )
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ Generé la imagen pero no pude guardarla. "
+                f"{nota}Intenta de nuevo en un momento.",
+            )
+        except Exception:
+            pass
+        raise
 
     # 3) Registrar
     asset_id = await storage.registrar_asset(

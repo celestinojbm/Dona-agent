@@ -18,7 +18,7 @@ from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # Cliente de Anthropic
 client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))

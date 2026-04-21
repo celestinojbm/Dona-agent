@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 from fastapi import Request
 from agent.providers.base import ProveedorWhatsApp, MensajeEntrante, BotonRespuesta, OpcionLista
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # Ventana máxima de antigüedad aceptada para mensajes entrantes (replay protection).
 # Mensajes con timestamp más viejo que esto se descartan (defensa en profundidad

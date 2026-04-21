@@ -22,7 +22,7 @@ from typing import Optional
 
 import httpx
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 _TASKS_API = "https://tasks.googleapis.com/tasks/v1"
 

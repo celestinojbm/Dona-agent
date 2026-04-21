@@ -12,7 +12,7 @@ from sqlalchemy import select, or_
 from agent.memory import async_session
 from agent.business.models import ClienteNegocio, Seguimiento
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 async def registrar_cliente(

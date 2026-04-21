@@ -10,7 +10,7 @@ import logging
 import httpx
 import anthropic
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # Prompt del sistema para análisis de imágenes
 _SYSTEM_VISION = """Eres Dona, una asistente personal que analiza imágenes enviadas por el usuario.

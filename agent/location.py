@@ -14,7 +14,7 @@ import logging
 from dotenv import load_dotenv
 
 load_dotenv()
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # Pre-filtro de palabras clave para detectar viajes sin LLM
 _PALABRAS_VIAJE = {

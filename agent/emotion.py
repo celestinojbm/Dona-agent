@@ -24,7 +24,7 @@ from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 _claude = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 

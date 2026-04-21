@@ -18,7 +18,7 @@ innecesarias a la DB hoy).
 
 import logging
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 async def cargar_sesion(telefono: str, dominio: str) -> list[dict]:

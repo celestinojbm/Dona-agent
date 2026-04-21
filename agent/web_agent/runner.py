@@ -24,7 +24,7 @@ from agent.web_agent.base import ContextoTarea, ResultadoTarea
 from agent.web_agent.registro import obtener as obtener_tarea
 from agent.web_agent import session as _session
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 def _playwright_disponible() -> bool:

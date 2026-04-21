@@ -14,7 +14,7 @@ import urllib.parse
 
 import httpx
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 _SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets"
 

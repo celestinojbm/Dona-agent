@@ -17,7 +17,7 @@ from datetime import datetime
 
 from sqlalchemy import select, update, delete, func
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 def cargar_info_negocio() -> dict:

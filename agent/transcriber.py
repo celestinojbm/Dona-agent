@@ -14,7 +14,7 @@ import io
 import logging
 import httpx
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # Clientes inicializados de forma lazy para no crashear si las keys o los
 # paquetes no están disponibles al arrancar el servidor.

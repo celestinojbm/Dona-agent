@@ -19,7 +19,7 @@ import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 MIROFISH_BASE_URL = os.getenv("MIROFISH_BASE_URL", "")
 TIMEOUT_CORTO = 15.0    # Segundos — llamadas rápidas

@@ -21,7 +21,7 @@ from email import encoders
 
 import httpx
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 _GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 

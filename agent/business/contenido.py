@@ -8,7 +8,7 @@ El usuario copia y publica — Dona no publica directamente.
 import logging
 from agent.llm import completar_con_sistema
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # Prompts base por tipo de contenido
 _PROMPTS_CONTENIDO = {

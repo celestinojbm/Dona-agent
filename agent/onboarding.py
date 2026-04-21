@@ -15,7 +15,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # ─── MENSAJES ────────────────────────────────────────────────────────────────
 

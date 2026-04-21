@@ -23,7 +23,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 # ── Detección ──────────────────────────────────────────────────────────────

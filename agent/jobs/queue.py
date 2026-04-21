@@ -24,7 +24,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 def backend_activo() -> str:

@@ -27,7 +27,7 @@ from typing import Any, Awaitable, Callable
 
 from agent.jobs.queue import marcar_running, marcar_done, marcar_error
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 # ── Handler registry ───────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ import httpx
 from fastapi import Request
 from agent.providers.base import ProveedorWhatsApp, MensajeEntrante
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # Tipos de mensaje de audio que WhatsApp puede enviar
 TIPOS_AUDIO = {"audio", "voice", "ptt"}

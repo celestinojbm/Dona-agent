@@ -23,7 +23,7 @@ from sqlalchemy import select, and_
 from agent.memory import async_session
 from agent.business.models import Transaccion, Pedido
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 def _rango_mes_utc(año: int, mes: int) -> tuple[datetime, datetime]:

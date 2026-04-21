@@ -18,7 +18,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 OPENWEATHER_KEY = os.getenv("OPENWEATHER_API_KEY", "")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")

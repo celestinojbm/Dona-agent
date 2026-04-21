@@ -20,7 +20,7 @@ from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 MAX_MENSAJES_DIARIOS = 2   # Límite para no ser molesto
 

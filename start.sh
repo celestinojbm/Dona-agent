@@ -1,15 +1,15 @@
 #!/bin/bash
-# AgentKit — Script de inicio
+# Dona — Script de inicio para dev
 # El usuario ejecuta: bash start.sh
 
 set -e
 
 echo ""
 echo "==========================================================="
-echo "   AgentKit — WhatsApp AI Agent Builder"
+echo "   Dona — Asistente de WhatsApp con IA"
 echo "==========================================================="
 echo ""
-echo "  Preparando tu entorno para construir tu agente de IA..."
+echo "  Preparando tu entorno de desarrollo..."
 echo ""
 
 # ── Verificar Python ──────────────────────────────────────────

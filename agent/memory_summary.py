@@ -23,7 +23,7 @@ import logging
 from dotenv import load_dotenv
 
 load_dotenv()
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # Cuántos mensajes nuevos deben acumularse antes de regenerar el resumen
 MENSAJES_POR_CICLO = 20

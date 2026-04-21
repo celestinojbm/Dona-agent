@@ -22,7 +22,7 @@ Tareas que usan este módulo:
 import os
 import logging
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 _DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 _ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")

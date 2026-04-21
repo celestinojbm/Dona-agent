@@ -21,7 +21,7 @@ from agent.memory import async_session
 from agent.business.models import PerfilNegocio
 from sqlalchemy import select
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # ── Mensajes del flujo ──────────────────────────────────────────────────────
 

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from agent.memory import async_session
 from agent.business.models import Cotizacion
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 async def crear_cotizacion(

@@ -18,7 +18,7 @@ from agent.billing import (
 )
 from agent.storage import listar_assets_usuario
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 # ── Detección ──────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ from typing import Optional
 
 import httpx
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 _DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
 _DRIVE_API = "https://www.googleapis.com/drive/v3/files"

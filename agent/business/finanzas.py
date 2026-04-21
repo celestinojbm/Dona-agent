@@ -13,7 +13,7 @@ from agent.memory import async_session
 from agent.business.models import Transaccion, Producto, PerfilNegocio
 from agent.business.crm import actualizar_compras_cliente
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 # ── Perfil de negocio ────────────────────────────────────────────────────────

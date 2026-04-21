@@ -25,7 +25,7 @@ try:
     from agent.web_agent import tareas as _tareas  # noqa: F401
 except Exception as _e:  # pragma: no cover
     import logging
-    logging.getLogger("agentkit").warning(f"[WEB_AGENT] No se pudieron cargar tareas: {_e}")
+    logging.getLogger("dona").warning(f"[WEB_AGENT] No se pudieron cargar tareas: {_e}")
 
 __all__ = [
     "WebAgentTarea",

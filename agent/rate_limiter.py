@@ -15,7 +15,7 @@ import os
 import logging
 from time import time as _time
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # ── Configuración ────────────────────────────────────────────────────────────
 _RATE_LIMIT_MAX = 10         # máximo por usuario por ventana

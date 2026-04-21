@@ -24,7 +24,7 @@ import hashlib
 import secrets
 import logging
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 
 def _secreto() -> bytes:

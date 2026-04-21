@@ -14,7 +14,7 @@ que el caller caiga al fallback de texto.
 import os
 import logging
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 _openai_client = None  # lazy init
 

@@ -16,7 +16,7 @@ from sqlalchemy import String, Text, DateTime, select, Integer, Boolean, update,
 from dotenv import load_dotenv
 
 load_dotenv()
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # Configuración de base de datos
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./dona.db")

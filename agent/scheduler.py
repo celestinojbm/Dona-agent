@@ -27,7 +27,7 @@ from agent.learning import actualizar_perfiles_todos
 # Si un job tarda más que esto, se cancela para no bloquear el event loop.
 _JOB_TIMEOUT_SEGUNDOS = 30
 
-logger = logging.getLogger("agentkit")
+logger = logging.getLogger("dona")
 
 # Scheduler global — se inicia en el lifespan de FastAPI
 scheduler = AsyncIOScheduler(timezone="UTC")
