@@ -99,10 +99,9 @@ class WorkerSettings:
     max_jobs = int(os.getenv("ARQ_MAX_JOBS", "5"))
     job_timeout = int(os.getenv("ARQ_JOB_TIMEOUT", "600"))  # 10 min
     keep_result = 3600
-
-    @staticmethod
-    def redis_settings():
-        return _redis_settings()
+    # arq espera un atributo RedisSettings, no un método. Se evalúa al
+    # definir la clase — requiere arq instalado (ya está en requirements.txt).
+    redis_settings = _redis_settings()
 
 
 # ── Handler de prueba ──────────────────────────────────────────────────────
