@@ -1190,10 +1190,12 @@ async def procesar_webhook(request: Request):
                     es_comando_confirmar, es_comando_cancelar,
                     es_solicitud_imagen_sin_sujeto,
                     es_comando_bg_remove_ultima,
+                    es_comando_voz, parsear_voz,
                     texto_preview, texto_encolada, texto_sin_pendiente, texto_cancelada,
                     texto_pedir_sujeto,
                     texto_bg_remove_preview, texto_bg_remove_encolada,
                     texto_bg_remove_sin_imagen, texto_bg_remove_no_servible,
+                    texto_voz_preview, texto_voz_encolada,
                 )
                 from agent.creativos.imagen import (
                     preparar_imagen, confirmar_imagen, cancelar_imagen, obtener_pendiente,
@@ -1203,6 +1205,20 @@ async def procesar_webhook(request: Request):
                     confirmar_bg_remove, cancelar_bg_remove,
                     obtener_pendiente as obtener_pendiente_bg,
                 )
+                from agent.creativos.voz import (
+                    preparar_voz, confirmar_voz, cancelar_voz,
+                    obtener_pendiente as obtener_pendiente_voz,
+                )
+
+                # Voz (TTS) — chequear ANTES de es_comando_imagen porque "hazme
+                # un audio de..." podría engancharse en el match de imagen.
+                if es_comando_voz(msg.texto):
+                    datos_voz = parsear_voz(msg.texto)
+                    if datos_voz["texto"]:
+                        preview_voz = await preparar_voz(msg.telefono, datos_voz["texto"])
+                        await proveedor.enviar_mensaje(msg.telefono, texto_voz_preview(preview_voz))
+                        logger.info(f"[CMD] preparar_voz → {msg.telefono} costo={preview_voz['costo_creditos']} chars={preview_voz['chars']}")
+                        continue
 
                 # bg_remove sobre última imagen — chequear ANTES de es_comando_imagen
                 # (la regex de imagen es permisiva y podría engullir este intent).
@@ -1241,6 +1257,24 @@ async def procesar_webhook(request: Request):
                 # que el usuario estaba diciendo a otra cosa.
                 _pend = obtener_pendiente(msg.telefono)
                 _pend_bg = obtener_pendiente_bg(msg.telefono)
+                _pend_voz = obtener_pendiente_voz(msg.telefono)
+
+                # Pendiente de voz tiene precedencia (flujo específico).
+                if _pend_voz and es_comando_confirmar(msg.texto):
+                    resultado = await confirmar_voz(msg.telefono)
+                    if resultado["estado"] == "ok":
+                        await proveedor.enviar_mensaje(msg.telefono, texto_voz_encolada(resultado["job_id"]))
+                    elif resultado["estado"] == "saldo_insuficiente":
+                        await proveedor.enviar_mensaje(msg.telefono, resultado["mensaje"])
+                    else:
+                        await proveedor.enviar_mensaje(msg.telefono, texto_sin_pendiente())
+                    logger.info(f"[CMD] confirmar_voz → {msg.telefono} estado={resultado['estado']}")
+                    continue
+                if _pend_voz and es_comando_cancelar(msg.texto):
+                    cancelar_voz(msg.telefono)
+                    await proveedor.enviar_mensaje(msg.telefono, texto_cancelada())
+                    logger.info(f"[CMD] cancelar_voz → {msg.telefono}")
+                    continue
 
                 # Pendiente de bg_remove tiene precedencia si existe — flujo más corto.
                 if _pend_bg and es_comando_confirmar(msg.texto):

@@ -167,6 +167,87 @@ def es_comando_bg_remove(caption: str) -> bool:
     return bool(_RE_BG_REMOVE_BASE.search(caption))
 
 
+# ── Voz (ElevenLabs) ────────────────────────────────────────────────────────
+# Detecta: "lee esto en voz/audio", "hazme un audio de X", "audio: X",
+# "di: X", "léeme: X", "convierte a audio: X", "pasa a audio ...".
+# El contenido a leer queda en `group(1)`.
+
+# Patrones de voz en orden de especificidad (más específico primero).
+# El primero que matchee gana — evita que "lee esto en voz alta: X" capture
+# "esto en voz alta: X" como contenido cuando debería capturar solo "X".
+_PATRONES_VOZ = (
+    # "lee esto en voz alta/audio: X"
+    re.compile(
+        r"^[\s¿¡]*(?:dona[,\s]+)?"
+        r"(?:l[eé]e|di|dime|cuenta)\s+(?:esto|lo\s+siguiente)\s+"
+        r"(?:en\s+(?:voz|audio)(?:\s+alta)?|como\s+audio|con\s+voz)"
+        r"\s*[:\-]\s*(.+)$",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    # "convierte/pasa/transforma (esto) a/en audio(:) X"
+    re.compile(
+        r"^[\s¿¡]*(?:dona[,\s]+)?"
+        r"(?:convierte|pasa|transforma)\s+(?:esto\s+)?(?:a|en)\s+(?:audio|voz|nota\s+de\s+voz)"
+        r"\s*[:\-]?\s*(.+)$",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    # "hazme/genera/crea (un/una) audio/voz/nota de voz (de|con|que diga|diciendo)(:) X"
+    re.compile(
+        r"^[\s¿¡]*(?:dona[,\s]+)?"
+        r"(?:h[aá]z(?:me)?|haga(?:me)?|genera(?:me)?|gen[eé]ra(?:me)?|cr[eé]a(?:me)?|dame|quiero|necesito|graba(?:me)?)"
+        r"\s+(?:(?:una?|un|el|la|mi)\s+)?"
+        r"(?:audio|nota\s+de\s+voz|voz|locuci[oó]n|mensaje\s+de\s+voz)"
+        r"\s+(?:de|con|que\s+diga|diciendo|para|sobre)"
+        r"\s*[:\-]?\s*(.+)$",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    # "audio/voz/nota de voz: X" — siempre requiere ":"
+    re.compile(
+        r"^[\s¿¡]*(?:dona[,\s]+)?"
+        r"(?:audio|voz|nota\s+de\s+voz|locuci[oó]n)"
+        r"\s*[:\-]\s*(.+)$",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    # "di/dime/dilo/léeme/narra (eso)(:) X" — verbos imperativos de "hablar"
+    # Se pone al final para no capturar "lee esto en voz alta: X" (ya cubierto arriba).
+    re.compile(
+        r"^[\s¿¡]*(?:dona[,\s]+)?"
+        r"(?:d[ií](?:me|lo|la|selo)?|l[eé]e(?:me|lo|la)?|narr(?:a|ame|alo|ala))"
+        r"\s*[:\-]\s*(.+)$",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    # "léeme esta frase X" — verbo + objeto implícito, sin dos puntos
+    re.compile(
+        r"^[\s¿¡]*(?:dona[,\s]+)?"
+        r"l[eé]e(?:me|lo|la)\s+(.+)$",
+        re.IGNORECASE | re.DOTALL,
+    ),
+)
+
+
+def _match_voz(texto: str):
+    for pat in _PATRONES_VOZ:
+        m = pat.match(texto)
+        if m:
+            cuerpo = (m.group(1) or "").strip()
+            if cuerpo:
+                return pat, cuerpo
+    return None, ""
+
+
+def es_comando_voz(texto: str) -> bool:
+    if not texto:
+        return False
+    pat, cuerpo = _match_voz(texto)
+    return pat is not None and bool(cuerpo)
+
+
+def parsear_voz(texto: str) -> dict:
+    """Extrae el `texto` a convertir en voz. Asume `es_comando_voz(texto)==True`."""
+    _, cuerpo = _match_voz(texto or "")
+    return {"texto": cuerpo}
+
+
 def es_comando_bg_remove_ultima(texto: str) -> bool:
     """
     True si el texto suelto (sin imagen adjunta) pide quitar el fondo a una
@@ -357,6 +438,43 @@ def texto_bg_remove_sin_imagen() -> str:
     return (
         "No encuentro ninguna imagen tuya reciente.\n\n"
         "Envíame una foto con el mensaje _quita el fondo_ y lo hago al toque."
+    )
+
+
+def texto_voz_preview(preview: dict) -> str:
+    """Mensaje mostrado tras `preparar_voz`."""
+    costo = preview["costo_creditos"]
+    saldo = preview["saldo_actual"]
+    alcanza = preview["alcanza"]
+    chars = preview["chars"]
+    ttl = preview["ttl_min"]
+    preview_txt = preview["texto"][:150] + ("..." if len(preview["texto"]) > 150 else "")
+
+    partes = [
+        "🎙️ *Voy a grabar esto en voz:*",
+        f"_{preview_txt}_",
+        "",
+        f"• Largo: {chars} caracteres",
+        f"• Costo: *{costo} créditos* (saldo: {saldo})",
+        "",
+    ]
+    if not alcanza:
+        partes.append(
+            f"⚠️ No te alcanzan los créditos ({saldo}/{costo}). "
+            "Escribe *dona recargar* para comprar más."
+        )
+    else:
+        partes.append(
+            f"Responde *confirmar* para grabar, o *cancelar* para descartar. "
+            f"(Expira en {ttl} min)"
+        )
+    return "\n".join(partes)
+
+
+def texto_voz_encolada(job_id: int) -> str:
+    return (
+        f"⏳ *Grabando...*\n\n"
+        f"Te mando la nota de voz en unos segundos. (job #{job_id})"
     )
 
 

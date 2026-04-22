@@ -71,11 +71,24 @@ async def generar_imagen(
     `meta` incluye `modelo`, `mime_type`, `bytes_size` y el aspect_ratio usado.
     Lanza `GeminiError` si no fue posible generar tras reintentos.
 
-    Si `GEMINI_API_KEY` no está configurada, retorna un PNG 1x1 placeholder —
-    esto es para tests/dev; en prod poner la key.
+    Routing por calidad:
+      - "premium" + IDEOGRAM_API_KEY presente → Ideogram v2 Turbo (mejor texto
+        en la imagen, ideal para flyers/promos con precio/logo).
+      - "premium" sin Ideogram → cae a Gemini Pro.
+      - "standard" → Gemini Flash Image.
+
+    Si no hay ninguna key configurada, retorna un PNG 1x1 placeholder (dev/tests).
     """
     if not prompt or not prompt.strip():
         raise ValueError("prompt vacío")
+
+    # Routing: premium → Ideogram si hay key, sino Gemini Pro
+    if calidad == "premium" and os.getenv("IDEOGRAM_API_KEY"):
+        try:
+            return await _generar_ideogram(prompt, aspect_ratio)
+        except GeminiError as e:
+            logger.warning(f"[IMAGEN] Ideogram falló ({e}) — fallback a Gemini Pro")
+            # Cae al flujo Gemini normal abajo
 
     key = api_key if api_key is not None else os.getenv("GEMINI_API_KEY", "")
     modelo = MODELO_PRO if calidad == "premium" else MODELO_FLASH
@@ -141,6 +154,88 @@ async def generar_imagen(
                 await asyncio.sleep(2 ** intento)
 
     raise ultimo_error or GeminiError("fallo desconocido")
+
+
+# ── Ideogram (premium) ──────────────────────────────────────────────────────
+
+IDEOGRAM_ENDPOINT = os.getenv("IDEOGRAM_ENDPOINT", "https://api.ideogram.ai/generate")
+IDEOGRAM_MODEL = os.getenv("IDEOGRAM_MODEL", "V_2_TURBO")
+
+_ASPECT_A_IDEOGRAM = {
+    "1:1":  "ASPECT_1_1",
+    "16:9": "ASPECT_16_9",
+    "9:16": "ASPECT_9_16",
+    "4:3":  "ASPECT_4_3",
+    "3:4":  "ASPECT_3_4",
+}
+
+
+async def _generar_ideogram(prompt: str, aspect_ratio: str) -> tuple[bytes, dict]:
+    """
+    Llama a Ideogram v2 Turbo. Ideogram devuelve una URL; hay que descargarla
+    para retornar bytes como el resto de la API.
+
+    Reutiliza `GeminiError` como error unificado del módulo — el caller no
+    distingue provider.
+    """
+    import httpx
+
+    key = os.getenv("IDEOGRAM_API_KEY", "")
+    if not key:
+        raise GeminiError("IDEOGRAM_API_KEY ausente")
+
+    payload = {
+        "image_request": {
+            "prompt": prompt.strip(),
+            "aspect_ratio": _ASPECT_A_IDEOGRAM.get(aspect_ratio, "ASPECT_1_1"),
+            "model": IDEOGRAM_MODEL,
+            "magic_prompt_option": "AUTO",
+        }
+    }
+    headers = {"Api-Key": key, "Content-Type": "application/json"}
+
+    ultimo_error: Exception | None = None
+    for intento in range(MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_S) as client:
+                resp = await client.post(IDEOGRAM_ENDPOINT, headers=headers, json=payload)
+                if resp.status_code >= 500:
+                    raise GeminiError(f"Ideogram 5xx: {resp.status_code} {resp.text[:200]}")
+                if resp.status_code >= 400:
+                    raise GeminiError(f"Ideogram {resp.status_code}: {resp.text[:200]}")
+
+                data = resp.json()
+                items = data.get("data") or []
+                if not items or not items[0].get("url"):
+                    raise GeminiError(f"Respuesta Ideogram sin URL: {str(data)[:200]}")
+
+                img_url = items[0]["url"]
+                img_resp = await client.get(img_url)
+                if img_resp.status_code != 200:
+                    raise GeminiError(f"Ideogram GET imagen falló: {img_resp.status_code}")
+                img_bytes = img_resp.content
+                mime = img_resp.headers.get("content-type", "image/png").split(";")[0].strip()
+
+            return img_bytes, {
+                "modelo": f"ideogram-{IDEOGRAM_MODEL.lower()}",
+                "mime_type": mime or "image/png",
+                "bytes_size": len(img_bytes),
+                "aspect_ratio": aspect_ratio,
+                "placeholder": False,
+            }
+
+        except GeminiError as e:
+            ultimo_error = e
+            if "4" in str(e)[:14] and "5" not in str(e)[:14]:
+                break
+            if intento < MAX_RETRIES:
+                await asyncio.sleep(2 ** intento)
+        except Exception as e:
+            ultimo_error = GeminiError(f"Ideogram {type(e).__name__}: {e}")
+            if intento < MAX_RETRIES:
+                await asyncio.sleep(2 ** intento)
+
+    raise ultimo_error or GeminiError("Ideogram: fallo desconocido")
 
 
 def _extraer_imagen_inline(data: dict) -> tuple[bytes, str]:

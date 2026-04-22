@@ -305,3 +305,104 @@ async def _handler_bg_remove(telefono: str, params: dict[str, Any]) -> int | Non
 
     logger.info(f"[HANDLER bg_remove] asset_id={asset_id} enviado a {telefono}")
     return asset_id
+
+
+# ── gen_voz (ElevenLabs) ────────────────────────────────────────────────────
+
+@registrar_handler("gen_voz")
+async def _handler_gen_voz(telefono: str, params: dict[str, Any]) -> int | None:
+    """
+    Handler de text-to-speech.
+
+    params:
+      - texto (str)
+      - voice_id (str)
+      - costo_creditos (int)
+    """
+    from agent.creativos.voz import text_to_speech, ElevenLabsError
+    from agent import storage
+
+    texto = (params.get("texto") or "").strip()
+    voice_id = params.get("voice_id")
+    costo_creditos = int(params.get("costo_creditos", 0))
+
+    if not texto:
+        raise ValueError("gen_voz: texto vacío")
+
+    proveedor = _proveedor_whatsapp()
+
+    # 1) Generar audio
+    try:
+        audio_bytes, meta = await text_to_speech(texto, voice_id=voice_id)
+    except ElevenLabsError as e:
+        logger.error(f"[HANDLER gen_voz] ElevenLabs error: {e}")
+        await _reembolsar(telefono, costo_creditos, "provider falló", scope="gen_voz")
+        try:
+            nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ No pude generar la nota de voz (error del servicio). "
+                f"{nota}Intenta de nuevo en un momento.",
+            )
+        except Exception:
+            pass
+        raise
+
+    # 2) Subir
+    try:
+        guardado = await storage.subir_asset(
+            telefono=telefono,
+            tipo="audio",
+            contenido=audio_bytes,
+            mime_type=meta.get("mime_type", "audio/mpeg"),
+            nombre_sugerido="voz.mp3",
+        )
+    except Exception as e:
+        logger.exception(f"[HANDLER gen_voz] Error subiendo audio: {e}")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_voz")
+        try:
+            nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ Generé el audio pero no pude guardarlo. "
+                f"{nota}Intenta de nuevo.",
+            )
+        except Exception:
+            pass
+        raise
+
+    # 3) Registrar
+    asset_id = await storage.registrar_asset(
+        telefono=telefono,
+        tipo="audio",
+        guardado=guardado,
+        prompt=texto[:4000],
+        modelo=meta.get("modelo", ""),
+        costo_creditos=costo_creditos,
+        meta={
+            "voice_id": meta.get("voice_id"),
+            "chars": meta.get("chars"),
+            "placeholder": meta.get("placeholder", False),
+        },
+    )
+
+    # 4) Enviar como nota de voz. Si el proveedor no soporta, fallback a texto+URL.
+    ok = await proveedor.enviar_audio(
+        telefono,
+        audio_bytes=audio_bytes,
+        mime_type=meta.get("mime_type", "audio/mpeg"),
+    )
+    if not ok:
+        if guardado.backend == "r2" and guardado.url_publica.startswith("http"):
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"🎙️ Nota de voz lista:\n{guardado.url_publica}",
+            )
+        else:
+            await proveedor.enviar_mensaje(
+                telefono,
+                "🎙️ Generé el audio pero tu proveedor de WhatsApp no permitió enviarlo.",
+            )
+
+    logger.info(f"[HANDLER gen_voz] asset_id={asset_id} enviado a {telefono}")
+    return asset_id
