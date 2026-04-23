@@ -821,9 +821,16 @@ def texto_video_preview(preview: dict) -> str:
     alcanza = preview["alcanza"]
     ttl = preview["ttl_min"]
     modelo = preview.get("modelo", "").split("/")[-1].split(":")[0]
+    con_referencia = bool(preview.get("image_url"))
+
+    titulo = (
+        "🎬 *Voy a generar un video usando tu imagen como referencia:*"
+        if con_referencia
+        else "🎬 *Voy a generar un video:*"
+    )
 
     partes = [
-        "🎬 *Voy a generar un video:*",
+        titulo,
         f"_{preview['prompt']}_",
         "",
         f"• Modelo: {modelo}",

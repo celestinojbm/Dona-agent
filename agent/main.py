@@ -813,13 +813,16 @@ async def procesar_webhook(request: Request):
                 _es_audio = True
                 logger.info(f"Nota de voz transcrita: \"{texto_transcrito}\"")
 
-            # ── Imagen + caption "quita el fondo" → preparar bg_remove ──
+            # ── Imagen + caption creativo (bg_remove | video) → preparar ──
             # Se evalúa ANTES de Vision: si el caption es un comando creativo
-            # (quitar fondo) no tiene sentido gastar Claude Vision describiendo.
+            # no tiene sentido gastar Claude Vision describiendo la imagen.
+            # Orden: bg_remove es más específico ("quita el fondo"), video
+            # genérico después ("hazme un video de este producto...").
             if msg.image_id and msg.image_caption:
                 try:
                     from agent.creativos.comandos import (
                         es_comando_bg_remove, texto_bg_remove_preview,
+                        es_comando_video, parsear_video, texto_video_preview,
                     )
                     if es_comando_bg_remove(msg.image_caption):
                         from agent.vision import descargar_imagen_meta
@@ -843,8 +846,48 @@ async def procesar_webhook(request: Request):
                             f"costo={preview['costo_creditos']}"
                         )
                         continue
+
+                    if es_comando_video(msg.image_caption):
+                        from agent.vision import descargar_imagen_meta
+                        from agent.creativos.video import preparar_video_desde_bytes
+
+                        datos_v = parsear_video(msg.image_caption)
+                        prompt_v = (datos_v.get("prompt") or "").strip()
+                        if not prompt_v:
+                            # Caption tipo "haz un video" sin más — usamos un
+                            # prompt genérico que le dice al modelo que
+                            # mantenga el sujeto de la imagen en movimiento.
+                            prompt_v = "Anima esta imagen en escenas naturales y cinematográficas"
+
+                        img_bytes, img_mime = await descargar_imagen_meta(msg.image_id)
+                        if not img_bytes:
+                            await proveedor.enviar_mensaje(
+                                msg.telefono,
+                                "No pude descargar tu imagen 😅 ¿Puedes reenviarla?",
+                            )
+                            continue
+
+                        res = await preparar_video_desde_bytes(
+                            msg.telefono, prompt_v, img_bytes, img_mime or "image/jpeg",
+                        )
+                        if res.get("estado") == "source_no_servible":
+                            await proveedor.enviar_mensaje(
+                                msg.telefono,
+                                "Guardé tu imagen pero está en almacenamiento local y "
+                                "no puedo usarla como referencia externa. Configura R2 "
+                                "o reenvíala y vuelve a intentar.",
+                            )
+                            continue
+                        await proveedor.enviar_mensaje(
+                            msg.telefono, texto_video_preview(res),
+                        )
+                        logger.info(
+                            f"[CMD] preparar_video (desde caption con imagen) → "
+                            f"{msg.telefono} costo={res['costo_creditos']}"
+                        )
+                        continue
                 except Exception as _e_bg:
-                    logger.error(f"[CMD] Error en bg_remove desde caption: {_e_bg}")
+                    logger.error(f"[CMD] Error en comando creativo desde caption: {_e_bg}")
 
             # Si es una imagen, procesarla con visión
             _es_imagen = False

@@ -310,6 +310,58 @@ async def preparar_video(
     }
 
 
+async def preparar_video_desde_bytes(
+    telefono: str,
+    prompt: str,
+    source_bytes: bytes,
+    source_mime: str = "image/jpeg",
+) -> dict:
+    """
+    Variante de `preparar_video` para image-to-video: sube la imagen fuente a
+    storage (R2 o fs), la registra como asset del usuario y delega en
+    `preparar_video` pasando la URL pública como `image_url`.
+
+    Se usa cuando el usuario adjunta una foto en WhatsApp con caption tipo
+    "hazme un video de este producto en la playa". Replicate (seedance) usa
+    la imagen como frame de referencia.
+
+    Si el storage devuelve una URL local (file://, fs://), Replicate no va a
+    poder fetchearla — en ese caso retornamos estado "source_no_servible".
+    """
+    from agent import storage
+
+    if not source_bytes:
+        raise ValueError("source_bytes vacío")
+
+    guardado, asset_id = await storage.subir_y_registrar(
+        telefono=telefono,
+        tipo="image_source",
+        contenido=source_bytes,
+        mime_type=source_mime or "image/jpeg",
+        nombre_sugerido="video_ref.jpg",
+        prompt="(referencia para video)",
+        modelo="whatsapp-upload",
+        meta={"fuente": "whatsapp_inbound", "uso": "video_reference"},
+    )
+
+    url = guardado.url_publica
+    if url.startswith("file://") or url.startswith("fs://"):
+        logger.warning(
+            f"[VIDEO] source_no_servible → {telefono} url={url[:80]} "
+            "(Replicate necesita URL https)"
+        )
+        return {"estado": "source_no_servible"}
+
+    preview = await preparar_video(telefono, prompt, image_url=url)
+    preview["estado"] = "ok"
+    preview["source_asset_id"] = asset_id
+    logger.info(
+        f"[VIDEO] preparar desde bytes → {telefono} asset_id={asset_id} "
+        f"backend={guardado.backend}"
+    )
+    return preview
+
+
 async def confirmar_video(telefono: str) -> dict:
     """Cobra y encola job `gen_video`."""
     pendiente = obtener_pendiente(telefono)
