@@ -107,6 +107,46 @@ class ProveedorWhapi(ProveedorWhatsApp):
             logger.error(f"Excepción al enviar mensaje Whapi ({type(e).__name__}): {e}")
             return False
 
+    async def enviar_documento(
+        self, telefono: str, archivo_bytes: bytes, filename: str,
+        mime_type: str = "application/pdf", caption: str = "",
+    ) -> bool:
+        """
+        Envía un documento (PDF, CSV, etc.) via Whapi.cloud.
+        Usa base64 data-URL en el campo `media`.
+        """
+        if not self.token:
+            logger.warning("WHAPI_TOKEN no configurado — documento no enviado")
+            return False
+        if not archivo_bytes:
+            return False
+        endpoint = "https://gate.whapi.cloud/messages/document"
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+        }
+        import base64
+        b64 = base64.b64encode(archivo_bytes).decode("ascii")
+        payload: dict = {
+            "to": telefono,
+            "media": f"data:{mime_type};base64,{b64}",
+            "filename": filename,
+        }
+        if caption:
+            payload["caption"] = caption[:1024]
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.post(endpoint, json=payload, headers=headers)
+                if r.status_code != 200:
+                    logger.error(f"Error Whapi documento {r.status_code}: {r.text[:200]}")
+                    return False
+                logger.info(f"Documento enviado a {telefono} via Whapi ({filename}, {len(archivo_bytes)}B)")
+                return True
+        except Exception as e:
+            logger.error(f"Excepción enviando documento Whapi ({type(e).__name__}): {e}")
+            return False
+
     async def enviar_imagen(
         self, telefono: str, url: str = "", imagen_bytes: bytes = b"",
         caption: str = "", mime_type: str = "image/png",

@@ -406,3 +406,116 @@ async def _handler_gen_voz(telefono: str, params: dict[str, Any]) -> int | None:
 
     logger.info(f"[HANDLER gen_voz] asset_id={asset_id} enviado a {telefono}")
     return asset_id
+
+
+# ── gen_documento (reportlab PDF) ───────────────────────────────────────────
+
+@registrar_handler("gen_documento")
+async def _handler_gen_documento(telefono: str, params: dict[str, Any]) -> int | None:
+    """
+    Handler de generación de documentos PDF (factura/presupuesto/recibo).
+
+    params:
+      - tipo (str): "factura" | "presupuesto" | "recibo"
+      - datos (dict): {cliente, items, ...} ya normalizados
+      - emisor (dict): {nombre_negocio, moneda, ...}
+      - costo_creditos (int)
+    """
+    from agent.creativos.pdf import generar_pdf, PDFError
+    from agent import storage
+
+    tipo = (params.get("tipo") or "factura").lower()
+    datos = params.get("datos") or {}
+    emisor = params.get("emisor") or {}
+    costo_creditos = int(params.get("costo_creditos", 0))
+
+    proveedor = _proveedor_whatsapp()
+
+    # 1) Generar PDF
+    try:
+        pdf_bytes, meta = await generar_pdf(tipo, datos, emisor=emisor)
+    except PDFError as e:
+        logger.error(f"[HANDLER gen_documento] PDF error: {e}")
+        await _reembolsar(telefono, costo_creditos, str(e)[:80], scope="gen_documento")
+        try:
+            nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ No pude generar el documento (faltan datos o hubo un error). "
+                f"{nota}Intenta con un pedido más claro (cliente, ítems y montos).",
+            )
+        except Exception:
+            pass
+        raise
+
+    folio = meta.get("folio", "documento")
+    filename = f"{tipo}_{folio}.pdf"
+
+    # 2) Subir
+    try:
+        guardado = await storage.subir_asset(
+            telefono=telefono,
+            tipo="document",
+            contenido=pdf_bytes,
+            mime_type="application/pdf",
+            nombre_sugerido=filename,
+        )
+    except Exception as e:
+        logger.exception(f"[HANDLER gen_documento] Error subiendo PDF: {e}")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_documento")
+        try:
+            nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ Generé el PDF pero no pude guardarlo. {nota}Intenta de nuevo.",
+            )
+        except Exception:
+            pass
+        raise
+
+    # 3) Registrar
+    cliente = (datos.get("cliente") or {}).get("nombre", "")
+    asset_id = await storage.registrar_asset(
+        telefono=telefono,
+        tipo="document",
+        guardado=guardado,
+        prompt=f"{tipo} para {cliente}"[:200],
+        modelo=meta.get("modelo", "reportlab"),
+        costo_creditos=costo_creditos,
+        meta={
+            "operacion": "gen_documento",
+            "tipo_doc": tipo,
+            "folio": folio,
+            "total": meta.get("total"),
+            "moneda": meta.get("moneda"),
+            "placeholder": meta.get("placeholder", False),
+        },
+    )
+
+    # 4) Enviar por WhatsApp
+    total_str = f"${meta.get('total', 0):,.2f} {meta.get('moneda', 'USD')}"
+    caption = f"{tipo.capitalize()} #{folio} — {total_str}"
+
+    ok = await proveedor.enviar_documento(
+        telefono,
+        archivo_bytes=pdf_bytes,
+        filename=filename,
+        mime_type="application/pdf",
+        caption=caption,
+    )
+    if not ok:
+        # Fallback: si el proveedor no soporta, mandar link o mensaje
+        if guardado.backend == "r2" and guardado.url_publica.startswith("http"):
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"📄 *{tipo.capitalize()} lista #{folio}*\n{total_str}\n\n{guardado.url_publica}",
+            )
+        else:
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"📄 Generé el {tipo} #{folio} ({total_str}) pero tu proveedor de "
+                f"WhatsApp no permitió enviarlo como adjunto. Revisa en /admin/jobs.",
+            )
+
+    logger.info(f"[HANDLER gen_documento] asset_id={asset_id} folio={folio} enviado a {telefono}")
+    return asset_id

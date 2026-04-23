@@ -1191,7 +1191,9 @@ async def procesar_webhook(request: Request):
                     es_solicitud_imagen_sin_sujeto,
                     es_comando_bg_remove_ultima,
                     es_comando_voz, parsear_voz,
+                    es_comando_documento, parsear_documento,
                     texto_preview, texto_encolada, texto_sin_pendiente, texto_cancelada,
+                    texto_documento_preview, texto_documento_encolada,
                     texto_pedir_sujeto,
                     texto_bg_remove_preview, texto_bg_remove_encolada,
                     texto_bg_remove_sin_imagen, texto_bg_remove_no_servible,
@@ -1209,6 +1211,10 @@ async def procesar_webhook(request: Request):
                     preparar_voz, confirmar_voz, cancelar_voz,
                     obtener_pendiente as obtener_pendiente_voz,
                 )
+                from agent.creativos.pdf import (
+                    preparar_documento, confirmar_documento, cancelar_documento,
+                    obtener_pendiente as obtener_pendiente_doc,
+                )
 
                 # Voz (TTS) — chequear ANTES de es_comando_imagen porque "hazme
                 # un audio de..." podría engancharse en el match de imagen.
@@ -1218,6 +1224,32 @@ async def procesar_webhook(request: Request):
                         preview_voz = await preparar_voz(msg.telefono, datos_voz["texto"])
                         await proveedor.enviar_mensaje(msg.telefono, texto_voz_preview(preview_voz))
                         logger.info(f"[CMD] preparar_voz → {msg.telefono} costo={preview_voz['costo_creditos']} chars={preview_voz['chars']}")
+                        continue
+
+                # Documento (factura / presupuesto / recibo) — ANTES de imagen
+                # porque "hazme una factura" podría enganchar en la regex de imagen.
+                if es_comando_documento(msg.texto):
+                    datos_doc = parsear_documento(msg.texto)
+                    if datos_doc["tipo"] and datos_doc["cuerpo"]:
+                        try:
+                            preview_doc = await preparar_documento(
+                                msg.telefono, datos_doc["tipo"], datos_doc["cuerpo"],
+                            )
+                            await proveedor.enviar_mensaje(
+                                msg.telefono, texto_documento_preview(preview_doc),
+                            )
+                            logger.info(
+                                f"[CMD] preparar_documento → {msg.telefono} "
+                                f"tipo={datos_doc['tipo']} items={preview_doc['items_count']} "
+                                f"total={preview_doc['total']}"
+                            )
+                        except Exception as _e_doc:
+                            logger.error(f"[CMD] Error preparando documento: {_e_doc}")
+                            await proveedor.enviar_mensaje(
+                                msg.telefono,
+                                "No pude armar el documento con esos datos. Prueba así:\n"
+                                "_dona factura para Juan Pérez, consultoría SEO $500_",
+                            )
                         continue
 
                 # bg_remove sobre última imagen — chequear ANTES de es_comando_imagen
@@ -1258,6 +1290,27 @@ async def procesar_webhook(request: Request):
                 _pend = obtener_pendiente(msg.telefono)
                 _pend_bg = obtener_pendiente_bg(msg.telefono)
                 _pend_voz = obtener_pendiente_voz(msg.telefono)
+                _pend_doc = obtener_pendiente_doc(msg.telefono)
+
+                # Pendiente de documento tiene precedencia (flujo específico).
+                if _pend_doc and es_comando_confirmar(msg.texto):
+                    resultado = await confirmar_documento(msg.telefono)
+                    if resultado["estado"] == "ok":
+                        await proveedor.enviar_mensaje(
+                            msg.telefono,
+                            texto_documento_encolada(resultado["job_id"], resultado["tipo"]),
+                        )
+                    elif resultado["estado"] == "saldo_insuficiente":
+                        await proveedor.enviar_mensaje(msg.telefono, resultado["mensaje"])
+                    else:
+                        await proveedor.enviar_mensaje(msg.telefono, texto_sin_pendiente())
+                    logger.info(f"[CMD] confirmar_documento → {msg.telefono} estado={resultado['estado']}")
+                    continue
+                if _pend_doc and es_comando_cancelar(msg.texto):
+                    cancelar_documento(msg.telefono)
+                    await proveedor.enviar_mensaje(msg.telefono, texto_cancelada())
+                    logger.info(f"[CMD] cancelar_documento → {msg.telefono}")
+                    continue
 
                 # Pendiente de voz tiene precedencia (flujo específico).
                 if _pend_voz and es_comando_confirmar(msg.texto):

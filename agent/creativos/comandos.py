@@ -167,6 +167,95 @@ def es_comando_bg_remove(caption: str) -> bool:
     return bool(_RE_BG_REMOVE_BASE.search(caption))
 
 
+# ── Documentos (factura / presupuesto / recibo) ─────────────────────────────
+# Detecta pedidos como:
+#   "dona factura para Juan $500 por consultoría"
+#   "hazme un recibo de $200 a María"
+#   "presupuesto para limpiar oficina"
+# Devuelve `(tipo, cuerpo)` donde `tipo` ∈ {factura, presupuesto, recibo}.
+# El cuerpo entero se pasa al LLM para extracción de campos estructurados.
+
+# Mapa: alias del usuario → tipo canónico
+_ALIAS_DOC = {
+    "factura": "factura",
+    "facturas": "factura",
+    "invoice": "factura",
+    "presupuesto": "presupuesto",
+    "presupuestos": "presupuesto",
+    "cotizacion": "presupuesto",
+    "cotización": "presupuesto",
+    "cotizaciones": "presupuesto",
+    "quote": "presupuesto",
+    "recibo": "recibo",
+    "recibos": "recibo",
+    "receipt": "recibo",
+}
+_SUSTANTIVOS_DOC = (
+    r"(?:factura|facturas|invoice|presupuesto|presupuestos|"
+    r"cotizaci[oó]n|cotizaciones|quote|recibo|recibos|receipt)"
+)
+
+# 1) "dona <tipo> <cuerpo>"
+_RE_DOC_DIRECTO = re.compile(
+    r"^[\s¿¡]*dona\s+(" + _SUSTANTIVOS_DOC + r")\b[\s:,-]*(.*)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# 2) Verbo imperativo + (un|una)? + <tipo> + cuerpo
+#    Ej: "hazme una factura para X", "genera un recibo de Y", "crea un presupuesto"
+_RE_DOC_VERBO = re.compile(
+    r"^[\s¿¡]*(?:dona[,\s]+)?"
+    r"(?:h[aá]z(?:me)?|haga(?:me)?|genera(?:me)?|gen[eé]ra(?:me)?|"
+    r"cr[eé]a(?:me)?|dame|p[oó]n(?:me)?|m[aá]nda(?:me)?|"
+    r"quiero|necesito|emite|emitir|escribe|escr[ií]beme|"
+    r"puedes\s+(?:hacer|generar|crear|emitir|dar|mandar|enviar)(?:me)?|"
+    r"me\s+puedes\s+(?:hacer|generar|crear|emitir|dar|mandar|enviar)(?:me)?|"
+    r"podr[ií]as\s+(?:hacer|generar|crear|emitir|dar|mandar|enviar)(?:me)?)"
+    r"\s+(?:(?:una?|un|el|la|mi)\s+)?"
+    r"(" + _SUSTANTIVOS_DOC + r")"
+    r"\b[\s:,-]*(.*)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# 3) "<tipo>: cuerpo" o "<tipo> para/de/a cuerpo"
+#    Requiere que tras el sustantivo venga una preposición o ":" — evita
+#    que "factura" suelto matchee (no hay cuerpo suficiente).
+_RE_DOC_SUST = re.compile(
+    r"^[\s¿¡]*(?:dona[,\s]+)?"
+    r"(" + _SUSTANTIVOS_DOC + r")"
+    r"\s*(?:[:\-]|para|de(?:\s+cliente)?|a(?:\s+nombre\s+de)?|por)\s+(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_PATRONES_DOC = (_RE_DOC_DIRECTO, _RE_DOC_VERBO, _RE_DOC_SUST)
+
+
+def _match_documento(texto: str):
+    """Devuelve (tipo, cuerpo) o (None, '')."""
+    for pat in _PATRONES_DOC:
+        m = pat.match(texto)
+        if m:
+            alias = (m.group(1) or "").lower()
+            tipo = _ALIAS_DOC.get(alias) or _ALIAS_DOC.get(alias.replace("ó", "o"))
+            cuerpo = (m.group(2) or "").strip()
+            if tipo and cuerpo:
+                return tipo, cuerpo
+    return None, ""
+
+
+def es_comando_documento(texto: str) -> bool:
+    if not texto:
+        return False
+    tipo, cuerpo = _match_documento(texto)
+    return tipo is not None and bool(cuerpo)
+
+
+def parsear_documento(texto: str) -> dict:
+    """Extrae `tipo` y `cuerpo`. Asume `es_comando_documento(texto)==True`."""
+    tipo, cuerpo = _match_documento(texto or "")
+    return {"tipo": tipo, "cuerpo": cuerpo}
+
+
 # ── Voz (ElevenLabs) ────────────────────────────────────────────────────────
 # Detecta: "lee esto en voz/audio", "hazme un audio de X", "audio: X",
 # "di: X", "léeme: X", "convierte a audio: X", "pasa a audio ...".
@@ -482,4 +571,82 @@ def texto_bg_remove_no_servible() -> str:
     return (
         "Tengo registro de tu imagen pero está en almacenamiento local y "
         "no puedo procesarla. Vuelve a enviármela con el mensaje _quita el fondo_."
+    )
+
+
+# ── Render: documento (factura / presupuesto / recibo) ──────────────────────
+
+_ICONOS_DOC = {"factura": "🧾", "presupuesto": "📄", "recibo": "🧾"}
+
+_TIPO_DISPLAY = {
+    "factura": "factura",
+    "presupuesto": "presupuesto",
+    "recibo": "recibo",
+}
+
+
+def _fmt_moneda(valor: float, moneda: str) -> str:
+    simbolo = {"USD": "$", "MXN": "$", "EUR": "€", "GBP": "£"}.get((moneda or "").upper(), "")
+    try:
+        return f"{simbolo}{float(valor):,.2f}"
+    except (TypeError, ValueError):
+        return f"{simbolo}0.00"
+
+
+def texto_documento_preview(preview: dict) -> str:
+    """Mensaje mostrado tras `preparar_documento`."""
+    tipo = preview.get("tipo", "factura")
+    icono = _ICONOS_DOC.get(tipo, "📄")
+    display = _TIPO_DISPLAY.get(tipo, tipo)
+    costo = preview["costo_creditos"]
+    saldo = preview["saldo_actual"]
+    alcanza = preview["alcanza"]
+    ttl = preview["ttl_min"]
+    moneda = preview.get("moneda", "USD")
+
+    partes = [
+        f"{icono} *Voy a generar {display}:*",
+        f"• Para: _{preview.get('cliente', '(sin cliente)')}_",
+        f"• De: _{preview.get('nombre_negocio', 'Mi Negocio')}_",
+        "",
+    ]
+
+    items = preview.get("items") or []
+    if items:
+        partes.append("*Ítems:*")
+        for it in items[:6]:
+            cant = it.get("cantidad", 1)
+            desc = str(it.get("descripcion", ""))[:60]
+            subtotal = it.get("subtotal", 0)
+            partes.append(f"• {desc} x{cant:g} — {_fmt_moneda(subtotal, moneda)}")
+        if len(items) > 6:
+            partes.append(f"• …y {len(items) - 6} más")
+        partes.append("")
+
+    if preview.get("impuesto"):
+        partes.append(f"• Subtotal: {_fmt_moneda(preview['subtotal'], moneda)}")
+        partes.append(f"• Impuesto: {_fmt_moneda(preview['impuesto'], moneda)}")
+    partes.append(f"• *Total: {_fmt_moneda(preview['total'], moneda)}*")
+    partes.append("")
+    partes.append(f"• Costo: *{costo} créditos* (saldo: {saldo})")
+    partes.append("")
+
+    if not alcanza:
+        partes.append(
+            f"⚠️ No te alcanzan los créditos ({saldo}/{costo}). "
+            "Escribe *dona recargar* para comprar más."
+        )
+    else:
+        partes.append(
+            f"Responde *confirmar* para generar el PDF, o *cancelar* para descartar. "
+            f"(Expira en {ttl} min)"
+        )
+    return "\n".join(partes)
+
+
+def texto_documento_encolada(job_id: int, tipo: str) -> str:
+    display = _TIPO_DISPLAY.get(tipo, tipo)
+    return (
+        f"⏳ *Generando {display}...*\n\n"
+        f"Te mando el PDF en unos segundos. (job #{job_id})"
     )

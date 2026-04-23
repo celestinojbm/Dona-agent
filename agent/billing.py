@@ -80,6 +80,7 @@ COSTO_VIDEO_LARGO = 150        # Veo 3 8s con audio
 COSTO_VIDEO_AVATAR = 80        # HeyGen 1 min
 COSTO_WEB_DEPLOY = 100         # Generación Next.js + deploy Vercel
 COSTO_CAMPAÑA_ADS = 30         # Creación Meta/Google Ads campaign
+COSTO_DOCUMENTO = 3            # Factura / presupuesto / recibo en PDF (LLM + reportlab)
 
 
 # ── Errores ─────────────────────────────────────────────────────────────────
