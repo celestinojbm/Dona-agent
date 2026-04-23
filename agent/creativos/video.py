@@ -272,11 +272,15 @@ async def preparar_video(
 ) -> dict:
     """Guarda el pedido como pendiente y retorna preview. NO cobra, NO genera."""
     from agent.billing import obtener_saldo, COSTO_VIDEO_CORTO
+    from agent.creativos.pendientes import cancelar_otros_pendientes
 
     prompt = (prompt or "").strip()
     if not prompt:
         raise ValueError("prompt vacío")
     prompt = prompt[:MAX_PROMPT_CHARS]
+
+    # Un solo pendiente activo por teléfono — si había otro, lo reemplazamos.
+    reemplazo = cancelar_otros_pendientes(telefono, excepto="video")
 
     costo = COSTO_VIDEO_CORTO
     saldo = await obtener_saldo(telefono)
@@ -297,6 +301,7 @@ async def preparar_video(
         "alcanza": saldo >= costo,
         "ttl_min": PENDIENTE_TTL_MIN,
         "modelo": REPLICATE_VIDEO_MODEL,
+        "reemplazo": reemplazo,
     }
 
 

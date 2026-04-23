@@ -544,7 +544,38 @@ def es_comando_cancelar(texto: str) -> bool:
     return texto.strip().lower() in _CANCELAR
 
 
+# Tokens inequívocos — sólo disparan el aviso "no hay pendiente" cuando el
+# usuario escribe algo claramente dirigido al flujo preparar/confirmar, no
+# un "sí" o "no" conversacional que podría estar respondiendo a otra cosa.
+_CONFIRMAR_INEQUIVOCO = {"confirmar", "confirmo", "dona confirmar"}
+_CANCELAR_INEQUIVOCO = {"cancelar", "dona cancelar"}
+
+
+def es_confirmar_inequivoco(texto: str) -> bool:
+    if not texto:
+        return False
+    return texto.strip().lower() in _CONFIRMAR_INEQUIVOCO
+
+
+def es_cancelar_inequivoco(texto: str) -> bool:
+    if not texto:
+        return False
+    return texto.strip().lower() in _CANCELAR_INEQUIVOCO
+
+
 # ── Render de respuestas ────────────────────────────────────────────────────
+
+def _linea_reemplazo(preview: dict) -> str:
+    """
+    Si `preparar_X` canceló un pedido anterior (otro tipo de creativo), el
+    preview incluye `reemplazo` con su etiqueta legible. Retorna una línea
+    de aviso para prepender, o "" si no había nada que reemplazar.
+    """
+    etiqueta = preview.get("reemplazo")
+    if not etiqueta:
+        return ""
+    return f"🔄 Reemplacé tu pedido anterior ({etiqueta}) por este.\n\n"
+
 
 def texto_preview(preview: dict) -> str:
     """Mensaje mostrado al usuario tras `preparar_imagen`."""
@@ -574,7 +605,7 @@ def texto_preview(preview: dict) -> str:
             f"Responde *confirmar* para generar, o *cancelar* para descartar. "
             f"(Expira en {ttl} min)"
         )
-    return "\n".join(partes)
+    return _linea_reemplazo(preview) + "\n".join(partes)
 
 
 def texto_encolada(job_id: int, prompt: str) -> str:
@@ -604,6 +635,20 @@ def texto_cancelada() -> str:
     return "Listo, descarté el pedido. No se cobró nada."
 
 
+def texto_sin_nada_que_confirmar() -> str:
+    """Respuesta cuando el usuario dice `confirmar` sin tener nada pendiente."""
+    return (
+        "No tienes nada pendiente por confirmar.\n"
+        "Cuando me pidas una imagen, video, nota de voz o documento te mostraré "
+        "un preview y podrás responder *confirmar* para generarlo."
+    )
+
+
+def texto_sin_nada_que_cancelar() -> str:
+    """Respuesta cuando el usuario dice `cancelar` sin tener nada pendiente."""
+    return "No tienes nada pendiente por cancelar."
+
+
 # ── Render: bg_remove ───────────────────────────────────────────────────────
 
 def texto_bg_remove_preview(preview: dict) -> str:
@@ -629,7 +674,7 @@ def texto_bg_remove_preview(preview: dict) -> str:
             f"Responde *confirmar* para procesar, o *cancelar* para descartar. "
             f"(Expira en {ttl} min)"
         )
-    return "\n".join(partes)
+    return _linea_reemplazo(preview) + "\n".join(partes)
 
 
 def texto_bg_remove_encolada(job_id: int) -> str:
@@ -673,7 +718,7 @@ def texto_voz_preview(preview: dict) -> str:
             f"Responde *confirmar* para grabar, o *cancelar* para descartar. "
             f"(Expira en {ttl} min)"
         )
-    return "\n".join(partes)
+    return _linea_reemplazo(preview) + "\n".join(partes)
 
 
 def texto_voz_encolada(job_id: int) -> str:
@@ -757,7 +802,7 @@ def texto_documento_preview(preview: dict) -> str:
             f"Responde *confirmar* para generar el PDF, o *cancelar* para descartar. "
             f"(Expira en {ttl} min)"
         )
-    return "\n".join(partes)
+    return _linea_reemplazo(preview) + "\n".join(partes)
 
 
 def texto_documento_encolada(job_id: int, tipo: str) -> str:
@@ -796,7 +841,7 @@ def texto_video_preview(preview: dict) -> str:
             f"Responde *confirmar* para generar, o *cancelar* para descartar. "
             f"(Expira en {ttl} min)"
         )
-    return "\n".join(partes)
+    return _linea_reemplazo(preview) + "\n".join(partes)
 
 
 def texto_video_encolada(job_id: int) -> str:
@@ -840,7 +885,7 @@ def texto_video_avatar_preview(preview: dict) -> str:
             f"Responde *confirmar* para grabar, o *cancelar* para descartar. "
             f"(Expira en {ttl} min)"
         )
-    return "\n".join(partes)
+    return _linea_reemplazo(preview) + "\n".join(partes)
 
 
 def texto_video_avatar_encolada(job_id: int) -> str:

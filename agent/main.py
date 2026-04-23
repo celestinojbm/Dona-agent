@@ -1202,6 +1202,8 @@ async def procesar_webhook(request: Request):
                     texto_bg_remove_preview, texto_bg_remove_encolada,
                     texto_bg_remove_sin_imagen, texto_bg_remove_no_servible,
                     texto_voz_preview, texto_voz_encolada,
+                    es_confirmar_inequivoco, es_cancelar_inequivoco,
+                    texto_sin_nada_que_confirmar, texto_sin_nada_que_cancelar,
                 )
                 from agent.creativos.imagen import (
                     preparar_imagen, confirmar_imagen, cancelar_imagen, obtener_pendiente,
@@ -1467,6 +1469,22 @@ async def procesar_webhook(request: Request):
                     cancelar_imagen(msg.telefono)
                     await proveedor.enviar_mensaje(msg.telefono, texto_cancelada())
                     logger.info(f"[CMD] cancelar_imagen → {msg.telefono}")
+                    continue
+
+                # Si el usuario escribe EXPLÍCITAMENTE "confirmar" o "cancelar"
+                # (tokens inequívocos, no ambiguos como "sí"/"no") y NO hay
+                # ningún pendiente, le respondemos directamente — evita que el
+                # LLM alucine que había algo que ejecutar.
+                _hay_pendiente = any([
+                    _pend, _pend_bg, _pend_voz, _pend_doc, _pend_video, _pend_video_avatar,
+                ])
+                if not _hay_pendiente and es_confirmar_inequivoco(msg.texto):
+                    await proveedor.enviar_mensaje(msg.telefono, texto_sin_nada_que_confirmar())
+                    logger.info(f"[CMD] confirmar sin pendiente → {msg.telefono}")
+                    continue
+                if not _hay_pendiente and es_cancelar_inequivoco(msg.texto):
+                    await proveedor.enviar_mensaje(msg.telefono, texto_sin_nada_que_cancelar())
+                    logger.info(f"[CMD] cancelar sin pendiente → {msg.telefono}")
                     continue
             except Exception as _e_cr:
                 logger.error(f"[CMD] Error en comando creativo: {_e_cr}")

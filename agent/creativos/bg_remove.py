@@ -177,9 +177,13 @@ async def preparar_bg_remove_desde_bytes(
     """
     from agent.billing import COSTO_BG_REMOVE, obtener_saldo
     from agent import storage
+    from agent.creativos.pendientes import cancelar_otros_pendientes
 
     if not source_bytes:
         raise ValueError("source_bytes vacío")
+
+    # Un solo pendiente activo por teléfono — si había otro, lo reemplazamos.
+    reemplazo = cancelar_otros_pendientes(telefono, excepto="bg_remove")
 
     # Subir y registrar el source — así el usuario puede re-usarlo luego
     # ("quita el fondo a la última imagen" funciona incluso después de un
@@ -220,6 +224,7 @@ async def preparar_bg_remove_desde_bytes(
         "saldo_actual": saldo,
         "alcanza": saldo >= costo,
         "ttl_min": PENDIENTE_TTL_MIN,
+        "reemplazo": reemplazo,
     }
 
 
@@ -237,6 +242,7 @@ async def preparar_bg_remove_desde_ultimo_asset(telefono: str) -> dict:
     """
     from agent.billing import COSTO_BG_REMOVE, obtener_saldo
     from agent import storage
+    from agent.creativos.pendientes import cancelar_otros_pendientes
 
     assets = await storage.listar_assets_usuario(telefono, limite=10, tipo=None)
     source = None
@@ -254,6 +260,9 @@ async def preparar_bg_remove_desde_ultimo_asset(telefono: str) -> dict:
         # Imagen en backend local: no la puede consumir Photoroom
         logger.warning(f"[BG_REMOVE] source_no_servible → {telefono} url={url[:80]}")
         return {"estado": "source_no_servible"}
+
+    # Un solo pendiente activo por teléfono — si había otro, lo reemplazamos.
+    reemplazo = cancelar_otros_pendientes(telefono, excepto="bg_remove")
 
     costo = COSTO_BG_REMOVE
     saldo = await obtener_saldo(telefono)
@@ -280,6 +289,7 @@ async def preparar_bg_remove_desde_ultimo_asset(telefono: str) -> dict:
         "saldo_actual": saldo,
         "alcanza": saldo >= costo,
         "ttl_min": PENDIENTE_TTL_MIN,
+        "reemplazo": reemplazo,
     }
 
 

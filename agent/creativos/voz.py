@@ -191,11 +191,15 @@ async def preparar_voz(
 ) -> dict:
     """Guarda el texto como pendiente y retorna preview. NO cobra, NO genera."""
     from agent.billing import obtener_saldo
+    from agent.creativos.pendientes import cancelar_otros_pendientes
 
     texto = (texto or "").strip()
     if not texto:
         raise ValueError("texto vacío")
     texto = texto[:MAX_CHARS]
+
+    # Un solo pendiente activo por teléfono — si había otro, lo reemplazamos.
+    reemplazo = cancelar_otros_pendientes(telefono, excepto="voz")
 
     costo = costo_por_largo(texto)
     saldo = await obtener_saldo(telefono)
@@ -217,6 +221,7 @@ async def preparar_voz(
         "saldo_actual": saldo,
         "alcanza": saldo >= costo,
         "ttl_min": PENDIENTE_TTL_MIN,
+        "reemplazo": reemplazo,
     }
 
 

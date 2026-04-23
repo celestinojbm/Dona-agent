@@ -297,6 +297,7 @@ async def preparar_imagen(
     from agent.billing import (
         COSTO_IMAGEN_STANDARD, COSTO_IMAGEN_PREMIUM, obtener_saldo,
     )
+    from agent.creativos.pendientes import cancelar_otros_pendientes
 
     prompt = (prompt or "").strip()
     if not prompt:
@@ -305,6 +306,9 @@ async def preparar_imagen(
         calidad = "standard"
     if aspect_ratio not in ("1:1", "16:9", "9:16", "4:3", "3:4"):
         aspect_ratio = "1:1"
+
+    # Un solo pendiente activo por teléfono — si había otro, lo reemplazamos.
+    reemplazo = cancelar_otros_pendientes(telefono, excepto="imagen")
 
     costo = COSTO_IMAGEN_PREMIUM if calidad == "premium" else COSTO_IMAGEN_STANDARD
     saldo = await obtener_saldo(telefono)
@@ -326,6 +330,7 @@ async def preparar_imagen(
         "saldo_actual": saldo,
         "alcanza": saldo >= costo,
         "ttl_min": PENDIENTE_TTL_MIN,
+        "reemplazo": reemplazo,
     }
 
 

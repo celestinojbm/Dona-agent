@@ -493,6 +493,7 @@ async def preparar_documento(
     NO cobra, NO genera el PDF. Se guarda datos normalizados + emisor.
     """
     from agent.billing import obtener_saldo, COSTO_DOCUMENTO
+    from agent.creativos.pendientes import cancelar_otros_pendientes
 
     tipo = (tipo or "factura").lower()
     if tipo not in TIPOS_VALIDOS:
@@ -501,6 +502,9 @@ async def preparar_documento(
     cuerpo = (cuerpo or "").strip()
     if not cuerpo:
         raise ValueError("cuerpo vacío")
+
+    # Un solo pendiente activo por teléfono — si había otro, lo reemplazamos.
+    reemplazo = cancelar_otros_pendientes(telefono, excepto="documento")
 
     datos = await extraer_datos_documento(tipo, cuerpo)
     emisor = await obtener_emisor(telefono)
@@ -540,6 +544,7 @@ async def preparar_documento(
         "saldo_actual": saldo,
         "alcanza": saldo >= costo,
         "ttl_min": PENDIENTE_TTL_MIN,
+        "reemplazo": reemplazo,
     }
 
 

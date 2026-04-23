@@ -273,6 +273,11 @@ async def preparar_video_avatar(
     aid = avatar_id or HEYGEN_AVATAR_ID
     vid = voice_id or HEYGEN_VOICE_ID
 
+    # Solo puede haber UN pendiente activo por teléfono. Si había otro,
+    # lo cancelamos y reportamos para mostrarlo en el preview.
+    from agent.creativos.pendientes import cancelar_otros_pendientes
+    reemplazo = cancelar_otros_pendientes(telefono, excepto="video_avatar")
+
     pendiente = VideoAvatarPendiente(
         telefono=telefono,
         texto=texto,
@@ -292,6 +297,7 @@ async def preparar_video_avatar(
         "alcanza": saldo >= costo,
         "ttl_min": PENDIENTE_TTL_MIN,
         "sin_configurar": not (aid and vid),
+        "reemplazo": reemplazo,
     }
 
 
