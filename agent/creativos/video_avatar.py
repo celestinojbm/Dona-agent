@@ -34,6 +34,9 @@ HEYGEN_API_BASE = os.getenv("HEYGEN_API_BASE", "https://api.heygen.com")
 # (generalmente expirados). Sin configurar, el provider retorna stub.
 HEYGEN_AVATAR_ID = os.getenv("HEYGEN_AVATAR_ID", "")
 HEYGEN_VOICE_ID = os.getenv("HEYGEN_VOICE_ID", "")
+# Locale de la voz (es-MX, es-419, es-AR, etc.). Solo aplica a voces que
+# soportan `support_locale=true`. Vacío → HeyGen usa el acento default de la voz.
+HEYGEN_VOICE_LOCALE = os.getenv("HEYGEN_VOICE_LOCALE", "")
 HEYGEN_BACKGROUND = os.getenv("HEYGEN_BACKGROUND", "#F5F5F5")
 HEYGEN_DIMENSION_W = int(os.getenv("HEYGEN_DIMENSION_W", "720"))
 HEYGEN_DIMENSION_H = int(os.getenv("HEYGEN_DIMENSION_H", "1280"))
@@ -68,7 +71,14 @@ def _headers(api_key: str) -> dict:
     }
 
 
-def _payload(texto: str, avatar_id: str, voice_id: str) -> dict:
+def _payload(texto: str, avatar_id: str, voice_id: str, locale: str = "") -> dict:
+    voice_obj: dict = {
+        "type": "text",
+        "input_text": texto[:MAX_SCRIPT_CHARS],
+        "voice_id": voice_id,
+    }
+    if locale:
+        voice_obj["locale"] = locale
     return {
         "video_inputs": [
             {
@@ -77,11 +87,7 @@ def _payload(texto: str, avatar_id: str, voice_id: str) -> dict:
                     "avatar_id": avatar_id,
                     "avatar_style": "normal",
                 },
-                "voice": {
-                    "type": "text",
-                    "input_text": texto[:MAX_SCRIPT_CHARS],
-                    "voice_id": voice_id,
-                },
+                "voice": voice_obj,
                 "background": {
                     "type": "color",
                     "value": HEYGEN_BACKGROUND,
@@ -146,11 +152,13 @@ async def generar_video_avatar(
     texto: str,
     avatar_id: str = "",
     voice_id: str = "",
+    locale: str = "",
     api_key: str | None = None,
 ) -> tuple[bytes, dict]:
     """
     Genera un video con avatar AI leyendo `texto`. Retorna `(mp4_bytes, meta)`.
     Sin key o sin avatar/voice ID configurados → MP4 stub.
+    `locale` opcional (ej: "es-MX") fuerza acento en voces que lo soportan.
     """
     texto = (texto or "").strip()
     if not texto:
@@ -160,6 +168,7 @@ async def generar_video_avatar(
     key = api_key if api_key is not None else os.getenv("HEYGEN_API_KEY", "")
     aid = avatar_id or HEYGEN_AVATAR_ID
     vid = voice_id or HEYGEN_VOICE_ID
+    loc = locale or HEYGEN_VOICE_LOCALE
 
     if not key or not aid or not vid:
         logger.warning(
@@ -173,11 +182,12 @@ async def generar_video_avatar(
             "texto": texto,
             "avatar_id": aid,
             "voice_id": vid,
+            "locale": loc,
         }
 
     import httpx
 
-    payload = _payload(texto, aid, vid)
+    payload = _payload(texto, aid, vid, locale=loc)
 
     async with httpx.AsyncClient(timeout=CREATE_TIMEOUT_S) as client:
         video_id = await _crear(client, key, payload)
@@ -208,6 +218,7 @@ async def generar_video_avatar(
         "texto": texto,
         "avatar_id": aid,
         "voice_id": vid,
+        "locale": loc,
         "video_id": video_id,
         "source_url": url_video,
         "duracion_s": final.get("duration"),
