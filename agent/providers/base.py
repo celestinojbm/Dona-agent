@@ -94,6 +94,17 @@ class ProveedorWhatsApp(ABC):
         """
         return False
 
+    async def enviar_video(
+        self, telefono: str, url: str = "", video_bytes: bytes = b"",
+        caption: str = "", mime_type: str = "video/mp4",
+    ) -> bool:
+        """
+        Envía un video. El proveedor decide si usar `url` (pública, preferente
+        — WhatsApp la descarga directamente) o `video_bytes` (fallback, base64
+        o multipart según proveedor). Default: sin soporte → False.
+        """
+        return False
+
     async def validar_webhook(self, request: Request) -> dict | int | None:
         """Verificación GET del webhook (solo Meta la requiere). Retorna respuesta o None."""
         return None

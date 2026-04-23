@@ -519,3 +519,234 @@ async def _handler_gen_documento(telefono: str, params: dict[str, Any]) -> int |
 
     logger.info(f"[HANDLER gen_documento] asset_id={asset_id} folio={folio} enviado a {telefono}")
     return asset_id
+
+
+# ── gen_video (Replicate) ───────────────────────────────────────────────────
+
+@registrar_handler("gen_video")
+async def _handler_gen_video(telefono: str, params: dict[str, Any]) -> int | None:
+    """
+    Handler de generación de video corto (Replicate).
+
+    params:
+      - prompt (str)
+      - image_url (str): opcional, para image-to-video
+      - costo_creditos (int)
+    """
+    from agent.creativos.video import generar_video, ReplicateError
+    from agent import storage
+
+    prompt = (params.get("prompt") or "").strip()
+    image_url = params.get("image_url") or ""
+    costo_creditos = int(params.get("costo_creditos", 0))
+
+    if not prompt:
+        raise ValueError("gen_video: prompt vacío")
+
+    proveedor = _proveedor_whatsapp()
+
+    # 1) Generar
+    try:
+        video_bytes, meta = await generar_video(prompt, image_url=image_url)
+    except ReplicateError as e:
+        logger.error(f"[HANDLER gen_video] Replicate error: {e}")
+        await _reembolsar(telefono, costo_creditos, str(e)[:80], scope="gen_video")
+        try:
+            nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ No pude generar el video (el modelo falló o rechazó el prompt). "
+                f"{nota}Prueba reformulando o escribe *dona soporte* si crees que es un bug.",
+            )
+        except Exception:
+            pass
+        raise
+
+    # 2) Subir
+    try:
+        guardado = await storage.subir_asset(
+            telefono=telefono,
+            tipo="video",
+            contenido=video_bytes,
+            mime_type=meta.get("mime_type", "video/mp4"),
+            nombre_sugerido="video.mp4",
+        )
+    except Exception as e:
+        logger.exception(f"[HANDLER gen_video] Error subiendo video: {e}")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_video")
+        try:
+            nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ Generé el video pero no pude guardarlo. {nota}Intenta de nuevo.",
+            )
+        except Exception:
+            pass
+        raise
+
+    # 3) Registrar
+    asset_id = await storage.registrar_asset(
+        telefono=telefono,
+        tipo="video",
+        guardado=guardado,
+        prompt=prompt[:1000],
+        modelo=meta.get("modelo", ""),
+        costo_creditos=costo_creditos,
+        meta={
+            "operacion": "gen_video",
+            "prediction_id": meta.get("prediction_id"),
+            "predict_time_s": meta.get("predict_time_s"),
+            "placeholder": meta.get("placeholder", False),
+            "image_url": image_url or None,
+        },
+    )
+
+    # 4) Enviar por WhatsApp
+    caption = f"🎬 {prompt[:900]}"
+    ok = False
+    if guardado.backend == "r2" and guardado.url_publica.startswith("http"):
+        ok = await proveedor.enviar_video(
+            telefono,
+            url=guardado.url_publica,
+            caption=caption,
+            mime_type=guardado.mime_type,
+        )
+    if not ok:
+        ok = await proveedor.enviar_video(
+            telefono,
+            video_bytes=video_bytes,
+            caption=caption,
+            mime_type=guardado.mime_type,
+        )
+    if not ok:
+        if guardado.backend == "r2" and guardado.url_publica.startswith("http"):
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"✅ Video listo:\n{guardado.url_publica}\n\n🎬 {prompt[:200]}",
+            )
+        else:
+            await proveedor.enviar_mensaje(
+                telefono,
+                "🎬 Generé el video pero tu proveedor de WhatsApp no permitió enviarlo como adjunto.",
+            )
+
+    logger.info(f"[HANDLER gen_video] asset_id={asset_id} enviado a {telefono}")
+    return asset_id
+
+
+# ── gen_video_avatar (HeyGen) ───────────────────────────────────────────────
+
+@registrar_handler("gen_video_avatar")
+async def _handler_gen_video_avatar(telefono: str, params: dict[str, Any]) -> int | None:
+    """
+    Handler de generación de video con avatar AI (HeyGen).
+
+    params:
+      - texto (str): guion que lee el avatar
+      - avatar_id (str)
+      - voice_id (str)
+      - costo_creditos (int)
+    """
+    from agent.creativos.video_avatar import generar_video_avatar, HeyGenError
+    from agent import storage
+
+    texto = (params.get("texto") or "").strip()
+    avatar_id = params.get("avatar_id") or ""
+    voice_id = params.get("voice_id") or ""
+    costo_creditos = int(params.get("costo_creditos", 0))
+
+    if not texto:
+        raise ValueError("gen_video_avatar: texto vacío")
+
+    proveedor = _proveedor_whatsapp()
+
+    # 1) Generar
+    try:
+        video_bytes, meta = await generar_video_avatar(
+            texto, avatar_id=avatar_id, voice_id=voice_id,
+        )
+    except HeyGenError as e:
+        logger.error(f"[HANDLER gen_video_avatar] HeyGen error: {e}")
+        await _reembolsar(telefono, costo_creditos, str(e)[:80], scope="gen_video_avatar")
+        try:
+            nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ No pude grabar el video con avatar (el servicio falló). "
+                f"{nota}Intenta de nuevo en un momento.",
+            )
+        except Exception:
+            pass
+        raise
+
+    # 2) Subir
+    try:
+        guardado = await storage.subir_asset(
+            telefono=telefono,
+            tipo="video",
+            contenido=video_bytes,
+            mime_type=meta.get("mime_type", "video/mp4"),
+            nombre_sugerido="avatar.mp4",
+        )
+    except Exception as e:
+        logger.exception(f"[HANDLER gen_video_avatar] Error subiendo video: {e}")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_video_avatar")
+        try:
+            nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"⚠️ Grabé el video pero no pude guardarlo. {nota}Intenta de nuevo.",
+            )
+        except Exception:
+            pass
+        raise
+
+    # 3) Registrar
+    asset_id = await storage.registrar_asset(
+        telefono=telefono,
+        tipo="video",
+        guardado=guardado,
+        prompt=texto[:1500],
+        modelo=meta.get("modelo", "heygen"),
+        costo_creditos=costo_creditos,
+        meta={
+            "operacion": "gen_video_avatar",
+            "video_id": meta.get("video_id"),
+            "avatar_id": meta.get("avatar_id"),
+            "voice_id": meta.get("voice_id"),
+            "duracion_s": meta.get("duracion_s"),
+            "placeholder": meta.get("placeholder", False),
+        },
+    )
+
+    # 4) Enviar por WhatsApp
+    caption = f"🎥 {texto[:900]}"
+    ok = False
+    if guardado.backend == "r2" and guardado.url_publica.startswith("http"):
+        ok = await proveedor.enviar_video(
+            telefono,
+            url=guardado.url_publica,
+            caption=caption,
+            mime_type=guardado.mime_type,
+        )
+    if not ok:
+        ok = await proveedor.enviar_video(
+            telefono,
+            video_bytes=video_bytes,
+            caption=caption,
+            mime_type=guardado.mime_type,
+        )
+    if not ok:
+        if guardado.backend == "r2" and guardado.url_publica.startswith("http"):
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"✅ Video con avatar listo:\n{guardado.url_publica}",
+            )
+        else:
+            await proveedor.enviar_mensaje(
+                telefono,
+                "🎥 Grabé el video pero tu proveedor de WhatsApp no permitió enviarlo como adjunto.",
+            )
+
+    logger.info(f"[HANDLER gen_video_avatar] asset_id={asset_id} enviado a {telefono}")
+    return asset_id

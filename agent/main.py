@@ -1192,8 +1192,12 @@ async def procesar_webhook(request: Request):
                     es_comando_bg_remove_ultima,
                     es_comando_voz, parsear_voz,
                     es_comando_documento, parsear_documento,
+                    es_comando_video, parsear_video,
+                    es_comando_video_avatar, parsear_video_avatar,
                     texto_preview, texto_encolada, texto_sin_pendiente, texto_cancelada,
                     texto_documento_preview, texto_documento_encolada,
+                    texto_video_preview, texto_video_encolada,
+                    texto_video_avatar_preview, texto_video_avatar_encolada,
                     texto_pedir_sujeto,
                     texto_bg_remove_preview, texto_bg_remove_encolada,
                     texto_bg_remove_sin_imagen, texto_bg_remove_no_servible,
@@ -1215,6 +1219,14 @@ async def procesar_webhook(request: Request):
                     preparar_documento, confirmar_documento, cancelar_documento,
                     obtener_pendiente as obtener_pendiente_doc,
                 )
+                from agent.creativos.video import (
+                    preparar_video, confirmar_video, cancelar_video,
+                    obtener_pendiente as obtener_pendiente_video,
+                )
+                from agent.creativos.video_avatar import (
+                    preparar_video_avatar, confirmar_video_avatar, cancelar_video_avatar,
+                    obtener_pendiente as obtener_pendiente_video_avatar,
+                )
 
                 # Voz (TTS) — chequear ANTES de es_comando_imagen porque "hazme
                 # un audio de..." podría engancharse en el match de imagen.
@@ -1224,6 +1236,53 @@ async def procesar_webhook(request: Request):
                         preview_voz = await preparar_voz(msg.telefono, datos_voz["texto"])
                         await proveedor.enviar_mensaje(msg.telefono, texto_voz_preview(preview_voz))
                         logger.info(f"[CMD] preparar_voz → {msg.telefono} costo={preview_voz['costo_creditos']} chars={preview_voz['chars']}")
+                        continue
+
+                # Video con avatar (HeyGen) — chequear ANTES de video genérico
+                # (avatar pide `avatar|presentador|locutor`, más específico).
+                if es_comando_video_avatar(msg.texto):
+                    datos_va = parsear_video_avatar(msg.texto)
+                    if datos_va["texto"]:
+                        try:
+                            preview_va = await preparar_video_avatar(
+                                msg.telefono, datos_va["texto"],
+                            )
+                            await proveedor.enviar_mensaje(
+                                msg.telefono, texto_video_avatar_preview(preview_va),
+                            )
+                            logger.info(
+                                f"[CMD] preparar_video_avatar → {msg.telefono} "
+                                f"chars={preview_va['chars']} costo={preview_va['costo_creditos']}"
+                            )
+                        except Exception as _e_va:
+                            logger.error(f"[CMD] Error preparando video avatar: {_e_va}")
+                            await proveedor.enviar_mensaje(
+                                msg.telefono,
+                                "No pude armar el video con avatar. Prueba así:\n"
+                                "_dona video con avatar diciendo: Hola, soy Juan..._",
+                            )
+                        continue
+
+                # Video genérico (Replicate) — ANTES de documento/imagen.
+                if es_comando_video(msg.texto):
+                    datos_v = parsear_video(msg.texto)
+                    if datos_v["prompt"]:
+                        try:
+                            preview_v = await preparar_video(msg.telefono, datos_v["prompt"])
+                            await proveedor.enviar_mensaje(
+                                msg.telefono, texto_video_preview(preview_v),
+                            )
+                            logger.info(
+                                f"[CMD] preparar_video → {msg.telefono} "
+                                f"costo={preview_v['costo_creditos']}"
+                            )
+                        except Exception as _e_v:
+                            logger.error(f"[CMD] Error preparando video: {_e_v}")
+                            await proveedor.enviar_mensaje(
+                                msg.telefono,
+                                "No pude preparar el video. Prueba así:\n"
+                                "_dona video de un gato persa mirando la lluvia_",
+                            )
                         continue
 
                 # Documento (factura / presupuesto / recibo) — ANTES de imagen
@@ -1291,6 +1350,48 @@ async def procesar_webhook(request: Request):
                 _pend_bg = obtener_pendiente_bg(msg.telefono)
                 _pend_voz = obtener_pendiente_voz(msg.telefono)
                 _pend_doc = obtener_pendiente_doc(msg.telefono)
+                _pend_video = obtener_pendiente_video(msg.telefono)
+                _pend_video_avatar = obtener_pendiente_video_avatar(msg.telefono)
+
+                # Pendiente de video avatar (HeyGen) — precedencia alta.
+                if _pend_video_avatar and es_comando_confirmar(msg.texto):
+                    resultado = await confirmar_video_avatar(msg.telefono)
+                    if resultado["estado"] == "ok":
+                        await proveedor.enviar_mensaje(
+                            msg.telefono,
+                            texto_video_avatar_encolada(resultado["job_id"]),
+                        )
+                    elif resultado["estado"] == "saldo_insuficiente":
+                        await proveedor.enviar_mensaje(msg.telefono, resultado["mensaje"])
+                    else:
+                        await proveedor.enviar_mensaje(msg.telefono, texto_sin_pendiente())
+                    logger.info(f"[CMD] confirmar_video_avatar → {msg.telefono} estado={resultado['estado']}")
+                    continue
+                if _pend_video_avatar and es_comando_cancelar(msg.texto):
+                    cancelar_video_avatar(msg.telefono)
+                    await proveedor.enviar_mensaje(msg.telefono, texto_cancelada())
+                    logger.info(f"[CMD] cancelar_video_avatar → {msg.telefono}")
+                    continue
+
+                # Pendiente de video (Replicate) — precedencia alta.
+                if _pend_video and es_comando_confirmar(msg.texto):
+                    resultado = await confirmar_video(msg.telefono)
+                    if resultado["estado"] == "ok":
+                        await proveedor.enviar_mensaje(
+                            msg.telefono,
+                            texto_video_encolada(resultado["job_id"]),
+                        )
+                    elif resultado["estado"] == "saldo_insuficiente":
+                        await proveedor.enviar_mensaje(msg.telefono, resultado["mensaje"])
+                    else:
+                        await proveedor.enviar_mensaje(msg.telefono, texto_sin_pendiente())
+                    logger.info(f"[CMD] confirmar_video → {msg.telefono} estado={resultado['estado']}")
+                    continue
+                if _pend_video and es_comando_cancelar(msg.texto):
+                    cancelar_video(msg.telefono)
+                    await proveedor.enviar_mensaje(msg.telefono, texto_cancelada())
+                    logger.info(f"[CMD] cancelar_video → {msg.telefono}")
+                    continue
 
                 # Pendiente de documento tiene precedencia (flujo específico).
                 if _pend_doc and es_comando_confirmar(msg.texto):

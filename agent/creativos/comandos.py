@@ -167,6 +167,122 @@ def es_comando_bg_remove(caption: str) -> bool:
     return bool(_RE_BG_REMOVE_BASE.search(caption))
 
 
+# ── Video (Replicate) y Video con avatar (HeyGen) ───────────────────────────
+# Dos intents:
+#   1) Video genérico: "video de un perro corriendo", "hazme un video de X"
+#   2) Video con avatar: "video con avatar diciendo X", "video presentador: X"
+# El avatar se chequea ANTES (más específico).
+
+# Hints que identifican "avatar parlante" — palabra distintiva + opcional verbo
+# de habla. Basta con una de: avatar, presentador, locutor, vocero, portavoz.
+_AVATAR_HINT = r"(?:avatar|presentadora|presentador|locutora|locutor|vocera|vocero|portavoz|anchor)"
+
+# 1) "video (con|de|usando) avatar/presentador (diciendo|que diga|leyendo)(:) X"
+_RE_VIDEO_AVATAR = re.compile(
+    r"^[\s¿¡]*(?:dona[,\s]+)?"
+    r"(?:(?:h[aá]z(?:me)?|genera(?:me)?|cr[eé]a(?:me)?|dame|quiero|necesito)\s+)?"
+    r"(?:(?:un|una)\s+)?"
+    r"video\s+(?:con|de|usando)\s+"
+    r"(?:un\s+|una\s+)?" + _AVATAR_HINT +
+    r"\s*(?:(?:diciendo|que\s+diga|leyendo|narrando|presentando)\s*)?"
+    r"[:\-]?\s*(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# 2) "video presentador: X" / "avatar dice: X"
+_RE_VIDEO_AVATAR_CORTO = re.compile(
+    r"^[\s¿¡]*(?:dona[,\s]+)?"
+    r"(?:video\s+)?" + _AVATAR_HINT +
+    r"\s*(?:dice|diga|lee|narra|presenta)?"
+    r"\s*[:\-]\s*(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_PATRONES_VIDEO_AVATAR = (_RE_VIDEO_AVATAR, _RE_VIDEO_AVATAR_CORTO)
+
+# 3) Video genérico:
+#    "dona video <prompt>"
+#    "hazme un video de X", "genera un video con Y"
+#    "video de X", "video: X"
+_RE_VIDEO_DIRECTO = re.compile(
+    r"^[\s¿¡]*dona\s+videos?\b[\s:,\-]*"
+    r"(?:(?:de|con|que|sobre|para|del)\s+)?"
+    r"(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_RE_VIDEO_VERBO = re.compile(
+    r"^[\s¿¡]*(?:dona[,\s]+)?"
+    r"(?:h[aá]z(?:me)?|haga(?:me)?|genera(?:me)?|gen[eé]ra(?:me)?|"
+    r"cr[eé]a(?:me)?|dame|p[oó]n(?:me)?|m[aá]nda(?:me)?|"
+    r"quiero|necesito|"
+    r"puedes\s+(?:hacer|generar|crear|mandar|dar|enviar)(?:me)?|"
+    r"podr[ií]as\s+(?:hacer|generar|crear|mandar|dar|enviar)(?:me)?)"
+    r"\s+(?:(?:un|el|mi|unos)\s+)?"
+    r"videos?"
+    r"(?:\s+(?:de|con|que|sobre|para|del))?"
+    r"[\s:,\-]+(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_RE_VIDEO_SUST = re.compile(
+    r"^[\s¿¡]*(?:dona[,\s]+)?"
+    r"videos?"
+    r"\s*(?:[:\-]|de\s+|con\s+|sobre\s+|para\s+|del\s+)\s*(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_PATRONES_VIDEO = (_RE_VIDEO_DIRECTO, _RE_VIDEO_VERBO, _RE_VIDEO_SUST)
+
+
+def _match_video_avatar(texto: str):
+    for pat in _PATRONES_VIDEO_AVATAR:
+        m = pat.match(texto)
+        if m:
+            cuerpo = (m.group(1) or "").strip()
+            if cuerpo:
+                return pat, cuerpo
+    return None, ""
+
+
+def _match_video(texto: str):
+    for pat in _PATRONES_VIDEO:
+        m = pat.match(texto)
+        if m:
+            cuerpo = (m.group(1) or "").strip()
+            if cuerpo:
+                return pat, cuerpo
+    return None, ""
+
+
+def es_comando_video_avatar(texto: str) -> bool:
+    if not texto:
+        return False
+    pat, cuerpo = _match_video_avatar(texto)
+    return pat is not None and bool(cuerpo)
+
+
+def parsear_video_avatar(texto: str) -> dict:
+    """Extrae el guion. Asume `es_comando_video_avatar(texto)==True`."""
+    _, cuerpo = _match_video_avatar(texto or "")
+    return {"texto": cuerpo}
+
+
+def es_comando_video(texto: str) -> bool:
+    """True si es video genérico (no avatar). Avatar se chequea antes."""
+    if not texto:
+        return False
+    if es_comando_video_avatar(texto):
+        return False
+    pat, cuerpo = _match_video(texto)
+    return pat is not None and bool(cuerpo)
+
+
+def parsear_video(texto: str) -> dict:
+    _, cuerpo = _match_video(texto or "")
+    return {"prompt": cuerpo}
+
+
 # ── Documentos (factura / presupuesto / recibo) ─────────────────────────────
 # Detecta pedidos como:
 #   "dona factura para Juan $500 por consultoría"
@@ -649,4 +765,86 @@ def texto_documento_encolada(job_id: int, tipo: str) -> str:
     return (
         f"⏳ *Generando {display}...*\n\n"
         f"Te mando el PDF en unos segundos. (job #{job_id})"
+    )
+
+
+# ── Render: video genérico (Replicate) ──────────────────────────────────────
+
+def texto_video_preview(preview: dict) -> str:
+    costo = preview["costo_creditos"]
+    saldo = preview["saldo_actual"]
+    alcanza = preview["alcanza"]
+    ttl = preview["ttl_min"]
+    modelo = preview.get("modelo", "").split("/")[-1].split(":")[0]
+
+    partes = [
+        "🎬 *Voy a generar un video:*",
+        f"_{preview['prompt']}_",
+        "",
+        f"• Modelo: {modelo}",
+        f"• Costo: *{costo} créditos* (saldo: {saldo})",
+        "• Duración estimada: 30s–2min",
+        "",
+    ]
+    if not alcanza:
+        partes.append(
+            f"⚠️ No te alcanzan los créditos ({saldo}/{costo}). "
+            "Escribe *dona recargar* para comprar más."
+        )
+    else:
+        partes.append(
+            f"Responde *confirmar* para generar, o *cancelar* para descartar. "
+            f"(Expira en {ttl} min)"
+        )
+    return "\n".join(partes)
+
+
+def texto_video_encolada(job_id: int) -> str:
+    return (
+        f"⏳ *Generando video...*\n\n"
+        f"Puede tardar 1–3 minutos. Te lo mando apenas esté. (job #{job_id})"
+    )
+
+
+# ── Render: video con avatar (HeyGen) ───────────────────────────────────────
+
+def texto_video_avatar_preview(preview: dict) -> str:
+    costo = preview["costo_creditos"]
+    saldo = preview["saldo_actual"]
+    alcanza = preview["alcanza"]
+    chars = preview["chars"]
+    ttl = preview["ttl_min"]
+    texto_preview = preview["texto"][:150] + ("..." if len(preview["texto"]) > 150 else "")
+
+    partes = [
+        "🎥 *Voy a grabar video con avatar diciendo:*",
+        f"_{texto_preview}_",
+        "",
+        f"• Largo: {chars} caracteres",
+        f"• Costo: *{costo} créditos* (saldo: {saldo})",
+        "• Duración estimada: 1–4 minutos",
+        "",
+    ]
+    if preview.get("sin_configurar"):
+        partes.append(
+            "⚠️ HeyGen no está configurado (falta avatar/voice ID). "
+            "El video que generaré será un placeholder."
+        )
+    if not alcanza:
+        partes.append(
+            f"⚠️ No te alcanzan los créditos ({saldo}/{costo}). "
+            "Escribe *dona recargar* para comprar más."
+        )
+    else:
+        partes.append(
+            f"Responde *confirmar* para grabar, o *cancelar* para descartar. "
+            f"(Expira en {ttl} min)"
+        )
+    return "\n".join(partes)
+
+
+def texto_video_avatar_encolada(job_id: int) -> str:
+    return (
+        f"⏳ *Grabando video con avatar...*\n\n"
+        f"Puede tardar 2–5 minutos. Te lo mando apenas esté. (job #{job_id})"
     )

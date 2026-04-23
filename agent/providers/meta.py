@@ -516,6 +516,54 @@ class ProveedorMeta(ProveedorWhatsApp):
             logger.error(f"[META] Excepción enviando imagen ({type(e).__name__}): {e}")
             return False
 
+    async def enviar_video(
+        self, telefono: str, url: str = "", video_bytes: bytes = b"",
+        caption: str = "", mime_type: str = "video/mp4",
+    ) -> bool:
+        """
+        Envía un video via Meta Cloud API. Prefiere URL pública (Meta la
+        descarga directamente). Si sólo hay bytes, los sube via `_subir_media`
+        para obtener un `media_id`.
+        """
+        vid_payload: dict = {}
+        if url and url.startswith("http"):
+            vid_payload["link"] = url
+        elif video_bytes:
+            ext = (mime_type.split("/", 1)[-1] or "mp4").split(";")[0]
+            media_id = await self._subir_media(video_bytes, mime_type, filename=f"video.{ext}")
+            if not media_id:
+                return False
+            vid_payload["id"] = media_id
+        else:
+            logger.warning("[META] enviar_video sin url ni bytes")
+            return False
+
+        if caption:
+            vid_payload["caption"] = caption[:1024]
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": telefono,
+            "type": "video",
+            "video": vid_payload,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                r = await client.post(self.url_envio, json=payload, headers=headers)
+                if r.status_code not in (200, 201):
+                    logger.error(f"[META] Error {r.status_code} enviando video: {r.text[:200]}")
+                    return False
+                logger.info(f"[META] Video enviado a {telefono}")
+                return True
+        except Exception as e:
+            logger.error(f"[META] Excepción enviando video ({type(e).__name__}): {e}")
+            return False
+
     async def enviar_documento(
         self, telefono: str, archivo_bytes: bytes, filename: str, mime_type: str = "text/csv", caption: str = ""
     ) -> bool:

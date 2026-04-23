@@ -147,6 +147,49 @@ class ProveedorWhapi(ProveedorWhatsApp):
             logger.error(f"Excepción enviando documento Whapi ({type(e).__name__}): {e}")
             return False
 
+    async def enviar_video(
+        self, telefono: str, url: str = "", video_bytes: bytes = b"",
+        caption: str = "", mime_type: str = "video/mp4",
+    ) -> bool:
+        """
+        Envía un video via Whapi.cloud. Prefiere URL pública (más eficiente);
+        si sólo hay bytes, los manda en base64 vía `media`.
+        WhatsApp acepta videos ≤16MB inline.
+        """
+        if not self.token:
+            logger.warning("WHAPI_TOKEN no configurado — video no enviado")
+            return False
+        endpoint = "https://gate.whapi.cloud/messages/video"
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+        }
+        payload: dict = {"to": telefono}
+        if caption:
+            payload["caption"] = caption[:1024]
+
+        if url and not url.startswith("file://"):
+            payload["media"] = url
+        elif video_bytes:
+            import base64
+            b64 = base64.b64encode(video_bytes).decode("ascii")
+            payload["media"] = f"data:{mime_type};base64,{b64}"
+        else:
+            logger.warning("enviar_video sin url ni bytes")
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                r = await client.post(endpoint, json=payload, headers=headers)
+                if r.status_code != 200:
+                    logger.error(f"Error Whapi video {r.status_code}: {r.text[:200]}")
+                    return False
+                logger.info(f"Video enviado a {telefono} via Whapi")
+                return True
+        except Exception as e:
+            logger.error(f"Excepción enviando video Whapi ({type(e).__name__}): {e}")
+            return False
+
     async def enviar_imagen(
         self, telefono: str, url: str = "", imagen_bytes: bytes = b"",
         caption: str = "", mime_type: str = "image/png",
