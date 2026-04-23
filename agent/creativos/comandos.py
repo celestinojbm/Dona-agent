@@ -822,6 +822,9 @@ def texto_video_preview(preview: dict) -> str:
     ttl = preview["ttl_min"]
     modelo = preview.get("modelo", "").split("/")[-1].split(":")[0]
     con_referencia = bool(preview.get("image_url"))
+    duracion = preview.get("duration_s") or 10
+    idea = preview.get("idea_usuario") or preview.get("prompt", "")
+    optimizado = preview.get("prompt_optimizado") or ""
 
     titulo = (
         "🎬 *Voy a generar un video usando tu imagen como referencia:*"
@@ -831,13 +834,22 @@ def texto_video_preview(preview: dict) -> str:
 
     partes = [
         titulo,
-        f"_{preview['prompt']}_",
-        "",
-        f"• Modelo: {modelo}",
-        f"• Costo: *{costo} créditos* (saldo: {saldo})",
-        "• Duración estimada: 30s–2min",
+        f"_{idea}_",
         "",
     ]
+    if optimizado and optimizado.strip() != idea.strip():
+        # Transparencia: mostramos al usuario cómo Dona refinó su idea para
+        # sacar mejor resultado del modelo de video.
+        partes.append("*Prompt optimizado para el modelo:*")
+        partes.append(f"_{optimizado[:400]}_")
+        partes.append("")
+    partes.extend([
+        f"• Modelo: {modelo}",
+        f"• Duración: {duracion}s",
+        f"• Costo: *{costo} créditos* (saldo: {saldo})",
+        "• Tiempo estimado: 1–3 min",
+        "",
+    ])
     if not alcanza:
         partes.append(
             f"⚠️ No te alcanzan los créditos ({saldo}/{costo}). "

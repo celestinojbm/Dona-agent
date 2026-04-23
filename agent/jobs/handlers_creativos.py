@@ -529,8 +529,9 @@ async def _handler_gen_video(telefono: str, params: dict[str, Any]) -> int | Non
     Handler de generación de video corto (Replicate).
 
     params:
-      - prompt (str)
+      - prompt (str): prompt optimizado (en inglés) listo para Replicate
       - image_url (str): opcional, para image-to-video
+      - duration_s (int): duración en segundos (5 o 10)
       - costo_creditos (int)
     """
     from agent.creativos.video import generar_video, ReplicateError
@@ -538,6 +539,7 @@ async def _handler_gen_video(telefono: str, params: dict[str, Any]) -> int | Non
 
     prompt = (params.get("prompt") or "").strip()
     image_url = params.get("image_url") or ""
+    duration_s = int(params.get("duration_s") or 0)
     costo_creditos = int(params.get("costo_creditos", 0))
 
     if not prompt:
@@ -547,7 +549,9 @@ async def _handler_gen_video(telefono: str, params: dict[str, Any]) -> int | Non
 
     # 1) Generar
     try:
-        video_bytes, meta = await generar_video(prompt, image_url=image_url)
+        video_bytes, meta = await generar_video(
+            prompt, image_url=image_url, duration_s=duration_s,
+        )
     except ReplicateError as e:
         logger.error(f"[HANDLER gen_video] Replicate error: {e}")
         await _reembolsar(telefono, costo_creditos, str(e)[:80], scope="gen_video")

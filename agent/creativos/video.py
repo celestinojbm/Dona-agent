@@ -32,12 +32,17 @@ REPLICATE_API_BASE = os.getenv(
     "https://api.replicate.com/v1",
 )
 
-# Default: modelo económico para texto→video (~5s clips). Se puede overridear
-# con el slug oficial de Replicate (`owner/name` o `owner/name:version`).
+# Default: seedance-1-pro — mucho mejor coherencia temporal que la versión
+# "lite" (sujetos consistentes entre frames, física creíble, menos morphing).
+# Cuesta ~$0.30/video vs $0.05 de lite. Se puede overridear con el slug
+# oficial de Replicate (`owner/name` o `owner/name:version`).
 REPLICATE_VIDEO_MODEL = os.getenv(
     "REPLICATE_VIDEO_MODEL",
-    "bytedance/seedance-1-lite",
+    "bytedance/seedance-1-pro",
 )
+
+# Duración por defecto en segundos. Seedance acepta 5 o 10.
+VIDEO_DURATION_DEFAULT = int(os.getenv("VIDEO_DURATION_SEGUNDOS", "10"))
 
 # Timeouts
 CREATE_TIMEOUT_S = float(os.getenv("REPLICATE_CREATE_TIMEOUT", "30"))
@@ -78,6 +83,7 @@ async def _crear_prediccion(
     prompt: str,
     image_url: str = "",
     model: str = "",
+    duration_s: int = 0,
 ) -> dict:
     """
     Crea la predicción en Replicate.
@@ -92,6 +98,12 @@ async def _crear_prediccion(
     if image_url:
         # La mayoría de modelos image-to-video acepta `image` como URL
         input_payload["image"] = image_url
+    # Duración — seedance acepta 5 o 10. Normalizamos al rango permitido.
+    dur = duration_s or VIDEO_DURATION_DEFAULT
+    if dur <= 5:
+        input_payload["duration"] = 5
+    else:
+        input_payload["duration"] = 10
 
     # Si el slug incluye ":hash", separarlo como `version`
     if ":" in slug:
@@ -151,6 +163,7 @@ async def generar_video(
     prompt: str,
     image_url: str = "",
     model: str = "",
+    duration_s: int = 0,
     api_key: str | None = None,
 ) -> tuple[bytes, dict]:
     """
@@ -181,7 +194,10 @@ async def generar_video(
     import httpx
 
     async with httpx.AsyncClient(timeout=CREATE_TIMEOUT_S) as client:
-        creada = await _crear_prediccion(client, key, prompt, image_url=image_url, model=model)
+        creada = await _crear_prediccion(
+            client, key, prompt, image_url=image_url, model=model,
+            duration_s=duration_s,
+        )
         pred_id = creada.get("id") or ""
         get_url = (creada.get("urls") or {}).get("get") or (
             f"{REPLICATE_API_BASE}/predictions/{pred_id}" if pred_id else ""
@@ -246,8 +262,12 @@ async def generar_video(
 @dataclass
 class VideoPendiente:
     telefono: str
+    # Idea original del usuario (en español, para mostrarle en preview)
+    idea_usuario: str
+    # Prompt optimizado por Claude para el modelo de video (en inglés)
     prompt: str
     image_url: str
+    duration_s: int
     costo_creditos: int
     creado: datetime = field(default_factory=datetime.utcnow)
 
@@ -274,33 +294,59 @@ async def preparar_video(
     telefono: str,
     prompt: str,
     image_url: str = "",
+    duration_s: int = 0,
 ) -> dict:
-    """Guarda el pedido como pendiente y retorna preview. NO cobra, NO genera."""
+    """
+    Guarda el pedido como pendiente y retorna preview. NO cobra, NO genera.
+
+    ANTES de guardar, llama a `optimizar_prompt_video` para traducir la idea
+    del usuario (español, conversacional) a un prompt técnico optimizado
+    (inglés, cinematográfico) que el modelo de video va a interpretar mucho
+    mejor. La idea original se guarda para mostrársela al usuario en el
+    preview — no tiene sentido mostrarle el prompt técnico traducido.
+    """
     from agent.billing import obtener_saldo, COSTO_VIDEO_CORTO
     from agent.creativos.pendientes import cancelar_otros_pendientes
+    from agent.creativos.prompt_video import optimizar_prompt_video
 
-    prompt = (prompt or "").strip()
-    if not prompt:
+    idea = (prompt or "").strip()
+    if not idea:
         raise ValueError("prompt vacío")
-    prompt = prompt[:MAX_PROMPT_CHARS]
+    idea = idea[:MAX_PROMPT_CHARS]
 
     # Un solo pendiente activo por teléfono — si había otro, lo reemplazamos.
     reemplazo = cancelar_otros_pendientes(telefono, excepto="video")
+
+    # Optimizar la idea a prompt técnico cinematográfico. Si el LLM falla,
+    # la función internamente cae a fallback (idea + sufijo cinematográfico).
+    prompt_optimizado = await optimizar_prompt_video(
+        idea, tiene_imagen_referencia=bool(image_url),
+    )
+    prompt_optimizado = prompt_optimizado[:MAX_PROMPT_CHARS]
+
+    dur = duration_s or VIDEO_DURATION_DEFAULT
+    dur = 5 if dur <= 5 else 10
 
     costo = COSTO_VIDEO_CORTO
     saldo = await obtener_saldo(telefono)
 
     pendiente = VideoPendiente(
         telefono=telefono,
-        prompt=prompt,
+        idea_usuario=idea,
+        prompt=prompt_optimizado,
         image_url=image_url or "",
+        duration_s=dur,
         costo_creditos=costo,
     )
     _PENDIENTES[telefono] = pendiente
 
     return {
-        "prompt": prompt,
+        "idea_usuario": idea,
+        "prompt_optimizado": prompt_optimizado,
+        # Retrocompat: callers existentes leen "prompt" del preview.
+        "prompt": idea,
         "image_url": image_url,
+        "duration_s": dur,
         "costo_creditos": costo,
         "saldo_actual": saldo,
         "alcanza": saldo >= costo,
@@ -385,11 +431,12 @@ async def confirmar_video(telefono: str) -> dict:
         {
             "prompt": pendiente.prompt,
             "image_url": pendiente.image_url,
+            "duration_s": pendiente.duration_s,
             "costo_creditos": pendiente.costo_creditos,
         },
     )
     _PENDIENTES.pop(telefono, None)
-    return {"estado": "ok", "job_id": job_id, "prompt": pendiente.prompt}
+    return {"estado": "ok", "job_id": job_id, "prompt": pendiente.idea_usuario}
 
 
 def cancelar_video(telefono: str) -> bool:
