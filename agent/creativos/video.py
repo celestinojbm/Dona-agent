@@ -108,7 +108,12 @@ async def _crear_prediccion(
     if resp.status_code >= 500:
         raise ReplicateError(f"Replicate 5xx: {resp.status_code} {resp.text[:200]}")
     if resp.status_code == 402:
-        raise ReplicateError("Replicate: saldo insuficiente en la cuenta del proveedor")
+        # Replicate usa 402 para varios escenarios: cuenta sin saldo, spend
+        # limit alcanzado, hard-limit del plan, billing sin setup. Incluimos
+        # el body real para poder distinguir desde los logs.
+        raise ReplicateError(
+            f"Replicate 402 (billing): {resp.text[:400]}"
+        )
     if resp.status_code >= 400:
         raise ReplicateError(f"Replicate {resp.status_code}: {resp.text[:200]}")
     try:
