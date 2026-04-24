@@ -283,6 +283,38 @@ def parsear_video(texto: str) -> dict:
     return {"prompt": cuerpo}
 
 
+# ── Ajuste de prompt de video (iterar antes de confirmar) ───────────────────
+# Dispara SOLO si hay video pendiente; el caller lo verifica.
+
+_RE_AJUSTAR_VIDEO = re.compile(
+    r"^[\s¿¡]*(?:dona[,\s]+)?"
+    r"(?:ajust[aáe]r?|cambi[aáe]r?|modific[aáe]r?|edit[aáe]r?|reescrib[ií]r?)"
+    r"(?:\s+(?:el|mi|este)\s+prompt\b)?"
+    r"[\s:,\-]+(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def es_comando_ajustar_video(texto: str) -> bool:
+    """
+    True si el usuario pide reajustar el prompt del video pendiente.
+    Ejemplos: "ajustar: más oscuro", "cambiar prompt: toma aérea", "dona modifica el prompt para que sea noche".
+    """
+    if not texto:
+        return False
+    m = _RE_AJUSTAR_VIDEO.match(texto.strip())
+    if not m:
+        return False
+    return bool((m.group(1) or "").strip())
+
+
+def parsear_ajustar_video(texto: str) -> dict:
+    """Extrae la nueva idea. Asume `es_comando_ajustar_video(texto)==True`."""
+    m = _RE_AJUSTAR_VIDEO.match((texto or "").strip())
+    cuerpo = (m.group(1).strip() if m else "")
+    return {"nueva_idea": cuerpo}
+
+
 # ── Documentos (factura / presupuesto / recibo) ─────────────────────────────
 # Detecta pedidos como:
 #   "dona factura para Juan $500 por consultoría"
@@ -857,10 +889,17 @@ def texto_video_preview(preview: dict) -> str:
         )
     else:
         partes.append(
-            f"Responde *confirmar* para generar, o *cancelar* para descartar. "
+            "Responde *confirmar* para generar, *cancelar* para descartar, "
+            "o *ajustar: <nueva idea>* si querés refinar el prompt. "
             f"(Expira en {ttl} min)"
         )
     return _linea_reemplazo(preview) + "\n".join(partes)
+
+
+def texto_video_ajustado(preview: dict) -> str:
+    """Header distinto cuando el preview viene de `ajustar_video`."""
+    base = texto_video_preview(preview)
+    return "🔁 *Reajusté el prompt con tu nueva idea.*\n\n" + base
 
 
 def texto_video_encolada(job_id: int) -> str:

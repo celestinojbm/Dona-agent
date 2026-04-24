@@ -262,10 +262,13 @@ async def generar_video(
 @dataclass
 class VideoPendiente:
     telefono: str
-    # Idea original del usuario (en español, para mostrarle en preview)
+    # Idea original del usuario (en español, tal como la escribió)
     idea_usuario: str
-    # Prompt optimizado por Claude para el modelo de video (en inglés)
+    # Prompt optimizado en inglés — es el que se envía al modelo de video
     prompt: str
+    # Versión en español del prompt optimizado — se muestra al usuario en el
+    # preview. Se mantiene sincronizado con `prompt` (misma escena descrita).
+    prompt_es: str
     image_url: str
     duration_s: int
     costo_creditos: int
@@ -317,12 +320,13 @@ async def preparar_video(
     # Un solo pendiente activo por teléfono — si había otro, lo reemplazamos.
     reemplazo = cancelar_otros_pendientes(telefono, excepto="video")
 
-    # Optimizar la idea a prompt técnico cinematográfico. Si el LLM falla,
-    # la función internamente cae a fallback (idea + sufijo cinematográfico).
-    prompt_optimizado = await optimizar_prompt_video(
+    # Optimizar la idea a prompt técnico cinematográfico bilingüe. Si el LLM
+    # falla, la función internamente cae a fallback.
+    opt = await optimizar_prompt_video(
         idea, tiene_imagen_referencia=bool(image_url),
     )
-    prompt_optimizado = prompt_optimizado[:MAX_PROMPT_CHARS]
+    prompt_en = (opt.get("en") or "")[:MAX_PROMPT_CHARS]
+    prompt_es = (opt.get("es") or idea)[:MAX_PROMPT_CHARS]
 
     dur = duration_s or VIDEO_DURATION_DEFAULT
     dur = 5 if dur <= 5 else 10
@@ -333,7 +337,8 @@ async def preparar_video(
     pendiente = VideoPendiente(
         telefono=telefono,
         idea_usuario=idea,
-        prompt=prompt_optimizado,
+        prompt=prompt_en,
+        prompt_es=prompt_es,
         image_url=image_url or "",
         duration_s=dur,
         costo_creditos=costo,
@@ -342,7 +347,8 @@ async def preparar_video(
 
     return {
         "idea_usuario": idea,
-        "prompt_optimizado": prompt_optimizado,
+        "prompt_optimizado": prompt_es,  # versión en español para el preview
+        "prompt_en": prompt_en,           # versión en inglés (debug/opcional)
         # Retrocompat: callers existentes leen "prompt" del preview.
         "prompt": idea,
         "image_url": image_url,
@@ -406,6 +412,60 @@ async def preparar_video_desde_bytes(
         f"backend={guardado.backend}"
     )
     return preview
+
+
+async def ajustar_video(telefono: str, nueva_idea: str) -> dict:
+    """
+    Re-optimiza el prompt del video pendiente con una nueva idea del usuario.
+    NO cobra, NO cancela — solo reemplaza idea + prompt optimizado y deja el
+    pendiente listo para confirmar/cancelar.
+
+    Retorna:
+      - {"estado": "sin_pendiente"} si no había video pendiente
+      - {"estado": "ok", ...preview} con el nuevo preview
+    """
+    from agent.creativos.prompt_video import optimizar_prompt_video
+
+    pendiente = obtener_pendiente(telefono)
+    if pendiente is None:
+        return {"estado": "sin_pendiente"}
+
+    nueva_idea = (nueva_idea or "").strip()[:MAX_PROMPT_CHARS]
+    if not nueva_idea:
+        raise ValueError("nueva_idea vacía")
+
+    opt = await optimizar_prompt_video(
+        nueva_idea, tiene_imagen_referencia=bool(pendiente.image_url),
+    )
+    prompt_en = (opt.get("en") or "")[:MAX_PROMPT_CHARS]
+    prompt_es = (opt.get("es") or nueva_idea)[:MAX_PROMPT_CHARS]
+
+    pendiente.idea_usuario = nueva_idea
+    pendiente.prompt = prompt_en
+    pendiente.prompt_es = prompt_es
+    # Reseteamos el TTL al ajustar — el usuario sigue activo iterando.
+    pendiente.creado = datetime.utcnow()
+
+    from agent.billing import obtener_saldo
+    saldo = await obtener_saldo(telefono)
+
+    logger.info(f"[VIDEO] ajustar → {telefono} nueva_idea=\"{nueva_idea[:60]}\"")
+
+    return {
+        "estado": "ok",
+        "idea_usuario": nueva_idea,
+        "prompt_optimizado": prompt_es,
+        "prompt_en": prompt_en,
+        "prompt": nueva_idea,
+        "image_url": pendiente.image_url,
+        "duration_s": pendiente.duration_s,
+        "costo_creditos": pendiente.costo_creditos,
+        "saldo_actual": saldo,
+        "alcanza": saldo >= pendiente.costo_creditos,
+        "ttl_min": PENDIENTE_TTL_MIN,
+        "modelo": REPLICATE_VIDEO_MODEL,
+        "reemplazo": None,
+    }
 
 
 async def confirmar_video(telefono: str) -> dict:

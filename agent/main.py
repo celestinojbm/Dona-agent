@@ -1247,6 +1247,8 @@ async def procesar_webhook(request: Request):
                     texto_voz_preview, texto_voz_encolada,
                     es_confirmar_inequivoco, es_cancelar_inequivoco,
                     texto_sin_nada_que_confirmar, texto_sin_nada_que_cancelar,
+                    es_comando_ajustar_video, parsear_ajustar_video,
+                    texto_video_ajustado,
                 )
                 from agent.creativos.imagen import (
                     preparar_imagen, confirmar_imagen, cancelar_imagen, obtener_pendiente,
@@ -1266,6 +1268,7 @@ async def procesar_webhook(request: Request):
                 )
                 from agent.creativos.video import (
                     preparar_video, confirmar_video, cancelar_video,
+                    ajustar_video,
                     obtener_pendiente as obtener_pendiente_video,
                 )
                 from agent.creativos.video_avatar import (
@@ -1416,6 +1419,27 @@ async def procesar_webhook(request: Request):
                     cancelar_video_avatar(msg.telefono)
                     await proveedor.enviar_mensaje(msg.telefono, texto_cancelada())
                     logger.info(f"[CMD] cancelar_video_avatar → {msg.telefono}")
+                    continue
+
+                # Ajuste del prompt del video pendiente — antes que confirmar,
+                # para que "ajustar: ..." no caiga en el flujo normal.
+                if _pend_video and es_comando_ajustar_video(msg.texto):
+                    datos_adj = parsear_ajustar_video(msg.texto)
+                    nueva_idea = (datos_adj.get("nueva_idea") or "").strip()
+                    if not nueva_idea:
+                        await proveedor.enviar_mensaje(
+                            msg.telefono,
+                            "Decime cómo querés ajustarlo. Ej: *ajustar: plano aéreo al atardecer con cámara lenta*",
+                        )
+                        continue
+                    resultado = await ajustar_video(msg.telefono, nueva_idea)
+                    if resultado.get("estado") == "ok":
+                        await proveedor.enviar_mensaje(
+                            msg.telefono, texto_video_ajustado(resultado),
+                        )
+                    else:
+                        await proveedor.enviar_mensaje(msg.telefono, texto_sin_pendiente())
+                    logger.info(f"[CMD] ajustar_video → {msg.telefono} estado={resultado.get('estado')}")
                     continue
 
                 # Pendiente de video (Replicate) — precedencia alta.
