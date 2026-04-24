@@ -334,6 +334,47 @@ async def preparar_imagen(
     }
 
 
+async def ajustar_imagen(telefono: str, nuevo_prompt: str) -> dict:
+    """
+    Reemplaza el prompt de la imagen pendiente con uno nuevo. NO cobra, NO
+    cancela — solo deja el pendiente listo para confirmar/cancelar con la
+    nueva descripción.
+
+    Retorna:
+      - {"estado": "sin_pendiente"} si no había imagen pendiente
+      - {"estado": "ok", ...preview} con el nuevo preview
+    """
+    from agent.billing import obtener_saldo
+
+    pendiente = obtener_pendiente(telefono)
+    if pendiente is None:
+        return {"estado": "sin_pendiente"}
+
+    nuevo = (nuevo_prompt or "").strip()[:2000]
+    if not nuevo:
+        raise ValueError("nuevo_prompt vacío")
+
+    pendiente.prompt = nuevo
+    # Reseteamos TTL al iterar — el usuario sigue activo.
+    pendiente.creado = datetime.utcnow()
+
+    saldo = await obtener_saldo(telefono)
+
+    logger.info(f"[IMAGEN] ajustar → {telefono} nuevo_prompt=\"{nuevo[:60]}\"")
+
+    return {
+        "estado": "ok",
+        "prompt": pendiente.prompt,
+        "calidad": pendiente.calidad,
+        "aspect_ratio": pendiente.aspect_ratio,
+        "costo_creditos": pendiente.costo_creditos,
+        "saldo_actual": saldo,
+        "alcanza": saldo >= pendiente.costo_creditos,
+        "ttl_min": PENDIENTE_TTL_MIN,
+        "reemplazo": None,
+    }
+
+
 async def confirmar_imagen(telefono: str) -> dict:
     """
     Cobra los créditos y encola un job `gen_imagen`.

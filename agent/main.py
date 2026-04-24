@@ -1247,11 +1247,12 @@ async def procesar_webhook(request: Request):
                     texto_voz_preview, texto_voz_encolada,
                     es_confirmar_inequivoco, es_cancelar_inequivoco,
                     texto_sin_nada_que_confirmar, texto_sin_nada_que_cancelar,
-                    es_comando_ajustar_video, parsear_ajustar_video,
-                    texto_video_ajustado,
+                    es_comando_ajustar, parsear_ajustar,
+                    texto_video_ajustado, texto_imagen_ajustada, texto_voz_ajustada,
                 )
                 from agent.creativos.imagen import (
-                    preparar_imagen, confirmar_imagen, cancelar_imagen, obtener_pendiente,
+                    preparar_imagen, confirmar_imagen, cancelar_imagen,
+                    ajustar_imagen, obtener_pendiente,
                 )
                 from agent.creativos.bg_remove import (
                     preparar_bg_remove_desde_ultimo_asset,
@@ -1260,7 +1261,7 @@ async def procesar_webhook(request: Request):
                 )
                 from agent.creativos.voz import (
                     preparar_voz, confirmar_voz, cancelar_voz,
-                    obtener_pendiente as obtener_pendiente_voz,
+                    ajustar_voz, obtener_pendiente as obtener_pendiente_voz,
                 )
                 from agent.creativos.pdf import (
                     preparar_documento, confirmar_documento, cancelar_documento,
@@ -1421,10 +1422,12 @@ async def procesar_webhook(request: Request):
                     logger.info(f"[CMD] cancelar_video_avatar → {msg.telefono}")
                     continue
 
-                # Ajuste del prompt del video pendiente — antes que confirmar,
-                # para que "ajustar: ..." no caiga en el flujo normal.
-                if _pend_video and es_comando_ajustar_video(msg.texto):
-                    datos_adj = parsear_ajustar_video(msg.texto)
+                # Ajuste del pendiente (video/imagen/voz) — antes que confirmar,
+                # para que "ajustar: ..." no caiga en el flujo normal. Se rutea
+                # por tipo de pendiente activo (sólo hay uno por teléfono, ver
+                # cancelar_otros_pendientes).
+                if (_pend_video or _pend or _pend_voz) and es_comando_ajustar(msg.texto):
+                    datos_adj = parsear_ajustar(msg.texto)
                     nueva_idea = (datos_adj.get("nueva_idea") or "").strip()
                     if not nueva_idea:
                         await proveedor.enviar_mensaje(
@@ -1432,14 +1435,23 @@ async def procesar_webhook(request: Request):
                             "Decime cómo querés ajustarlo. Ej: *ajustar: plano aéreo al atardecer con cámara lenta*",
                         )
                         continue
-                    resultado = await ajustar_video(msg.telefono, nueva_idea)
+                    if _pend_video:
+                        resultado = await ajustar_video(msg.telefono, nueva_idea)
+                        render = texto_video_ajustado
+                        etiqueta = "video"
+                    elif _pend:
+                        resultado = await ajustar_imagen(msg.telefono, nueva_idea)
+                        render = texto_imagen_ajustada
+                        etiqueta = "imagen"
+                    else:
+                        resultado = await ajustar_voz(msg.telefono, nueva_idea)
+                        render = texto_voz_ajustada
+                        etiqueta = "voz"
                     if resultado.get("estado") == "ok":
-                        await proveedor.enviar_mensaje(
-                            msg.telefono, texto_video_ajustado(resultado),
-                        )
+                        await proveedor.enviar_mensaje(msg.telefono, render(resultado))
                     else:
                         await proveedor.enviar_mensaje(msg.telefono, texto_sin_pendiente())
-                    logger.info(f"[CMD] ajustar_video → {msg.telefono} estado={resultado.get('estado')}")
+                    logger.info(f"[CMD] ajustar_{etiqueta} → {msg.telefono} estado={resultado.get('estado')}")
                     continue
 
                 # Pendiente de video (Replicate) — precedencia alta.

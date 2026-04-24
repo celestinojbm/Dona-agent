@@ -75,6 +75,7 @@ COSTO_BG_REMOVE = 1            # Photoroom / remove.bg
 COSTO_VOZ_CORTA = 3            # ElevenLabs < 500 chars
 COSTO_VOZ_LARGA = 10           # ElevenLabs > 500 chars
 COSTO_MUSICA = 15              # Suno / Udio
+COSTO_VIDEO_5S = 80            # Seedance-1-pro 5s (~$0.15/video proveedor)
 COSTO_VIDEO_CORTO = 150        # Seedance-1-pro 10s (~$0.30/video proveedor)
 COSTO_VIDEO_LARGO = 250        # Veo 3 8s con audio
 COSTO_VIDEO_AVATAR = 80        # HeyGen 1 min

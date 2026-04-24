@@ -225,6 +225,47 @@ async def preparar_voz(
     }
 
 
+async def ajustar_voz(telefono: str, nuevo_texto: str) -> dict:
+    """
+    Reemplaza el texto a leer en la voz pendiente. NO cobra, NO cancela —
+    deja el pendiente listo para confirmar/cancelar con el nuevo texto.
+    Recalcula costo (corta/larga) según el largo nuevo.
+
+    Retorna:
+      - {"estado": "sin_pendiente"} si no había voz pendiente
+      - {"estado": "ok", ...preview} con el nuevo preview
+    """
+    from agent.billing import obtener_saldo
+
+    pendiente = obtener_pendiente(telefono)
+    if pendiente is None:
+        return {"estado": "sin_pendiente"}
+
+    nuevo = (nuevo_texto or "").strip()[:MAX_CHARS]
+    if not nuevo:
+        raise ValueError("nuevo_texto vacío")
+
+    pendiente.texto = nuevo
+    pendiente.costo_creditos = costo_por_largo(nuevo)
+    pendiente.creado = datetime.utcnow()
+
+    saldo = await obtener_saldo(telefono)
+
+    logger.info(f"[VOZ] ajustar → {telefono} chars={len(nuevo)}")
+
+    return {
+        "estado": "ok",
+        "texto": pendiente.texto,
+        "voice_id": pendiente.voice_id,
+        "chars": len(pendiente.texto),
+        "costo_creditos": pendiente.costo_creditos,
+        "saldo_actual": saldo,
+        "alcanza": saldo >= pendiente.costo_creditos,
+        "ttl_min": PENDIENTE_TTL_MIN,
+        "reemplazo": None,
+    }
+
+
 async def confirmar_voz(telefono: str) -> dict:
     """Cobra y encola job `gen_voz`. Retorna estado."""
     pendiente = obtener_pendiente(telefono)

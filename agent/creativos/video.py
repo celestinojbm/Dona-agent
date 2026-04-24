@@ -17,12 +17,66 @@ Diseño (mismo patrón que voz.py / imagen.py):
 from __future__ import annotations
 
 import os
+import re
 import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 logger = logging.getLogger("dona")
+
+
+# ── Detección de duración desde lenguaje natural ────────────────────────────
+# Seedance sólo acepta 5 o 10 segundos. Si el usuario menciona "corto",
+# "rápido" o un número ≤6, preparamos 5s (más barato). Default 10s.
+
+# "5 segundos", "5s", "cinco segundos", "6 seg"
+_RE_DUR_NUM = re.compile(
+    r"\b([0-9]+|cinco|seis|siete|ocho|nueve|diez)\s*"
+    r"(?:s|seg(?:undos?)?)\b",
+    re.IGNORECASE,
+)
+
+_PAL_NUM = {"cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10}
+
+# Adjetivos que sugieren corto (aplican si no hay número explícito).
+_RE_DUR_CORTO = re.compile(
+    r"\b(?:corto|cortito|brevísim[oa]|brev[eé]|r[aá]pido|r[aá]pida|flash)\b",
+    re.IGNORECASE,
+)
+
+# Adjetivos que sugieren largo (mantener default 10s).
+_RE_DUR_LARGO = re.compile(
+    r"\b(?:largo|extendido|completo|grande)\b",
+    re.IGNORECASE,
+)
+
+
+def _detectar_duracion(idea: str) -> int:
+    """
+    Infiere duración en segundos desde la idea del usuario.
+    Retorna 5 o 10 (los dos valores que acepta seedance).
+    """
+    if not idea:
+        return VIDEO_DURATION_DEFAULT
+    m = _RE_DUR_NUM.search(idea)
+    if m:
+        raw = m.group(1).lower()
+        n = _PAL_NUM.get(raw, 0) or (int(raw) if raw.isdigit() else 0)
+        if n and n <= 6:
+            return 5
+        return 10
+    if _RE_DUR_CORTO.search(idea):
+        return 5
+    if _RE_DUR_LARGO.search(idea):
+        return 10
+    return VIDEO_DURATION_DEFAULT
+
+
+def _costo_por_duracion(duration_s: int) -> int:
+    """Costo en créditos según duración (5s más barato que 10s)."""
+    from agent.billing import COSTO_VIDEO_5S, COSTO_VIDEO_CORTO
+    return COSTO_VIDEO_5S if duration_s <= 5 else COSTO_VIDEO_CORTO
 
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -308,7 +362,7 @@ async def preparar_video(
     mejor. La idea original se guarda para mostrársela al usuario en el
     preview — no tiene sentido mostrarle el prompt técnico traducido.
     """
-    from agent.billing import obtener_saldo, COSTO_VIDEO_CORTO
+    from agent.billing import obtener_saldo
     from agent.creativos.pendientes import cancelar_otros_pendientes
     from agent.creativos.prompt_video import optimizar_prompt_video
 
@@ -328,10 +382,14 @@ async def preparar_video(
     prompt_en = (opt.get("en") or "")[:MAX_PROMPT_CHARS]
     prompt_es = (opt.get("es") or idea)[:MAX_PROMPT_CHARS]
 
-    dur = duration_s or VIDEO_DURATION_DEFAULT
-    dur = 5 if dur <= 5 else 10
+    # Si el caller no especificó duración, la inferimos de la idea del usuario
+    # (palabras como "corto", "5 seg" → 5s, sino default 10s).
+    if duration_s:
+        dur = 5 if duration_s <= 5 else 10
+    else:
+        dur = _detectar_duracion(idea)
 
-    costo = COSTO_VIDEO_CORTO
+    costo = _costo_por_duracion(dur)
     saldo = await obtener_saldo(telefono)
 
     pendiente = VideoPendiente(
@@ -439,6 +497,13 @@ async def ajustar_video(telefono: str, nueva_idea: str) -> dict:
     )
     prompt_en = (opt.get("en") or "")[:MAX_PROMPT_CHARS]
     prompt_es = (opt.get("es") or nueva_idea)[:MAX_PROMPT_CHARS]
+
+    # Re-detectamos duración: si la nueva idea dice "corto" o menciona
+    # segundos, respetamos eso. Si no, mantenemos la duración anterior.
+    nueva_dur = _detectar_duracion(nueva_idea)
+    if nueva_dur != VIDEO_DURATION_DEFAULT or _RE_DUR_NUM.search(nueva_idea) or _RE_DUR_CORTO.search(nueva_idea) or _RE_DUR_LARGO.search(nueva_idea):
+        pendiente.duration_s = nueva_dur
+        pendiente.costo_creditos = _costo_por_duracion(nueva_dur)
 
     pendiente.idea_usuario = nueva_idea
     pendiente.prompt = prompt_en

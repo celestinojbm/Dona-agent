@@ -283,36 +283,47 @@ def parsear_video(texto: str) -> dict:
     return {"prompt": cuerpo}
 
 
-# ── Ajuste de prompt de video (iterar antes de confirmar) ───────────────────
-# Dispara SOLO si hay video pendiente; el caller lo verifica.
+# ── Ajuste de prompt (iterar antes de confirmar) ────────────────────────────
+# Genérico: sirve para video, imagen y voz. Dispara SOLO si hay un pendiente
+# compatible; el caller en main.py verifica cuál.
+#
+# Tolera "ajustar:", "cambiar", "modifica", "edita", "reescribe",
+# opcionalmente seguido de "el prompt"/"el texto"/"el audio".
 
-_RE_AJUSTAR_VIDEO = re.compile(
+_RE_AJUSTAR = re.compile(
     r"^[\s¿¡]*(?:dona[,\s]+)?"
     r"(?:ajust[aáe]r?|cambi[aáe]r?|modific[aáe]r?|edit[aáe]r?|reescrib[ií]r?)"
-    r"(?:\s+(?:el|mi|este)\s+prompt\b)?"
+    r"(?:\s+(?:el|mi|este)\s+(?:prompt|texto|audio|mensaje|gui[oó]n))?"
     r"[\s:,\-]+(.+)$",
     re.IGNORECASE | re.DOTALL,
 )
 
 
-def es_comando_ajustar_video(texto: str) -> bool:
+def es_comando_ajustar(texto: str) -> bool:
     """
-    True si el usuario pide reajustar el prompt del video pendiente.
-    Ejemplos: "ajustar: más oscuro", "cambiar prompt: toma aérea", "dona modifica el prompt para que sea noche".
+    True si el usuario pide reajustar el pendiente (video/imagen/voz).
+    El caller debe verificar qué pendiente hay para rutear al ajustar_X correcto.
+    Ejemplos: "ajustar: más oscuro", "cambiar prompt: toma aérea",
+    "dona modifica el texto para que diga Juan".
     """
     if not texto:
         return False
-    m = _RE_AJUSTAR_VIDEO.match(texto.strip())
+    m = _RE_AJUSTAR.match(texto.strip())
     if not m:
         return False
     return bool((m.group(1) or "").strip())
 
 
-def parsear_ajustar_video(texto: str) -> dict:
-    """Extrae la nueva idea. Asume `es_comando_ajustar_video(texto)==True`."""
-    m = _RE_AJUSTAR_VIDEO.match((texto or "").strip())
+def parsear_ajustar(texto: str) -> dict:
+    """Extrae la nueva idea/texto. Asume `es_comando_ajustar(texto)==True`."""
+    m = _RE_AJUSTAR.match((texto or "").strip())
     cuerpo = (m.group(1).strip() if m else "")
     return {"nueva_idea": cuerpo}
+
+
+# Alias retrocompat — mains que ya importaban los genéricos de video.
+es_comando_ajustar_video = es_comando_ajustar
+parsear_ajustar_video = parsear_ajustar
 
 
 # ── Documentos (factura / presupuesto / recibo) ─────────────────────────────
@@ -634,7 +645,8 @@ def texto_preview(preview: dict) -> str:
         )
     else:
         partes.append(
-            f"Responde *confirmar* para generar, o *cancelar* para descartar. "
+            "Responde *confirmar* para generar, *cancelar* para descartar, "
+            "o *ajustar: <nueva descripción>* si querés refinar el prompt. "
             f"(Expira en {ttl} min)"
         )
     return _linea_reemplazo(preview) + "\n".join(partes)
@@ -747,7 +759,8 @@ def texto_voz_preview(preview: dict) -> str:
         )
     else:
         partes.append(
-            f"Responde *confirmar* para grabar, o *cancelar* para descartar. "
+            "Responde *confirmar* para grabar, *cancelar* para descartar, "
+            "o *ajustar: <nuevo texto>* si querés cambiar lo que diga. "
             f"(Expira en {ttl} min)"
         )
     return _linea_reemplazo(preview) + "\n".join(partes)
@@ -900,6 +913,18 @@ def texto_video_ajustado(preview: dict) -> str:
     """Header distinto cuando el preview viene de `ajustar_video`."""
     base = texto_video_preview(preview)
     return "🔁 *Reajusté el prompt con tu nueva idea.*\n\n" + base
+
+
+def texto_imagen_ajustada(preview: dict) -> str:
+    """Header distinto cuando el preview viene de `ajustar_imagen`."""
+    base = texto_preview(preview)
+    return "🔁 *Reajusté el prompt con tu nueva idea.*\n\n" + base
+
+
+def texto_voz_ajustada(preview: dict) -> str:
+    """Header distinto cuando el preview viene de `ajustar_voz`."""
+    base = texto_voz_preview(preview)
+    return "🔁 *Reajusté el texto con tu nuevo contenido.*\n\n" + base
 
 
 def texto_video_encolada(job_id: int) -> str:
