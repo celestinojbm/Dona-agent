@@ -293,7 +293,7 @@ def parsear_video(texto: str) -> dict:
 _RE_AJUSTAR = re.compile(
     r"^[\s¿¡]*(?:dona[,\s]+)?"
     r"(?:ajust[aáe]r?|cambi[aáe]r?|modific[aáe]r?|edit[aáe]r?|reescrib[ií]r?)"
-    r"(?:\s+(?:el|mi|este)\s+(?:prompt|texto|audio|mensaje|gui[oó]n))?"
+    r"(?:\s+(?:(?:el|mi|este)\s+)?(?:prompt|texto|audio|mensaje|gui[oó]n))?"
     r"[\s:,\-]+(.+)$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -868,6 +868,7 @@ def texto_video_preview(preview: dict) -> str:
     modelo = preview.get("modelo", "").split("/")[-1].split(":")[0]
     con_referencia = bool(preview.get("image_url"))
     duracion = preview.get("duration_s") or 10
+    aspect = preview.get("aspect_ratio") or "16:9"
     idea = preview.get("idea_usuario") or preview.get("prompt", "")
     optimizado = preview.get("prompt_optimizado") or ""
 
@@ -888,8 +889,12 @@ def texto_video_preview(preview: dict) -> str:
         partes.append("*Prompt optimizado para el modelo:*")
         partes.append(f"_{optimizado[:400]}_")
         partes.append("")
+    # Etiqueta amigable del aspect ratio
+    aspect_txt = {"9:16": "9:16 (vertical)", "16:9": "16:9 (horizontal)",
+                  "1:1": "1:1 (cuadrado)"}.get(aspect, aspect)
     partes.extend([
         f"• Modelo: {modelo}",
+        f"• Formato: {aspect_txt}",
         f"• Duración: {duracion}s",
         f"• Costo: *{costo} créditos* (saldo: {saldo})",
         "• Tiempo estimado: 1–3 min",

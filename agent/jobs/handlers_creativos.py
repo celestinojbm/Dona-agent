@@ -540,6 +540,7 @@ async def _handler_gen_video(telefono: str, params: dict[str, Any]) -> int | Non
     prompt = (params.get("prompt") or "").strip()
     image_url = params.get("image_url") or ""
     duration_s = int(params.get("duration_s") or 0)
+    aspect_ratio = (params.get("aspect_ratio") or "").strip()
     costo_creditos = int(params.get("costo_creditos", 0))
 
     if not prompt:
@@ -551,6 +552,7 @@ async def _handler_gen_video(telefono: str, params: dict[str, Any]) -> int | Non
     try:
         video_bytes, meta = await generar_video(
             prompt, image_url=image_url, duration_s=duration_s,
+            aspect_ratio=aspect_ratio,
         )
     except ReplicateError as e:
         logger.error(f"[HANDLER gen_video] Replicate error: {e}")

@@ -52,6 +52,45 @@ _RE_DUR_LARGO = re.compile(
 )
 
 
+# ── Detección de aspect ratio desde lenguaje natural ────────────────────────
+# Seedance acepta 16:9 / 9:16 / 1:1 (y algunas variantes). Default horizontal.
+
+_RE_ASPECT_VERTICAL = re.compile(
+    r"\b(?:vertical|9:16|tiktok|reels?|shorts?|story|historias?|m[oó]vil|"
+    r"retrato|portrait)\b",
+    re.IGNORECASE,
+)
+
+_RE_ASPECT_HORIZONTAL = re.compile(
+    r"\b(?:horizontal|16:9|apaisado|landscape|widescreen|panor[aá]mico)\b",
+    re.IGNORECASE,
+)
+
+_RE_ASPECT_CUADRADO = re.compile(
+    r"\b(?:cuadrado|1:1|square|feed)\b",
+    re.IGNORECASE,
+)
+
+VIDEO_ASPECT_DEFAULT = os.getenv("VIDEO_ASPECT_DEFAULT", "16:9")
+_ASPECTS_VALIDOS = ("16:9", "9:16", "1:1")
+
+
+def _detectar_aspect(idea: str) -> str:
+    """
+    Infiere aspect ratio desde la idea del usuario.
+    Retorna '16:9', '9:16' o '1:1'. Default VIDEO_ASPECT_DEFAULT.
+    """
+    if not idea:
+        return VIDEO_ASPECT_DEFAULT
+    if _RE_ASPECT_VERTICAL.search(idea):
+        return "9:16"
+    if _RE_ASPECT_CUADRADO.search(idea):
+        return "1:1"
+    if _RE_ASPECT_HORIZONTAL.search(idea):
+        return "16:9"
+    return VIDEO_ASPECT_DEFAULT
+
+
 def _detectar_duracion(idea: str) -> int:
     """
     Infiere duración en segundos desde la idea del usuario.
@@ -138,6 +177,7 @@ async def _crear_prediccion(
     image_url: str = "",
     model: str = "",
     duration_s: int = 0,
+    aspect_ratio: str = "",
 ) -> dict:
     """
     Crea la predicción en Replicate.
@@ -158,6 +198,11 @@ async def _crear_prediccion(
         input_payload["duration"] = 5
     else:
         input_payload["duration"] = 10
+    # Aspect ratio — seedance-1-pro acepta "aspect_ratio" con 16:9 / 9:16 / 1:1.
+    # Sólo lo incluimos si es distinto del default para minimizar el riesgo
+    # de que un modelo alternativo lo rechace.
+    if aspect_ratio and aspect_ratio in _ASPECTS_VALIDOS:
+        input_payload["aspect_ratio"] = aspect_ratio
 
     # Si el slug incluye ":hash", separarlo como `version`
     if ":" in slug:
@@ -218,6 +263,7 @@ async def generar_video(
     image_url: str = "",
     model: str = "",
     duration_s: int = 0,
+    aspect_ratio: str = "",
     api_key: str | None = None,
 ) -> tuple[bytes, dict]:
     """
@@ -250,7 +296,7 @@ async def generar_video(
     async with httpx.AsyncClient(timeout=CREATE_TIMEOUT_S) as client:
         creada = await _crear_prediccion(
             client, key, prompt, image_url=image_url, model=model,
-            duration_s=duration_s,
+            duration_s=duration_s, aspect_ratio=aspect_ratio,
         )
         pred_id = creada.get("id") or ""
         get_url = (creada.get("urls") or {}).get("get") or (
@@ -325,6 +371,7 @@ class VideoPendiente:
     prompt_es: str
     image_url: str
     duration_s: int
+    aspect_ratio: str
     costo_creditos: int
     creado: datetime = field(default_factory=datetime.utcnow)
 
@@ -352,6 +399,7 @@ async def preparar_video(
     prompt: str,
     image_url: str = "",
     duration_s: int = 0,
+    aspect_ratio: str = "",
 ) -> dict:
     """
     Guarda el pedido como pendiente y retorna preview. NO cobra, NO genera.
@@ -389,6 +437,12 @@ async def preparar_video(
     else:
         dur = _detectar_duracion(idea)
 
+    # Aspect ratio: caller explícito (validado) > detectado de la idea > default.
+    if aspect_ratio and aspect_ratio in _ASPECTS_VALIDOS:
+        aspect = aspect_ratio
+    else:
+        aspect = _detectar_aspect(idea)
+
     costo = _costo_por_duracion(dur)
     saldo = await obtener_saldo(telefono)
 
@@ -399,6 +453,7 @@ async def preparar_video(
         prompt_es=prompt_es,
         image_url=image_url or "",
         duration_s=dur,
+        aspect_ratio=aspect,
         costo_creditos=costo,
     )
     _PENDIENTES[telefono] = pendiente
@@ -411,6 +466,7 @@ async def preparar_video(
         "prompt": idea,
         "image_url": image_url,
         "duration_s": dur,
+        "aspect_ratio": aspect,
         "costo_creditos": costo,
         "saldo_actual": saldo,
         "alcanza": saldo >= costo,
@@ -505,6 +561,13 @@ async def ajustar_video(telefono: str, nueva_idea: str) -> dict:
         pendiente.duration_s = nueva_dur
         pendiente.costo_creditos = _costo_por_duracion(nueva_dur)
 
+    # Re-detectamos aspect ratio sólo si la nueva idea lo menciona
+    # explícitamente (sino mantenemos el del pendiente original).
+    if (_RE_ASPECT_VERTICAL.search(nueva_idea) or
+        _RE_ASPECT_HORIZONTAL.search(nueva_idea) or
+        _RE_ASPECT_CUADRADO.search(nueva_idea)):
+        pendiente.aspect_ratio = _detectar_aspect(nueva_idea)
+
     pendiente.idea_usuario = nueva_idea
     pendiente.prompt = prompt_en
     pendiente.prompt_es = prompt_es
@@ -524,6 +587,7 @@ async def ajustar_video(telefono: str, nueva_idea: str) -> dict:
         "prompt": nueva_idea,
         "image_url": pendiente.image_url,
         "duration_s": pendiente.duration_s,
+        "aspect_ratio": pendiente.aspect_ratio,
         "costo_creditos": pendiente.costo_creditos,
         "saldo_actual": saldo,
         "alcanza": saldo >= pendiente.costo_creditos,
@@ -557,6 +621,7 @@ async def confirmar_video(telefono: str) -> dict:
             "prompt": pendiente.prompt,
             "image_url": pendiente.image_url,
             "duration_s": pendiente.duration_s,
+            "aspect_ratio": pendiente.aspect_ratio,
             "costo_creditos": pendiente.costo_creditos,
         },
     )
