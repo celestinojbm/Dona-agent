@@ -259,7 +259,13 @@ def _extraer_imagen_inline(data: dict) -> tuple[bytes, str]:
 @dataclass
 class ImagenPendiente:
     telefono: str
+    # Idea original del usuario (en español, tal como la escribió).
+    idea_usuario: str
+    # Prompt optimizado en INGLÉS — el que se envía al modelo (Gemini/Ideogram).
     prompt: str
+    # Versión en español del prompt optimizado — se muestra al usuario en el
+    # preview. Misma escena descrita que `prompt`.
+    prompt_es: str
     calidad: str
     aspect_ratio: str
     costo_creditos: int
@@ -291,17 +297,22 @@ async def preparar_imagen(
     aspect_ratio: str = "1:1",
 ) -> dict:
     """
-    Guarda el prompt como pendiente y retorna dict con los datos para mostrar
-    al usuario (prompt, costo, saldo, modelo). NO cobra, NO genera.
+    Guarda el prompt como pendiente y retorna preview. NO cobra, NO genera.
+
+    ANTES de guardar, llama a `optimizar_prompt_imagen` para traducir la idea
+    del usuario (español, conversacional) a un prompt optimizado fotográfico/
+    de diseño bilingüe. La idea original se conserva para el preview.
     """
     from agent.billing import (
         COSTO_IMAGEN_STANDARD, COSTO_IMAGEN_PREMIUM, obtener_saldo,
     )
     from agent.creativos.pendientes import cancelar_otros_pendientes
+    from agent.creativos.prompt_imagen import optimizar_prompt_imagen
 
-    prompt = (prompt or "").strip()
-    if not prompt:
+    idea = (prompt or "").strip()
+    if not idea:
         raise ValueError("prompt vacío")
+    idea = idea[:2000]
     if calidad not in ("standard", "premium"):
         calidad = "standard"
     if aspect_ratio not in ("1:1", "16:9", "9:16", "4:3", "3:4"):
@@ -310,12 +321,20 @@ async def preparar_imagen(
     # Un solo pendiente activo por teléfono — si había otro, lo reemplazamos.
     reemplazo = cancelar_otros_pendientes(telefono, excepto="imagen")
 
+    # Optimizar la idea a prompt fotográfico bilingüe. Si el LLM falla,
+    # internamente cae a fallback (idea + sufijo de calidad).
+    opt = await optimizar_prompt_imagen(idea, calidad=calidad)
+    prompt_en = (opt.get("en") or "")[:2000]
+    prompt_es = (opt.get("es") or idea)[:2000]
+
     costo = COSTO_IMAGEN_PREMIUM if calidad == "premium" else COSTO_IMAGEN_STANDARD
     saldo = await obtener_saldo(telefono)
 
     pendiente = ImagenPendiente(
         telefono=telefono,
-        prompt=prompt[:2000],
+        idea_usuario=idea,
+        prompt=prompt_en,
+        prompt_es=prompt_es,
         calidad=calidad,
         aspect_ratio=aspect_ratio,
         costo_creditos=costo,
@@ -323,7 +342,12 @@ async def preparar_imagen(
     _PENDIENTES[telefono] = pendiente
 
     return {
-        "prompt": pendiente.prompt,
+        # `prompt` queda como la idea original del usuario para no romper
+        # callers existentes que esperan ver lo que el usuario escribió.
+        "prompt": idea,
+        "idea_usuario": idea,
+        "prompt_optimizado": prompt_es,  # versión ES para el preview
+        "prompt_en": prompt_en,           # versión EN (debug)
         "calidad": calidad,
         "aspect_ratio": aspect_ratio,
         "costo_creditos": costo,
@@ -336,35 +360,45 @@ async def preparar_imagen(
 
 async def ajustar_imagen(telefono: str, nuevo_prompt: str) -> dict:
     """
-    Reemplaza el prompt de la imagen pendiente con uno nuevo. NO cobra, NO
-    cancela — solo deja el pendiente listo para confirmar/cancelar con la
-    nueva descripción.
+    Re-optimiza el prompt de la imagen pendiente con la nueva idea del usuario.
+    NO cobra, NO cancela — deja el pendiente listo para confirmar/cancelar
+    con la nueva descripción ya optimizada.
 
     Retorna:
       - {"estado": "sin_pendiente"} si no había imagen pendiente
       - {"estado": "ok", ...preview} con el nuevo preview
     """
     from agent.billing import obtener_saldo
+    from agent.creativos.prompt_imagen import optimizar_prompt_imagen
 
     pendiente = obtener_pendiente(telefono)
     if pendiente is None:
         return {"estado": "sin_pendiente"}
 
-    nuevo = (nuevo_prompt or "").strip()[:2000]
-    if not nuevo:
+    nueva_idea = (nuevo_prompt or "").strip()[:2000]
+    if not nueva_idea:
         raise ValueError("nuevo_prompt vacío")
 
-    pendiente.prompt = nuevo
+    opt = await optimizar_prompt_imagen(nueva_idea, calidad=pendiente.calidad)
+    prompt_en = (opt.get("en") or "")[:2000]
+    prompt_es = (opt.get("es") or nueva_idea)[:2000]
+
+    pendiente.idea_usuario = nueva_idea
+    pendiente.prompt = prompt_en
+    pendiente.prompt_es = prompt_es
     # Reseteamos TTL al iterar — el usuario sigue activo.
     pendiente.creado = datetime.utcnow()
 
     saldo = await obtener_saldo(telefono)
 
-    logger.info(f"[IMAGEN] ajustar → {telefono} nuevo_prompt=\"{nuevo[:60]}\"")
+    logger.info(f"[IMAGEN] ajustar → {telefono} nueva_idea=\"{nueva_idea[:60]}\"")
 
     return {
         "estado": "ok",
-        "prompt": pendiente.prompt,
+        "prompt": nueva_idea,             # retrocompat
+        "idea_usuario": nueva_idea,
+        "prompt_optimizado": prompt_es,
+        "prompt_en": prompt_en,
         "calidad": pendiente.calidad,
         "aspect_ratio": pendiente.aspect_ratio,
         "costo_creditos": pendiente.costo_creditos,

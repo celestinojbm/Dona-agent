@@ -34,6 +34,7 @@ async def db(tmp_path, monkeypatch):
     import agent.jobs.queue as _queue
     import agent.jobs.worker as _worker
     import agent.jobs as _jobs
+    import agent.creativos.prompt_imagen as _prompt_imagen
     import agent.creativos.imagen as _imagen
     import agent.jobs.handlers_creativos as _hc
 
@@ -43,8 +44,18 @@ async def db(tmp_path, monkeypatch):
     importlib.reload(_queue)
     importlib.reload(_worker)
     importlib.reload(_jobs)
+    importlib.reload(_prompt_imagen)
     importlib.reload(_imagen)
     importlib.reload(_hc)
+
+    # Mock del optimizer: pass-through idea → {"en": idea, "es": idea}.
+    # Evita llamar a Claude en cada test y mantiene `pend.prompt == idea`
+    # para no romper asserts existentes. Tests que validan el comportamiento
+    # real del optimizer están en test_creativos_prompt_imagen.py.
+    async def _fake_optimizar(idea, calidad="standard"):
+        return {"en": idea, "es": idea}
+    monkeypatch.setattr(_imagen, "optimizar_prompt_imagen", _fake_optimizar, raising=False)
+    monkeypatch.setattr(_prompt_imagen, "optimizar_prompt_imagen", _fake_optimizar)
 
     await _memory.inicializar_db()
     yield {

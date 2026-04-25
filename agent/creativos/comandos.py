@@ -628,16 +628,26 @@ def texto_preview(preview: dict) -> str:
     calidad = preview["calidad"]
     aspect = preview["aspect_ratio"]
     ttl = preview["ttl_min"]
+    idea = preview.get("idea_usuario") or preview["prompt"]
+    optimizado = preview.get("prompt_optimizado") or ""
 
     partes = [
         "🎨 *Voy a generar:*",
-        f"_{preview['prompt']}_",
+        f"_{idea}_",
         "",
+    ]
+    if optimizado and optimizado.strip() != idea.strip():
+        # Transparencia: el usuario ve cómo Dona refinó su idea para sacar
+        # mejor resultado del modelo de imagen.
+        partes.append("*Prompt optimizado para el modelo:*")
+        partes.append(f"_{optimizado[:400]}_")
+        partes.append("")
+    partes.extend([
         f"• Calidad: {calidad}",
         f"• Proporción: {aspect}",
         f"• Costo: *{costo} créditos* (saldo: {saldo})",
         "",
-    ]
+    ])
     if not alcanza:
         partes.append(
             f"⚠️ No te alcanzan los créditos ({saldo}/{costo}). "

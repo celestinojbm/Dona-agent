@@ -115,6 +115,7 @@ async def db(tmp_path, monkeypatch):
     import agent.jobs.queue as _queue
     import agent.jobs.worker as _worker
     import agent.jobs as _jobs
+    import agent.creativos.prompt_imagen as _pi
     import agent.creativos.imagen as _imagen
     import agent.creativos.voz as _voz
     import agent.creativos.video as _video
@@ -126,10 +127,17 @@ async def db(tmp_path, monkeypatch):
     importlib.reload(_queue)
     importlib.reload(_worker)
     importlib.reload(_jobs)
+    importlib.reload(_pi)
     importlib.reload(_imagen)
     importlib.reload(_voz)
     importlib.reload(_pv)
     importlib.reload(_video)
+
+    # Pass-through del optimizer de imagen: evita llamar a Claude y mantiene
+    # `pend.prompt == idea` para los asserts del flujo ajustar.
+    async def _fake_optimizar_img(idea, calidad="standard"):
+        return {"en": idea, "es": idea}
+    monkeypatch.setattr(_pi, "optimizar_prompt_imagen", _fake_optimizar_img)
 
     await _memory.inicializar_db()
     yield {
