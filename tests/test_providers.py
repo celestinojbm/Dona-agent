@@ -429,3 +429,141 @@ class TestFallbackTexto:
         assert result is True
         assert "Item A" in p.ultimo_mensaje
         assert "Desc A" in p.ultimo_mensaje
+
+
+# ── T0.10: Validación de header personalizado en webhooks Whapi ─────────────
+
+
+def _make_whapi_text_msg(telefono: str = "5215551234567", texto: str = "hola") -> dict:
+    """Mensaje Whapi de texto mínimo para tests de webhook."""
+    return {
+        "id": "whapi.msg.abc",
+        "chat_id": telefono,
+        "type": "text",
+        "text": {"body": texto},
+        "from_me": False,
+    }
+
+
+def _make_whapi_request(payload: dict, headers: dict | None = None) -> AsyncMock:
+    """Crea un mock de Request de FastAPI para webhook Whapi.
+
+    A diferencia de _make_request (Meta), Whapi parsea via request.json() y no
+    request.body(), así que mockeamos el método json directamente.
+    """
+    request = AsyncMock()
+    request.json = AsyncMock(return_value=payload)
+    request.body = AsyncMock(return_value=json.dumps(payload).encode())
+    request.headers = headers or {}
+    return request
+
+
+class TestWhapiWebhookValidation:
+    """T0.10: validación de header personalizado en webhooks Whapi.
+
+    Whapi no firma HMAC sobre el body; el modelo de seguridad oficial es
+    custom header con shared secret configurado en su panel via PATCH /settings.
+    """
+
+    def test_dev_sin_token_acepta_payload(self, monkeypatch):
+        from agent.providers.whapi import ProveedorWhapi
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        monkeypatch.delenv("WHAPI_WEBHOOK_TOKEN", raising=False)
+        proveedor = ProveedorWhapi()  # No debe levantar.
+        # Mensaje sin header → en dev se acepta.
+        request = _make_whapi_request({"messages": [_make_whapi_text_msg()]})
+        assert proveedor._verificar_firma(request) is True
+
+    def test_production_sin_token_levanta_runtime_error(self, monkeypatch):
+        """Al instanciar el provider: si production sin token, RuntimeError aborta."""
+        from agent.providers.whapi import ProveedorWhapi
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("WHAPI_WEBHOOK_TOKEN", raising=False)
+        with pytest.raises(RuntimeError, match="WHAPI_WEBHOOK_TOKEN"):
+            ProveedorWhapi()
+
+    def test_production_secret_solo_whitespace_levanta(self, monkeypatch):
+        """Strings con solo whitespace cuentan como vacío (.strip() en __init__)."""
+        from agent.providers.whapi import ProveedorWhapi
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("WHAPI_WEBHOOK_TOKEN", "   ")
+        with pytest.raises(RuntimeError, match="WHAPI_WEBHOOK_TOKEN"):
+            ProveedorWhapi()
+
+    def test_production_con_token_no_levanta_en_init(self, monkeypatch):
+        """Con token configurado, el __init__ en production no aborta."""
+        from agent.providers.whapi import ProveedorWhapi
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("WHAPI_WEBHOOK_TOKEN", "test_token_dummy")
+        proveedor = ProveedorWhapi()  # No debe levantar.
+        assert proveedor.webhook_token == "test_token_dummy"
+        assert proveedor.webhook_header == "X-Webhook-Token"
+
+    @pytest.mark.asyncio
+    async def test_production_token_valido_acepta(self, monkeypatch):
+        """En production con header correcto, parsear_webhook procesa mensajes."""
+        from agent.providers.whapi import ProveedorWhapi
+        # Construir provider en dev/test (donde __init__ no aborta) y luego override.
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        proveedor = ProveedorWhapi()
+        proveedor.webhook_token = "shared_token_xyz"
+        # Simular runtime de production.
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        request = _make_whapi_request(
+            {"messages": [_make_whapi_text_msg(texto="hola")]},
+            headers={"X-Webhook-Token": "shared_token_xyz"},
+        )
+        mensajes = await proveedor.parsear_webhook(request)
+        assert len(mensajes) == 1
+        assert mensajes[0].texto == "hola"
+
+    @pytest.mark.asyncio
+    async def test_production_token_invalido_rechaza(self, monkeypatch):
+        """En production con header presente pero valor incorrecto, parsear retorna []."""
+        from agent.providers.whapi import ProveedorWhapi
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        proveedor = ProveedorWhapi()
+        proveedor.webhook_token = "shared_token_xyz"
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        request = _make_whapi_request(
+            {"messages": [_make_whapi_text_msg()]},
+            headers={"X-Webhook-Token": "secreto_FALSO"},
+        )
+        mensajes = await proveedor.parsear_webhook(request)
+        assert mensajes == []
+
+    @pytest.mark.asyncio
+    async def test_production_sin_header_rechaza(self, monkeypatch):
+        """En production sin el header configurado, parsear retorna []."""
+        from agent.providers.whapi import ProveedorWhapi
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        proveedor = ProveedorWhapi()
+        proveedor.webhook_token = "shared_token_xyz"
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        request = _make_whapi_request(
+            {"messages": [_make_whapi_text_msg()]},
+            headers={},
+        )
+        mensajes = await proveedor.parsear_webhook(request)
+        assert mensajes == []
+
+    def test_header_personalizable_via_env(self, monkeypatch):
+        """WHAPI_WEBHOOK_HEADER permite cambiar el nombre del header."""
+        from agent.providers.whapi import ProveedorWhapi
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("WHAPI_WEBHOOK_TOKEN", "shared_token_xyz")
+        monkeypatch.setenv("WHAPI_WEBHOOK_HEADER", "X-Custom-Auth")
+        proveedor = ProveedorWhapi()
+        assert proveedor.webhook_header == "X-Custom-Auth"
+        # Header con el nombre custom y valor correcto → acepta.
+        request = _make_whapi_request(
+            {"messages": [_make_whapi_text_msg()]},
+            headers={"X-Custom-Auth": "shared_token_xyz"},
+        )
+        assert proveedor._verificar_firma(request) is True
+        # Mismo valor en header default no sirve.
+        request2 = _make_whapi_request(
+            {"messages": [_make_whapi_text_msg()]},
+            headers={"X-Webhook-Token": "shared_token_xyz"},
+        )
+        assert proveedor._verificar_firma(request2) is False
