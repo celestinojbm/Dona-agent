@@ -62,3 +62,70 @@ class TestInboundTokens:
         # Simular rotación del secreto
         monkeypatch.setenv("INBOUND_WEBHOOK_SECRET", "otro-secreto")
         assert inbound_tokens.verificar_token(tok) is None
+
+
+class TestSecretoProduction:
+    """T0.4: el módulo no debe arrancar en producción sin INBOUND_WEBHOOK_SECRET.
+
+    Patrón idéntico a TestVerificarFirmaProduction de tests/test_billing.py:
+    el check al import-time aborta el deploy si falta el secret; el `_secreto()`
+    también rechaza en producción como defensa en profundidad.
+    """
+
+    def test_production_sin_secret_levanta_runtime_error_al_reload(self, monkeypatch):
+        """Al import-time: si production sin secret, RuntimeError aborta el deploy."""
+        import importlib
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        try:
+            with pytest.raises(RuntimeError, match="INBOUND_WEBHOOK_SECRET"):
+                importlib.reload(inbound_tokens)
+        finally:
+            # Restaurar el módulo en estado limpio para tests posteriores.
+            monkeypatch.setenv("ENVIRONMENT", "test")
+            monkeypatch.setenv("INBOUND_WEBHOOK_SECRET", "test-secret-xyz")
+            importlib.reload(inbound_tokens)
+
+    def test_production_secret_solo_whitespace_levanta(self, monkeypatch):
+        """Strings con solo whitespace cuentan como vacío (.strip() en el check)."""
+        import importlib
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("INBOUND_WEBHOOK_SECRET", "   ")
+        try:
+            with pytest.raises(RuntimeError, match="INBOUND_WEBHOOK_SECRET"):
+                importlib.reload(inbound_tokens)
+        finally:
+            monkeypatch.setenv("ENVIRONMENT", "test")
+            monkeypatch.setenv("INBOUND_WEBHOOK_SECRET", "test-secret-xyz")
+            importlib.reload(inbound_tokens)
+
+    def test_production_runtime_sin_secret_levanta_en_secreto(self, monkeypatch):
+        """Defensa en profundidad: si el secret desaparece después del import,
+        _secreto() rechaza con RuntimeError en lugar de caer a fallback."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        with pytest.raises(RuntimeError, match="INBOUND_WEBHOOK_SECRET"):
+            inbound_tokens._secreto()
+
+    def test_production_con_secret_no_levanta_al_reload(self, monkeypatch):
+        """Con secret configurado, el import en production no aborta."""
+        import importlib
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("INBOUND_WEBHOOK_SECRET", "production_secret_dummy")
+        try:
+            importlib.reload(inbound_tokens)  # No debe levantar.
+            # _secreto() retorna los bytes correctos.
+            assert inbound_tokens._secreto() == b"production_secret_dummy"
+        finally:
+            monkeypatch.setenv("ENVIRONMENT", "test")
+            monkeypatch.setenv("INBOUND_WEBHOOK_SECRET", "test-secret-xyz")
+            importlib.reload(inbound_tokens)
+
+    def test_production_no_cae_a_admin_token_derivado(self, monkeypatch):
+        """En production, ADMIN_TOKEN seteado NO debe activar el fallback derivado."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("ADMIN_TOKEN", "admin_token_dummy")
+        # _secreto() debe levantar RuntimeError en producción aunque ADMIN_TOKEN exista.
+        with pytest.raises(RuntimeError, match="INBOUND_WEBHOOK_SECRET"):
+            inbound_tokens._secreto()

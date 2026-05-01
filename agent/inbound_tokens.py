@@ -13,8 +13,10 @@ Ejemplo de uso desde Zapier:
 El token codifica (telefono, nonce, timestamp_emision) y va firmado con HMAC-SHA256.
 No tiene expiración por diseño — el usuario puede revocarlos rotando `INBOUND_WEBHOOK_SECRET`.
 
-Secreto: lee INBOUND_WEBHOOK_SECRET del entorno; si no está, usa un valor
-derivado + warning (solo para desarrollo).
+Secreto: en producción se exige `INBOUND_WEBHOOK_SECRET` configurado. Si falta,
+el módulo levanta `RuntimeError` al import y aborta el deploy. En dev/test se
+permite un fallback derivado de `ADMIN_TOKEN` o un literal del repo (con warning)
+para correr pruebas locales sin necesidad de configurar Stripe/Zapier.
 """
 
 import os
@@ -27,18 +29,59 @@ import logging
 logger = logging.getLogger("dona")
 
 
+# ── Fail-fast: INBOUND_WEBHOOK_SECRET obligatorio en producción ──────────────
+# Sin esta variable, _secreto() caería a un fallback derivado de ADMIN_TOKEN
+# (acopla dos secretos que deberían ser independientes) o a un literal público
+# del repo, lo que permitiría a un atacante forjar tokens y disparar mensajes
+# WhatsApp arbitrarios via POST /webhook/inbound/<token>.
+# El check vive a nivel módulo y se ejecuta cuando agent.inbound_tokens se
+# importa al startup (ver agent/main.py).
+_ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+
+if _ENVIRONMENT == "production" and not os.getenv("INBOUND_WEBHOOK_SECRET", "").strip():
+    raise RuntimeError(
+        "[INBOUND] INBOUND_WEBHOOK_SECRET no configurado en producción — "
+        "los tokens caerían a un fallback derivado de ADMIN_TOKEN o a un "
+        "literal público del repo, lo que permitiría a un atacante forjar "
+        "tokens para enviar mensajes WhatsApp a cualquier número. "
+        "Configura la variable antes de reintentar el deploy."
+    )
+
+
 def _secreto() -> bytes:
-    """Devuelve el secreto HMAC configurado, o uno derivado en dev con warning."""
+    """Devuelve el secreto HMAC configurado.
+
+    En producción debe haber `INBOUND_WEBHOOK_SECRET` (el check de import-time
+    ya lo garantiza). Si por algún path la variable desaparece después del
+    startup, esta función rechaza con `RuntimeError` como defensa en profundidad.
+
+    En dev/test se permite un fallback derivado de `ADMIN_TOKEN` o un literal
+    del repo, ambos con warning. Ese path NUNCA se ejecuta en producción.
+    """
     secret = os.getenv("INBOUND_WEBHOOK_SECRET", "").strip()
     if secret:
         return secret.encode("utf-8")
-    # Fallback en dev: derivar de ADMIN_TOKEN si existe, sino un valor fijo de dev.
-    # En producción siempre debe estar configurado INBOUND_WEBHOOK_SECRET.
+    # En producción no debemos llegar aquí (el check de import lo evita).
+    # Defensa en profundidad: si la env var desaparece después del startup,
+    # rechazamos con RuntimeError en lugar de caer a fallback inseguro.
+    environment = os.getenv("ENVIRONMENT", "development").lower()
+    if environment == "production":
+        raise RuntimeError(
+            "[INBOUND] INBOUND_WEBHOOK_SECRET no configurado en producción "
+            "(defensa en profundidad)."
+        )
+    # Fallback dev/test: derivar de ADMIN_TOKEN o literal del repo. Solo no-prod.
     admin = os.getenv("ADMIN_TOKEN", "").strip()
     if admin:
-        logger.warning("[INBOUND] INBOUND_WEBHOOK_SECRET no configurado, derivando de ADMIN_TOKEN")
+        logger.warning(
+            "[INBOUND] INBOUND_WEBHOOK_SECRET no configurado, derivando de "
+            "ADMIN_TOKEN (INSEGURO, solo dev/test)"
+        )
         return hashlib.sha256(b"inbound-webhook-derived|" + admin.encode("utf-8")).digest()
-    logger.warning("[INBOUND] INBOUND_WEBHOOK_SECRET no configurado — usando valor de desarrollo INSEGURO")
+    logger.warning(
+        "[INBOUND] INBOUND_WEBHOOK_SECRET no configurado — usando valor de "
+        "desarrollo INSEGURO (solo dev/test)"
+    )
     return b"dona-inbound-dev-secret-do-not-use-in-prod"
 
 
