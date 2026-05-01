@@ -59,10 +59,10 @@ const i18n = {
     ],
     painLabel: "El problema que Dona resuelve",
     painStats: [
-      { num: 14, prefix: "", suffix: "h", sub: "", label: "a la semana perdidas cambiando entre apps" },
-      { num: 24, prefix: "$", suffix: "K", sub: "", label: "al a\u00f1o en productividad desperdiciada por emprendedor" },
+      { num: 14, prefix: "", suffix: "h", sub: "", label: "a la semana perdidas cambiando entre apps, segun estudios de productividad" },
+      { num: 24, prefix: "$", suffix: "K", sub: "", label: "al a\u00f1o en productividad desperdiciada por emprendedor, segun industria" },
       { num: 73, prefix: "", suffix: "%", sub: "", label: "de tareas criticas se pierden sin un sistema central" },
-      { num: 2, prefix: "$", suffix: "K", sub: "/mes", label: "en gastos de empleados que Dona puede reemplazar" },
+      { num: 4, prefix: "", suffix: "x", sub: "", label: "mas iniciativas en marcha cuando hay un sistema centralizado de seguimiento" },
     ],
     how: {
       label: "Como funciona",
@@ -96,7 +96,7 @@ const i18n = {
       cards: [
         { icon: "Brain", title: "Memoria que aprende", desc: "No repites informacion. Dona retiene cada dato, contacto y decision. Preguntale lo que sea, cuando sea." },
         { icon: "Sparkles", title: "Escenarios simulados", desc: "Subir precios? Contratar? Dona analiza el impacto financiero antes de que tomes una decision costosa." },
-        { icon: "Shield", title: "Privacidad real", desc: "Tu informacion esta encriptada de extremo a extremo. No compartimos datos con terceros. Nunca." },
+        { icon: "Shield", title: "Privacidad responsable", desc: "TLS en todas las comunicaciones y tokens OAuth cifrados en reposo. No entrenamos modelos con tus datos. Trabajamos con un conjunto acotado de proveedores listados en nuestra politica de privacidad." },
         { icon: "Globe", title: "Hecho para hispanos en USA", desc: "Entiende espanol, ingles y spanglish. Disenada para la realidad del emprendedor latino que hace negocios en dos idiomas." },
       ],
     },
@@ -128,7 +128,7 @@ const i18n = {
       title: "Preguntas frecuentes",
       items: [
         { q: "Dona puede leer mis correos?", a: "Si. Dona se conecta a Gmail y Outlook para leer, resumir y responder correos. Tu apruebas cada accion antes de que se ejecute." },
-        { q: "Es seguro compartir informacion de mi negocio?", a: "Toda la informacion se encripta en transito y en reposo. No compartimos datos con terceros ni entrenamos modelos con tu informacion." },
+        { q: "Es seguro compartir informacion de mi negocio?", a: "Usamos TLS en todas las comunicaciones y ciframos en reposo los datos sensibles (tokens OAuth, credenciales). No entrenamos modelos con tu informacion. Para operar el servicio trabajamos con un conjunto acotado de proveedores tecnicos (LLMs, infraestructura, mensajeria) listados publicamente en nuestra politica de privacidad." },
         { q: "Funciona en espanol e ingles?", a: "Dona entiende y responde en ambos idiomas. Puedes mezclar espanol e ingles en la misma conversacion sin problema." },
         { q: "Necesito instalar una app?", a: "No. Dona funciona 100% dentro de WhatsApp. Solo necesitas agregar el numero de Dona a tus contactos y empezar a escribir." },
         { q: "Puedo cancelar en cualquier momento?", a: "Si. No hay contratos ni permanencia. Cancelas cuando quieras desde tu cuenta, sin preguntas ni penalizaciones." },
@@ -174,10 +174,10 @@ const i18n = {
     ],
     painLabel: "The problem Dona solves",
     painStats: [
-      { num: 14, prefix: "", suffix: "h", sub: "", label: "per week lost switching between apps" },
-      { num: 24, prefix: "$", suffix: "K", sub: "", label: "per year in wasted productivity per entrepreneur" },
+      { num: 14, prefix: "", suffix: "h", sub: "", label: "per week lost switching between apps, according to productivity research" },
+      { num: 24, prefix: "$", suffix: "K", sub: "", label: "per year in wasted productivity per entrepreneur, industry estimates" },
       { num: 73, prefix: "", suffix: "%", sub: "", label: "of critical tasks are lost without a central system" },
-      { num: 2, prefix: "$", suffix: "K", sub: "/mo", label: "in employee costs that Dona can replace" },
+      { num: 4, prefix: "", suffix: "x", sub: "", label: "more initiatives in motion when tracked from a single system" },
     ],
     how: {
       label: "How it works",
@@ -211,7 +211,7 @@ const i18n = {
       cards: [
         { icon: "Brain", title: "Memory that learns", desc: "No repeating yourself. Dona retains every piece of data, contact and decision. Ask anything, anytime." },
         { icon: "Sparkles", title: "Simulated scenarios", desc: "Raise prices? Hire? Dona analyzes the financial impact before you make an expensive decision." },
-        { icon: "Shield", title: "Real privacy", desc: "Your information is encrypted end-to-end. We don't share data with third parties. Ever." },
+        { icon: "Shield", title: "Responsible privacy", desc: "TLS for all communications and OAuth tokens encrypted at rest. We don't train models on your data. We work with a limited set of providers listed in our privacy policy." },
         { icon: "Globe", title: "Made for Hispanics in the US", desc: "Understands Spanish, English and Spanglish. Designed for the reality of the Latino entrepreneur doing business in two languages." },
       ],
     },
@@ -243,7 +243,7 @@ const i18n = {
       title: "Frequently asked questions",
       items: [
         { q: "Can Dona read my emails?", a: "Yes. Dona connects to Gmail and Outlook to read, summarize and reply to emails. You approve every action before it's executed." },
-        { q: "Is it safe to share my business information?", a: "All information is encrypted in transit and at rest. We don't share data with third parties or train models on your information." },
+        { q: "Is it safe to share my business information?", a: "We use TLS for all communications and encrypt sensitive data at rest (OAuth tokens, credentials). We don't train models on your information. To run the service we work with a limited set of technical providers (LLMs, infrastructure, messaging) listed publicly in our privacy policy." },
         { q: "Does it work in Spanish and English?", a: "Dona understands and replies in both languages. You can mix Spanish and English in the same conversation seamlessly." },
         { q: "Do I need to install an app?", a: "No. Dona works 100% inside WhatsApp. Just save Dona's number and start chatting." },
         { q: "Can I cancel anytime?", a: "Yes. No contracts, no lock-in. Cancel whenever you want from your account — no questions asked." },
