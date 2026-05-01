@@ -2,6 +2,7 @@
 # Dona
 
 import os
+import hmac
 import logging
 import httpx
 from fastapi import Request
@@ -19,6 +20,81 @@ class ProveedorWhapi(ProveedorWhatsApp):
     def __init__(self):
         self.token = os.getenv("WHAPI_TOKEN")
         self.url_envio = "https://gate.whapi.cloud/messages/text"
+        self.webhook_token = os.getenv("WHAPI_WEBHOOK_TOKEN", "").strip()
+        self.webhook_header = os.getenv(
+            "WHAPI_WEBHOOK_HEADER", "X-Webhook-Token"
+        ).strip()
+
+        # Fail-fast: WHAPI_WEBHOOK_TOKEN obligatorio en producción cuando
+        # WHATSAPP_PROVIDER=whapi. Whapi no usa HMAC sobre el body; su modelo
+        # oficial es shared secret en custom header configurado vía
+        # PATCH /settings (parámetro "headers"). Sin ese token la ruta
+        # /webhook aceptaría payloads forjados desde cualquier IP, lo que
+        # permitiría inyectar mensajes WhatsApp falsos.
+        # El check vive aquí (en __init__) y no a nivel módulo porque el
+        # factory de agent/providers/__init__.py solo importa este módulo
+        # si el provider activo es Whapi — así no bloqueamos deploys con
+        # WHATSAPP_PROVIDER=meta/twilio sin necesidad de este token.
+        environment = os.getenv("ENVIRONMENT", "development").lower()
+        if environment == "production" and not self.webhook_token:
+            raise RuntimeError(
+                "[WHAPI] WHAPI_WEBHOOK_TOKEN no configurado en producción — "
+                "los webhooks aceptarían payloads forjados, lo que permite "
+                "a un atacante inyectar mensajes WhatsApp falsos. Configura "
+                "la variable o cambia WHATSAPP_PROVIDER antes de reintentar "
+                "el deploy."
+            )
+
+    def _verificar_firma(self, request: Request) -> bool:
+        """Valida que el request incluye el custom header con el valor esperado.
+
+        Whapi no firma HMAC sobre el body; el modelo oficial es shared secret
+        en custom header configurado en el panel de Whapi (PATCH /settings con
+        parámetro ``headers``). El owner debe configurar allí el header
+        ``self.webhook_header`` con el valor de ``self.webhook_token``.
+
+        Comportamiento:
+          - Producción sin ``webhook_token``: rechaza (defensa en profundidad).
+            El check de ``__init__`` ya debería haber abortado el deploy, pero
+            esto cubre el caso de que el provider se haya construido por algún
+            path alternativo sin token.
+          - Dev/test sin ``webhook_token``: acepta sin verificar (con warning)
+            para permitir pruebas locales sin configurar Whapi.
+          - Con ``webhook_token``: compara con el header recibido usando
+            ``hmac.compare_digest`` (timing-safe).
+
+        ``ENVIRONMENT`` se lee en cada llamada para facilitar tests con
+        ``monkeypatch.setenv``.
+        """
+        environment = os.getenv("ENVIRONMENT", "development").lower()
+
+        if not self.webhook_token:
+            if environment == "production":
+                logger.error(
+                    "[WHAPI] WHAPI_WEBHOOK_TOKEN no configurado en producción — "
+                    "rechazando webhook (defensa en profundidad)."
+                )
+                return False
+            logger.warning(
+                "[WHAPI] WHAPI_WEBHOOK_TOKEN no configurado — aceptando sin "
+                "verificar (INSEGURO, solo dev/test)."
+            )
+            return True
+
+        received = request.headers.get(self.webhook_header, "")
+        if not received:
+            logger.warning(
+                f"[WHAPI] Header {self.webhook_header} ausente — webhook rechazado."
+            )
+            return False
+
+        if not hmac.compare_digest(received, self.webhook_token):
+            logger.warning(
+                f"[WHAPI] Header {self.webhook_header} no coincide — webhook rechazado."
+            )
+            return False
+
+        return True
 
     async def parsear_webhook(self, request: Request) -> list[MensajeEntrante]:
         """
@@ -27,7 +103,12 @@ class ProveedorWhapi(ProveedorWhatsApp):
         Formatos:
         - Webhook genérico:   {"messages": [{...}, ...]}
         - Webhook por evento: {...mensaje directo...}
+
+        Verifica el custom header de seguridad antes de parsear (T0.10).
         """
+        if not self._verificar_firma(request):
+            return []  # Rechazo silencioso — no procesar payload
+
         body = await request.json()
         logger.debug(f"Payload Whapi recibido: {body}")
         mensajes = []
