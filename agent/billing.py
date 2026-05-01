@@ -31,6 +31,24 @@ from typing import Any
 logger = logging.getLogger("dona")
 
 
+# ── Fail-fast: STRIPE_WEBHOOK_SECRET obligatorio en producción ───────────────
+# El endpoint /webhook/stripe está públicamente expuesto. Sin secret de
+# verificación, un atacante puede forjar payloads de checkout.session.completed
+# y acreditar créditos arbitrarios. En producción exigimos la variable al
+# import del módulo — si falta, el deploy aborta antes de empezar a servir.
+# En dev/test mantenemos el path permisivo (con warning) para que se puedan
+# correr pruebas locales sin configurar Stripe.
+_ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+
+if _ENVIRONMENT == "production" and not os.getenv("STRIPE_WEBHOOK_SECRET", "").strip():
+    raise RuntimeError(
+        "[BILLING] STRIPE_WEBHOOK_SECRET no configurada en producción — "
+        "los webhooks de Stripe podrían aceptar payloads forjados, lo que "
+        "permitiría a un atacante acreditar créditos arbitrarios. "
+        "Configura la variable antes de reintentar el deploy."
+    )
+
+
 # ── Configuración de paquetes ───────────────────────────────────────────────
 # Los paquetes pueden ajustarse por env sin redeploy. Si un price_id no está
 # configurado el paquete queda deshabilitado (no aparece en "dona recargar").
@@ -366,11 +384,38 @@ async def crear_checkout(telefono: str, codigo_paquete: str, success_url: str = 
 def verificar_firma_stripe(payload: bytes, sig_header: str, webhook_secret: str | None = None) -> dict | None:
     """
     Verifica la firma de un evento de Stripe. Retorna el evento dict o None.
-    Usa la lib de Stripe si está instalada, sino una implementación propia.
+
+    Comportamiento:
+      - En ``ENVIRONMENT=production``: si no hay secret (ni argumento ni env var),
+        retorna ``None`` y loguea ERROR. Defensa en profundidad: el check
+        de import-time ya debería haber abortado el deploy, pero esto cubre
+        el caso de que el módulo se haya cargado por algún path alternativo
+        sin el secret.
+      - En dev/test: si no hay secret, parsea el JSON sin verificar (con
+        warning explícito). Permite probar el flujo localmente sin Stripe.
+      - Con secret configurado: valida con ``stripe.Webhook.construct_event``.
+        Si la firma es inválida, retorna ``None``.
+
+    Las variables de entorno se leen en cada llamada (no se cachean) para
+    facilitar tests con ``monkeypatch.setenv``.
     """
-    secret = webhook_secret or os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    secret = (
+        webhook_secret if webhook_secret is not None
+        else os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    ).strip()
+    environment = os.getenv("ENVIRONMENT", "development").lower()
+
     if not secret:
-        logger.warning("[BILLING] STRIPE_WEBHOOK_SECRET no configurada — aceptando sin verificar (INSEGURO)")
+        if environment == "production":
+            logger.error(
+                "[BILLING] STRIPE_WEBHOOK_SECRET no configurada en producción — "
+                "rechazando webhook (no se acreditan créditos)."
+            )
+            return None
+        logger.warning(
+            "[BILLING] STRIPE_WEBHOOK_SECRET no configurada — "
+            "aceptando sin verificar (INSEGURO, solo dev/test)."
+        )
         try:
             return json.loads(payload.decode("utf-8"))
         except Exception:
