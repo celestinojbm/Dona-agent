@@ -192,15 +192,88 @@ class TestProcesarEventoStripe:
         assert await db.obtener_saldo("5551") == 500  # no duplicado
 
 
-class TestVerificarFirma:
-    def test_sin_secret_configurado_acepta_payload(self, monkeypatch):
+class TestVerificarFirmaDev:
+    """Comportamiento de verificar_firma_stripe en development/test.
+
+    En entornos no-producción mantenemos el path permisivo (parsea sin
+    verificar) para permitir pruebas locales sin configurar Stripe. El
+    aviso en logs deja claro que es inseguro.
+    """
+
+    def test_sin_secret_en_dev_acepta_payload(self, monkeypatch):
+        monkeypatch.setenv("ENVIRONMENT", "development")
         monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
         payload = b'{"type":"ping","data":{"object":{}}}'
         ev = agent.billing.verificar_firma_stripe(payload, "no-sig")
         assert ev is not None
         assert ev["type"] == "ping"
 
+    def test_sin_secret_en_test_acepta_payload(self, monkeypatch):
+        # ENVIRONMENT=test (default de conftest.py) sigue siendo permisivo.
+        monkeypatch.setenv("ENVIRONMENT", "test")
+        monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
+        payload = b'{"type":"ping"}'
+        ev = agent.billing.verificar_firma_stripe(payload, "no-sig")
+        assert ev is not None
+        assert ev["type"] == "ping"
+
     def test_payload_invalido_retorna_none(self, monkeypatch):
+        monkeypatch.setenv("ENVIRONMENT", "development")
         monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
         ev = agent.billing.verificar_firma_stripe(b"{not json", "")
         assert ev is None
+
+
+class TestVerificarFirmaProduction:
+    """T0.2: Comportamiento de verificar_firma_stripe en producción.
+
+    En producción, sin secret, el endpoint debe rechazar todos los webhooks.
+    Esto cierra la superficie de ataque pública del endpoint /webhook/stripe
+    (un atacante que descubra la URL no puede acreditar créditos forjados).
+    """
+
+    def test_production_sin_secret_rechaza_payload(self, monkeypatch):
+        """Path runtime: aunque el módulo se haya cargado, en prod sin secret
+        la función retorna None (defensa en profundidad)."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        # webhook_secret="" como argumento explícito = sin secret pasado.
+        ev = agent.billing.verificar_firma_stripe(
+            b'{"type":"checkout.session.completed"}',
+            "no-sig",
+            webhook_secret="",
+        )
+        assert ev is None
+
+    def test_production_con_secret_firma_invalida_retorna_none(self, monkeypatch):
+        """Con secret presente pero firma inválida, retorna None (Stripe SDK rechaza)."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        ev = agent.billing.verificar_firma_stripe(
+            b'{"type":"checkout.session.completed"}',
+            "t=123,v1=invalid",
+            webhook_secret="whsec_test_dummy_secret_for_unit_test",
+        )
+        assert ev is None
+
+    def test_production_sin_secret_levanta_runtime_error_al_reload(self, monkeypatch):
+        """Al import-time: si production sin secret, RuntimeError aborta el deploy."""
+        import importlib
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
+        try:
+            with pytest.raises(RuntimeError, match="STRIPE_WEBHOOK_SECRET"):
+                importlib.reload(agent.billing)
+        finally:
+            # Restaurar el módulo en estado limpio para tests posteriores.
+            monkeypatch.setenv("ENVIRONMENT", "test")
+            importlib.reload(agent.billing)
+
+    def test_production_con_secret_no_levanta_al_reload(self, monkeypatch):
+        """Con secret configurado, el import en production no aborta."""
+        import importlib
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test_dummy_secret")
+        try:
+            importlib.reload(agent.billing)  # No debe levantar.
+        finally:
+            monkeypatch.setenv("ENVIRONMENT", "test")
+            importlib.reload(agent.billing)

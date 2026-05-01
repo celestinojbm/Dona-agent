@@ -24,6 +24,11 @@ load_dotenv()
 from agent.logging_config import configurar_logging
 configurar_logging()
 
+# Forzar el check de STRIPE_WEBHOOK_SECRET al startup. Si ENVIRONMENT=production
+# y la variable no está configurada, agent.billing levanta RuntimeError al
+# import y aborta el deploy antes de empezar a servir tráfico.
+import agent.billing  # noqa: F401
+
 from agent.brain import generar_respuesta
 from agent.memory import (
     inicializar_db, guardar_mensaje, obtener_historial,
