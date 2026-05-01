@@ -29,6 +29,11 @@ configurar_logging()
 # import y aborta el deploy antes de empezar a servir tráfico.
 import agent.billing  # noqa: F401
 
+# Mismo patrón para INBOUND_WEBHOOK_SECRET. Si falta en producción, el módulo
+# inbound_tokens levanta RuntimeError al import y el deploy aborta antes de
+# servir webhooks que aceptarían tokens forjados.
+import agent.inbound_tokens  # noqa: F401
+
 from agent.brain import generar_respuesta
 from agent.memory import (
     inicializar_db, guardar_mensaje, obtener_historial,
