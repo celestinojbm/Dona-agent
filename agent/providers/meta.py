@@ -97,12 +97,29 @@ class ProveedorMeta(ProveedorWhatsApp):
         self.access_token = os.getenv("META_ACCESS_TOKEN", "")
         self.phone_number_id = os.getenv("META_PHONE_NUMBER_ID", "")
         self.verify_token = os.getenv("META_WEBHOOK_VERIFY_TOKEN", "dona_webhook_secret")
-        self.app_secret = os.getenv("META_APP_SECRET", "")
+        self.app_secret = os.getenv("META_APP_SECRET", "").strip()
         self.api_version = os.getenv("META_API_VERSION", "v21.0")
         self.url_envio = (
             f"https://graph.facebook.com/{self.api_version}"
             f"/{self.phone_number_id}/messages"
         )
+
+        # Fail-fast: META_APP_SECRET obligatorio en producción cuando
+        # WHATSAPP_PROVIDER=meta. Sin secret la verificación HMAC del
+        # webhook queda deshabilitada y un atacante podría inyectar
+        # mensajes WhatsApp falsos. El check vive aquí (en __init__) y
+        # no a nivel módulo porque el factory de agent/providers/__init__.py
+        # solo importa este módulo si el provider activo es Meta — así no
+        # bloqueamos deploys con WHATSAPP_PROVIDER=whapi/twilio sin secret.
+        environment = os.getenv("ENVIRONMENT", "development").lower()
+        if environment == "production" and not self.app_secret:
+            raise RuntimeError(
+                "[META] META_APP_SECRET no configurado en producción — "
+                "los webhooks aceptarían payloads forjados, lo que permite "
+                "a un atacante inyectar mensajes WhatsApp falsos. Configura "
+                "la variable o cambia WHATSAPP_PROVIDER antes de reintentar "
+                "el deploy."
+            )
 
     async def validar_webhook(self, request: Request):
         """
@@ -124,16 +141,34 @@ class ProveedorMeta(ProveedorWhatsApp):
 
     def _verificar_firma(self, body_bytes: bytes, signature_header: str) -> bool:
         """
-        Verifica la firma HMAC-SHA256 que Meta envía en X-Hub-Signature-256.
-        Retorna True si la firma es válida o si META_APP_SECRET no está configurado
-        (modo degradado con warning).
+        Verifica la firma HMAC-SHA256 que Meta envía en ``X-Hub-Signature-256``.
+
+        Comportamiento:
+          - En ``ENVIRONMENT=production``: si ``self.app_secret`` está vacío
+            (lo que en condiciones normales no debería suceder porque el
+            check de ``__init__`` ya habría abortado el deploy), igualmente
+            se rechaza el payload retornando ``False``. Defensa en profundidad.
+          - En dev/test: si no hay secret, se acepta sin verificar (con
+            warning) para permitir pruebas locales sin configurar Meta.
+          - Con secret: valida HMAC-SHA256 timing-safe contra el header.
+
+        ``ENVIRONMENT`` se lee en cada llamada (no se cachea) para facilitar
+        tests con ``monkeypatch.setenv``.
         """
+        environment = os.getenv("ENVIRONMENT", "development").lower()
+
         if not self.app_secret:
+            if environment == "production":
+                logger.error(
+                    "[META] META_APP_SECRET no configurado en producción — "
+                    "rechazando webhook (defensa en profundidad)."
+                )
+                return False
             logger.warning(
-                "[META] META_APP_SECRET no configurado — webhook sin verificación HMAC. "
-                "Configura esta variable para proteger el webhook contra payloads falsos."
+                "[META] META_APP_SECRET no configurado — aceptando sin verificar "
+                "(INSEGURO, solo dev/test)."
             )
-            return True  # Permitir sin firma si no se configuró (backwards compatible)
+            return True
 
         if not signature_header or not signature_header.startswith("sha256="):
             logger.warning("[META] Webhook recibido sin firma X-Hub-Signature-256 válida — rechazado")

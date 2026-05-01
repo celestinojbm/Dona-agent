@@ -235,10 +235,25 @@ class TestParsearWebhook:
 # ── Tests de verificación HMAC ──────────────────────────────────────────────
 
 class TestVerificacionHMAC:
-    def test_sin_secret_permite_todo(self):
+    """Comportamiento de _verificar_firma en development/test.
+
+    En entornos no-producción mantenemos el path permisivo (acepta sin
+    verificar con warning) para permitir pruebas locales sin configurar
+    Meta. La firma HMAC sigue validándose si el secret está presente.
+    """
+
+    def test_sin_secret_en_dev_permite(self, monkeypatch):
+        monkeypatch.setenv("ENVIRONMENT", "development")
         proveedor = ProveedorMeta()
         proveedor.app_secret = ""
         assert proveedor._verificar_firma(b"body", "") is True
+
+    def test_sin_secret_en_test_permite(self, monkeypatch):
+        # ENVIRONMENT=test (default de conftest.py) sigue siendo permisivo.
+        monkeypatch.setenv("ENVIRONMENT", "test")
+        proveedor = ProveedorMeta()
+        proveedor.app_secret = ""
+        assert proveedor._verificar_firma(b"body", "sha256=anything") is True
 
     def test_firma_valida(self):
         proveedor = ProveedorMeta()
@@ -283,6 +298,57 @@ class TestVerificacionHMAC:
         request = _make_request(payload, app_secret=secret)
         mensajes = await proveedor.parsear_webhook(request)
         assert len(mensajes) == 1
+
+
+class TestVerificacionHMACProduction:
+    """T0.3: Comportamiento de ProveedorMeta en producción.
+
+    En producción, sin META_APP_SECRET, el provider debe abortar la
+    inicialización (RuntimeError) y, como defensa en profundidad, la
+    función _verificar_firma debe rechazar todo payload aunque por
+    algún path se haya saltado el __init__.
+    """
+
+    def test_production_sin_secret_levanta_runtime_error_en_init(self, monkeypatch):
+        """Al instanciar el provider: si production sin secret, RuntimeError aborta."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("META_APP_SECRET", raising=False)
+        with pytest.raises(RuntimeError, match="META_APP_SECRET"):
+            ProveedorMeta()
+
+    def test_production_secret_vacio_levanta_runtime_error(self, monkeypatch):
+        """Strings con solo whitespace cuentan como vacío (.strip() en __init__)."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("META_APP_SECRET", "   ")
+        with pytest.raises(RuntimeError, match="META_APP_SECRET"):
+            ProveedorMeta()
+
+    def test_production_con_secret_no_levanta_en_init(self, monkeypatch):
+        """Con secret configurado, el __init__ en production no aborta."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("META_APP_SECRET", "test_app_secret_dummy")
+        proveedor = ProveedorMeta()  # No debe levantar.
+        assert proveedor.app_secret == "test_app_secret_dummy"
+
+    def test_production_runtime_sin_secret_rechaza_firma(self, monkeypatch):
+        """Defensa en profundidad: aunque el __init__ se haya saltado, runtime rechaza."""
+        # Construir el provider en dev/test (donde __init__ no aborta).
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        proveedor = ProveedorMeta()
+        proveedor.app_secret = ""  # Forzar override
+        # Simular runtime de production.
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        assert proveedor._verificar_firma(b"body", "sha256=anything") is False
+
+    def test_production_con_secret_valida_firma_correcta(self, monkeypatch):
+        """En production con secret presente, firma válida sigue aceptándose."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        secret = "production_secret_dummy"
+        monkeypatch.setenv("META_APP_SECRET", secret)
+        proveedor = ProveedorMeta()
+        body = b'{"test": true}'
+        sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        assert proveedor._verificar_firma(body, f"sha256={sig}") is True
 
 
 # ── Tests de validación webhook GET ─────────────────────────────────────────
