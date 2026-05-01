@@ -461,7 +461,7 @@ async def admin_seed_creditos(request: Request, telefono: str, creditos: int = 1
     """
     Acredita N créditos al usuario indicado. Sirve para seed manual mientras
     Stripe no está configurado, o para regalar créditos.
-    Uso: POST /admin/seed-creditos?telefono=14076936023&creditos=100 + Header Auth
+    Uso: POST /admin/seed-creditos?telefono=15551234567&creditos=100 + Header Auth
     """
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
@@ -485,7 +485,7 @@ async def admin_seed_creditos(request: Request, telefono: str, creditos: int = 1
 async def admin_recordatorios(request: Request, telefono: str, token: str = ""):
     """
     Diagnóstico de recordatorios en producción.
-    Uso: /admin/recordatorios?telefono=14076936023 + Header Authorization: Bearer <token>
+    Uso: /admin/recordatorios?telefono=15551234567 + Header Authorization: Bearer <token>
     """
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
@@ -512,7 +512,7 @@ async def admin_generar_token_inbound(request: Request, telefono: str, token: st
     El usuario pega esta URL en Zapier/Make/n8n para que servicios externos
     puedan enviarle mensajes proactivos por WhatsApp.
 
-    Uso: GET /admin/inbound/token?telefono=14076936023 + Authorization: Bearer <admin>
+    Uso: GET /admin/inbound/token?telefono=15551234567 + Authorization: Bearer <admin>
     """
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
@@ -2165,6 +2165,23 @@ async def webhook_messages_handler(request: Request):
 @app.get("/voice/reenviar")
 @app.post("/voice/reenviar")
 async def voice_reenviar():
-    """Responde con TwiML para reenviar llamadas entrantes al número personal del administrador."""
-    twiml = '<?xml version="1.0" encoding="UTF-8"?><Response><Dial>+14076936023</Dial></Response>'
+    """Responde con TwiML para reenviar llamadas entrantes al número del administrador.
+
+    Lee el destino desde la variable de entorno ``VOICE_FORWARD_NUMBER`` (formato
+    E.164 con '+'). Si no está configurada, devuelve 404 — no hay número por
+    defecto en el código.
+    """
+    destino = os.getenv("VOICE_FORWARD_NUMBER", "").strip()
+    if not destino:
+        raise HTTPException(status_code=404, detail="voice_forward_no_configurado")
+    # Mínimo gate de formato: E.164, '+' opcional, 10–15 dígitos.
+    if not re.fullmatch(r"\+?\d{10,15}", destino):
+        logger.error("[VOICE] VOICE_FORWARD_NUMBER tiene formato inválido — rechazando")
+        raise HTTPException(status_code=500, detail="voice_forward_formato_invalido")
+    if not destino.startswith("+"):
+        destino = "+" + destino
+    twiml = (
+        f'<?xml version="1.0" encoding="UTF-8"?>'
+        f'<Response><Dial>{destino}</Dial></Response>'
+    )
     return PlainTextResponse(content=twiml, media_type="application/xml")
