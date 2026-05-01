@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dona — Plan Maestro de Implementación</title>
+<style>
+  :root{
+    --bg:#0f1116; --panel:#161a23; --panel2:#1c2230; --ink:#e7ecf3;
+    --muted:#9aa4b2; --accent:#7c5cff; --accent2:#19c37d; --warn:#ffb020;
+    --danger:#ff5d5d; --ok:#19c37d; --border:#2a3142;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:36px 28px 120px}
+  h1{font-size:32px;margin:0 0 4px;letter-spacing:-.02em}
+  h2{font-size:22px;margin:36px 0 10px;letter-spacing:-.01em;
+    border-bottom:1px solid var(--border);padding-bottom:6px}
+  h3{font-size:17px;margin:22px 0 6px;color:#d6dcea}
+  h4{font-size:14px;margin:14px 0 4px;color:#c2cadd;text-transform:uppercase;
+    letter-spacing:.06em}
+  p{margin:6px 0 10px;color:var(--ink)}
+  .sub{color:var(--muted);font-size:13px}
+  .meta{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 22px;
+    color:var(--muted);font-size:13px}
+  .meta b{color:var(--ink)}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;
+    font-size:11px;font-weight:600;letter-spacing:.04em;margin-left:8px;
+    vertical-align:middle}
+  .pill.ok{background:#0e3a2a;color:#5be3a8}
+  .pill.wip{background:#3a2d0e;color:#ffd166}
+  .pill.todo{background:#2a2140;color:#bfa8ff}
+  .pill.risk{background:#3a0e14;color:#ff8a8a}
+  .pill.p0{background:#3a0e14;color:#ffa8a8}
+  .pill.p1{background:#3a2d0e;color:#ffd166}
+  .pill.p2{background:#0e2a3a;color:#8cd1ff}
+  .pill.p3{background:#222a3a;color:#c2cadd}
+  .panel{background:var(--panel);border:1px solid var(--border);
+    border-radius:12px;padding:18px 20px;margin:12px 0}
+  .panel.sub{background:var(--panel2)}
+  ul.tasks{list-style:none;padding:0;margin:8px 0}
+  ul.tasks li{display:flex;align-items:flex-start;gap:10px;padding:5px 0;
+    border-bottom:1px dashed #222938}
+  ul.tasks li:last-child{border-bottom:0}
+  ul.tasks input[type="checkbox"]{margin-top:4px;width:16px;height:16px;
+    accent-color:var(--accent2);cursor:pointer}
+  ul.tasks label{flex:1;cursor:pointer;user-select:none}
+  ul.tasks li.done label{color:#6f7a8c;text-decoration:line-through}
+  ul.tasks li.done label em{color:#5a6473}
+  .tag{font-size:11px;font-weight:700;padding:1px 7px;border-radius:6px;
+    margin-left:6px;vertical-align:middle;background:#2a3142;color:#bfc6d4}
+  .tag.new{background:#0e3a2a;color:#5be3a8}
+  .tag.integ{background:#0e2a3a;color:#8cd1ff}
+  .tag.infra{background:#2a2140;color:#bfa8ff}
+  .tag.compl{background:#3a2d0e;color:#ffd166}
+  .bar{height:10px;background:#1c2230;border-radius:6px;overflow:hidden;
+    border:1px solid var(--border)}
+  .bar>div{height:100%;background:linear-gradient(90deg,#7c5cff,#19c37d);
+    width:0;transition:width .3s}
+  .hdr{display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:14px;gap:14px;flex-wrap:wrap}
+  .hdr .ttl{font-weight:600;font-size:15px}
+  .hdr .pct{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
+  .ctrls{display:flex;gap:8px;margin:10px 0 22px}
+  .ctrls button{background:var(--panel2);color:var(--ink);border:1px solid var(--border);
+    border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer}
+  .ctrls button:hover{background:#222a3a}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+  .card{background:var(--panel2);border:1px solid var(--border);
+    border-radius:10px;padding:12px 14px;font-size:13.5px}
+  .card b{color:#fff}
+  .stat{font-size:22px;font-weight:700;letter-spacing:-.01em}
+  code{background:#0a0d13;padding:1px 6px;border-radius:4px;font-size:12.5px;
+    color:#e0e6f0}
+  details{margin:10px 0}
+  summary{cursor:pointer;font-weight:600;padding:4px 0;font-size:15px}
+  summary::marker{color:var(--accent)}
+  hr{border:0;border-top:1px solid var(--border);margin:28px 0}
+  .note{background:#0e1926;border-left:3px solid var(--accent);
+    padding:10px 14px;border-radius:6px;margin:10px 0;font-size:13.5px}
+  .warn{background:#1f1708;border-left:3px solid var(--warn);
+    padding:10px 14px;border-radius:6px;margin:10px 0;font-size:13.5px}
+
+  @media print{
+    body{background:#fff;color:#000}
+    .wrap{max-width:100%;padding:20px}
+    h1,h2,h3,h4{color:#000}
+    .panel,.card,.panel.sub{background:#fff;border:1px solid #ccc;
+      color:#000;page-break-inside:avoid}
+    ul.tasks input[type="checkbox"]{accent-color:#000}
+    ul.tasks li.done label{color:#777;text-decoration:line-through}
+    .ctrls,.bar{display:none}
+    .pill{border:1px solid #888;background:#fff !important;color:#000 !important}
+    .tag{border:1px solid #888;background:#fff !important;color:#000 !important}
+    .meta,.sub{color:#444}
+    summary{list-style:none}
+    details{page-break-inside:avoid}
+    details>*{display:block !important}
+    code{background:#eee;color:#000}
+    a{color:#000}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Dona — Plan Maestro de Implementación</h1>
+<div class="meta">
+  <span><b>Versión:</b> 1.0</span>
+  <span><b>Fecha:</b> 2026-04-21</span>
+  <span><b>Canal actual:</b> WhatsApp</span>
+  <span><b>Canal futuro:</b> App móvil + web</span>
+  <span><b>Mercado:</b> EE.UU. / LATAM</span>
+</div>
+
+<div class="panel">
+  <div class="hdr">
+    <div class="ttl">Progreso global</div>
+    <div class="pct" id="pct-global">0 / 0 tareas · 0%</div>
+  </div>
+  <div class="bar"><div id="bar-global"></div></div>
+</div>
+
+<div class="ctrls">
+  <button onclick="expandAll(true)">Expandir todo</button>
+  <button onclick="expandAll(false)">Colapsar todo</button>
+  <button onclick="resetAll()">Resetear progreso</button>
+  <button onclick="window.print()">Imprimir / Guardar como PDF</button>
+  <button onclick="exportState()">Exportar estado (JSON)</button>
+</div>
+
+<div class="note">
+  <b>Cómo usar este documento:</b> los checkboxes persisten automáticamente en
+  tu navegador (localStorage). Marca tareas a medida que las completas y el
+  progreso se actualiza en tiempo real. Para generar un PDF, usa
+  <b>Ctrl/⌘ + P → Guardar como PDF</b>.
+</div>
+
+<h2>Resumen ejecutivo</h2>
+<p><b>Visión:</b> Dona es un asistente universal por WhatsApp (y próximamente
+app propia) que reemplaza la combinación Canva + CapCut + Shopify + HubSpot +
+Meta Ads Manager con una conversación en lenguaje natural. Cualquier persona o
+negocio delega toda su operación digital y creativa con cero fricción.</p>
+<div class="grid">
+  <div class="card"><b>3 pilares</b><br>Creación · Operación · Monetización</div>
+  <div class="card"><b>Canal</b><br>WhatsApp ahora · App móvil + web en fase 6</div>
+  <div class="card"><b>Modelo</b><br>Créditos prepagos (Stripe) + Stripe Connect para negocios</div>
+  <div class="card"><b>LLM</b><br>Claude Sonnet 4.6 + DeepSeek + GPT-4o fallback</div>
+  <div class="card"><b>Stack</b><br>Python/FastAPI + Postgres + Redis/arq + R2</div>
+  <div class="card"><b>Compliance</b><br>TCPA · CCPA · Stripe · Meta policy</div>
+</div>
+
+<h2>Estado base (0)</h2>
+<p class="sub">Lo que ya está implementado y corriendo en producción al
+2026-04-21. Todo marcado porque ya existe.</p>
+
+<details open>
+<summary>0.1 Infraestructura core <span class="pill ok">hecho</span></summary>
+<div class="panel sub">
+<ul class="tasks" data-section="infra">
+  <li><input type="checkbox" id="t-infra-1"><label for="t-infra-1">FastAPI + Gunicorn/Uvicorn desplegado en Render (web service)</label></li>
+  <li><input type="checkbox" id="t-infra-2"><label for="t-infra-2">Background Worker separado en Render (arq + Redis)</label></li>
+  <li><input type="checkbox" id="t-infra-3"><label for="t-infra-3">Postgres gestionado + SQLAlchemy async + migraciones Alembic</label></li>
+  <li><input type="checkbox" id="t-infra-4"><label for="t-infra-4">Redis para queue + rate limiting</label></li>
+  <li><input type="checkbox" id="t-infra-5"><label for="t-infra-5">Cloudflare R2 con fallback a filesystem</label></li>
+  <li><input type="checkbox" id="t-infra-6"><label for="t-infra-6">Dedup de mensajes (Postgres + memoria fallback)</label></li>
+  <li><input type="checkbox" id="t-infra-7"><label for="t-infra-7">Providers WhatsApp: Whapi, Meta Cloud API, Twilio</label></li>
+  <li><input type="checkbox" id="t-infra-8"><label for="t-infra-8">Scheduler APScheduler (recordatorios, onboarding, proactividad)</label></li>
+  <li><input type="checkbox" id="t-infra-9"><label for="t-infra-9">Seguridad: HMAC compare_digest, anti prompt injection, rate-limit</label></li>
+  <li><input type="checkbox" id="t-infra-10"><label for="t-infra-10">Observabilidad básica: <code>/admin/metrics</code>, <code>/admin/jobs-recientes</code></label></li>
+  <li><input type="checkbox" id="t-infra-11"><label for="t-infra-11">Suite de tests 370+ (~50s)</label></li>
+  <li><input type="checkbox" id="t-infra-12"><label for="t-infra-12">Landing Next.js (login, dashboard, success, cancel)</label></li>
+  <li><input type="checkbox" id="t-infra-13"><label for="t-infra-13">Docker Compose dev + Dockerfile prod</label></li>
+</ul>
+</div>
+</details>
+
+<details open>
+<summary>0.2 LLM y tools <span class="pill ok">hecho</span></summary>
+<div class="panel sub">
+<ul class="tasks" data-section="llm">
+  <li><input type="checkbox" id="t-llm-1"><label for="t-llm-1">Claude Sonnet 4.6 principal con tool use</label></li>
+  <li><input type="checkbox" id="t-llm-2"><label for="t-llm-2">Fallbacks: DeepSeek → GPT-4o → Haiku</label></li>
+  <li><input type="checkbox" id="t-llm-3"><label for="t-llm-3">~30 tools registradas (productividad, Google, CRM, finanzas)</label></li>
+  <li><input type="checkbox" id="t-llm-4"><label for="t-llm-4">Patrón <code>preparar_X</code> / <code>confirmar_X</code> establecido</label></li>
+  <li><input type="checkbox" id="t-llm-5"><label for="t-llm-5">Detección determinística (regex) antes del LLM para intents claros</label></li>
+</ul>
+</div>
+</details>
+
+<details open>
+<summary>0.3 Módulos activos <span class="pill ok">hecho</span></summary>
+<div class="panel sub">
+<ul class="tasks" data-section="modulos">
+  <li><input type="checkbox" id="t-mod-1"><label for="t-mod-1">Productividad personal: tareas, recordatorios, listas, notas</label></li>
+  <li><input type="checkbox" id="t-mod-2"><label for="t-mod-2">Google: Calendar, Gmail (leer/borrador/confirmar), Contacts, Tasks, Sheets, Drive</label></li>
+  <li><input type="checkbox" id="t-mod-3"><label for="t-mod-3">Transcripción audio entrante (Whisper / Groq)</label></li>
+  <li><input type="checkbox" id="t-mod-4"><label for="t-mod-4">TTS para responder con audio (OpenAI tts-1)</label></li>
+  <li><input type="checkbox" id="t-mod-5"><label for="t-mod-5">Vision (análisis de imágenes entrantes)</label></li>
+  <li><input type="checkbox" id="t-mod-6"><label for="t-mod-6">Onboarding por fases (sólo usuarios nuevos)</label></li>
+  <li><input type="checkbox" id="t-mod-7"><label for="t-mod-7">Proactividad (patrones de uso, avisos de sobrecarga)</label></li>
+  <li><input type="checkbox" id="t-mod-8"><label for="t-mod-8">Learning / perfiles de usuario</label></li>
+  <li><input type="checkbox" id="t-mod-9"><label for="t-mod-9">Memoria semántica con embeddings (pgvector)</label></li>
+  <li><input type="checkbox" id="t-mod-10"><label for="t-mod-10">Location (detección de viaje)</label></li>
+  <li><input type="checkbox" id="t-mod-11"><label for="t-mod-11">Real world (clima, noticias, tráfico)</label></li>
+  <li><input type="checkbox" id="t-mod-12"><label for="t-mod-12">Inbound tokens para Zapier/Make/n8n</label></li>
+</ul>
+</div>
+</details>
+
+<details open>
+<summary>0.4 Business modules (CRM light) <span class="pill ok">hecho</span></summary>
+<div class="panel sub">
+<ul class="tasks" data-section="business">
+  <li><input type="checkbox" id="t-biz-1"><label for="t-biz-1">Finanzas: perfil negocio, productos, ventas, gastos, resumen, top productos</label></li>
+  <li><input type="checkbox" id="t-biz-2"><label for="t-biz-2">CRM: clientes, seguimientos, historial de compras</label></li>
+  <li><input type="checkbox" id="t-biz-3"><label for="t-biz-3">Cotizaciones y pedidos (CRUD + estados)</label></li>
+  <li><input type="checkbox" id="t-biz-4"><label for="t-biz-4">Generador de contenido redes (IG, historias, promos, descripciones)</label></li>
+  <li><input type="checkbox" id="t-biz-5"><label for="t-biz-5">Reportes diarios y semanales automáticos</label></li>
+  <li><input type="checkbox" id="t-biz-6"><label for="t-biz-6">Quotas por recurso</label></li>
+  <li><input type="checkbox" id="t-biz-7"><label for="t-biz-7">Onboarding de negocio</label></li>
+</ul>
+</div>
+</details>
+
+<details open>
+<summary>0.5 Billing + Compliance <span class="pill ok">hecho</span></summary>
+<div class="panel sub">
+<ul class="tasks" data-section="billing">
+  <li><input type="checkbox" id="t-bil-1"><label for="t-bil-1">Créditos prepagos enteros con transacciones atómicas (compare-and-swap)</label></li>
+  <li><input type="checkbox" id="t-bil-2"><label for="t-bil-2">3 paquetes Stripe (100/500/2000 créditos)</label></li>
+  <li><input type="checkbox" id="t-bil-3"><label for="t-bil-3">Webhook Stripe idempotente por <code>stripe_session_id</code></label></li>
+  <li><input type="checkbox" id="t-bil-4"><label for="t-bil-4">Refund automático cuando falla generación de imagen</label></li>
+  <li><input type="checkbox" id="t-bil-5"><label for="t-bil-5">Audit trail en <code>transacciones_credito</code></label></li>
+  <li><input type="checkbox" id="t-bil-6"><label for="t-bil-6">TCPA: comandos <code>STOP</code> / <code>START</code></label></li>
+  <li><input type="checkbox" id="t-bil-7"><label for="t-bil-7">CCPA: <code>/privacy/export</code>, <code>/privacy/delete</code></label></li>
+  <li><input type="checkbox" id="t-bil-8"><label for="t-bil-8">Páginas legales <code>/privacy</code> y <code>/terms</code></label></li>
+</ul>
+</div>
+</details>
+
+<details open>
+<summary>0.6 Creativos implementados <span class="pill wip">parcial: 1 de 10</span></summary>
+<div class="panel sub">
+<ul class="tasks" data-section="creativos0">
+  <li><input type="checkbox" id="t-cr0-1"><label for="t-cr0-1">Generación de imagen (Gemini 2.5 Flash Image / Pro)</label></li>
+  <li><input type="checkbox" id="t-cr0-2"><label for="t-cr0-2">Detección natural de comando ("dona imagen X", "dibuja X", "genera imagen de X")</label></li>
+  <li><input type="checkbox" id="t-cr0-3"><label for="t-cr0-3">Detección de pedido sin sujeto ("genera una imagen") → pide sujeto</label></li>
+  <li><input type="checkbox" id="t-cr0-4"><label for="t-cr0-4">Flujo preparar/confirmar con cobro atómico</label></li>
+  <li><input type="checkbox" id="t-cr0-5"><label for="t-cr0-5">Aspect ratios: 1:1, 16:9, 9:16, 4:3, 3:4</label></li>
+  <li><input type="checkbox" id="t-cr0-6"><label for="t-cr0-6">Calidades standard/premium</label></li>
+</ul>
+</div>
+</details>
+
+<hr>
+
+<h2>FASE 1 · Completar creativos <span class="pill p0">P0 · 5-6 semanas</span></h2>
+<p>Cerrar el stack de generación para alcanzar paridad con la visión de
+"diseño y video completos". Es la fase con más diferenciación competitiva.</p>
+
+<h3>1.1 Imagen avanzada <span class="pill p0">P0</span></h3>
+<div class="panel">
+<h4>Remove background <span class="tag integ">Photoroom API</span></h4>
+<ul class="tasks" data-section="f1-bg">
+  <li><input type="checkbox" id="t-f1-bg-1"><label for="t-f1-bg-1">Alta en Photoroom API / remove.bg + env <code>PHOTOROOM_API_KEY</code></label></li>
+  <li><input type="checkbox" id="t-f1-bg-2"><label for="t-f1-bg-2">Módulo <code>agent/creativos/bg_remove.py</code> con cliente httpx</label></li>
+  <li><input type="checkbox" id="t-f1-bg-3"><label for="t-f1-bg-3">Handler <code>bg_remove</code> en <code>handlers_creativos.py</code></label></li>
+  <li><input type="checkbox" id="t-f1-bg-4"><label for="t-f1-bg-4">Regex de detección ("quita el fondo", "sin fondo", "transparente")</label></li>
+  <li><input type="checkbox" id="t-f1-bg-5"><label for="t-f1-bg-5">Flujo recibir imagen entrante → preparar → confirmar</label></li>
+  <li><input type="checkbox" id="t-f1-bg-6"><label for="t-f1-bg-6">Refund en caso de fallo (1 crédito)</label></li>
+  <li><input type="checkbox" id="t-f1-bg-7"><label for="t-f1-bg-7">Tests con mock httpx</label></li>
+  <li><input type="checkbox" id="t-f1-bg-8"><label for="t-f1-bg-8">Documentar comando en <code>dona comandos</code></label></li>
+</ul>
+
+<h4>Upscale / variaciones / inpainting <span class="tag integ">Replicate · Ideogram</span></h4>
+<ul class="tasks" data-section="f1-edit">
+  <li><input type="checkbox" id="t-f1-edit-1"><label for="t-f1-edit-1">Upscale 2x/4x (Real-ESRGAN via Replicate)</label></li>
+  <li><input type="checkbox" id="t-f1-edit-2"><label for="t-f1-edit-2">Variaciones (misma imagen, poses distintas)</label></li>
+  <li><input type="checkbox" id="t-f1-edit-3"><label for="t-f1-edit-3">Inpainting ("cambia el fondo a X", "quita a la persona de la derecha")</label></li>
+  <li><input type="checkbox" id="t-f1-edit-4"><label for="t-f1-edit-4">Regex naturales + flujo 2-pasos</label></li>
+  <li><input type="checkbox" id="t-f1-edit-5"><label for="t-f1-edit-5">Asociación a asset previo ("edita la última imagen")</label></li>
+</ul>
+
+<h4>Logo y brand kit <span class="tag new">diferenciador</span></h4>
+<ul class="tasks" data-section="f1-brand">
+  <li><input type="checkbox" id="t-f1-brand-1"><label for="t-f1-brand-1">Logo generator con Ideogram/Recraft + prompt estructurado por vertical</label></li>
+  <li><input type="checkbox" id="t-f1-brand-2"><label for="t-f1-brand-2">Brand kit: paleta de 5 colores (LLM) + 2 tipografías</label></li>
+  <li><input type="checkbox" id="t-f1-brand-3"><label for="t-f1-brand-3">Guardar brand kit por usuario en DB (<code>brand_kits</code> table)</label></li>
+  <li><input type="checkbox" id="t-f1-brand-4"><label for="t-f1-brand-4">Aplicar brand kit automáticamente en nuevos creativos</label></li>
+  <li><input type="checkbox" id="t-f1-brand-5"><label for="t-f1-brand-5">Preview del kit en mensaje (colores + ejemplo)</label></li>
+</ul>
+</div>
+
+<h3>1.2 Audio <span class="pill p0">P0</span></h3>
+<div class="panel">
+<h4>Voz con ElevenLabs <span class="tag integ">ElevenLabs API</span></h4>
+<ul class="tasks" data-section="f1-voz">
+  <li><input type="checkbox" id="t-f1-voz-1"><label for="t-f1-voz-1">Cuenta ElevenLabs + env <code>ELEVENLABS_API_KEY</code></label></li>
+  <li><input type="checkbox" id="t-f1-voz-2"><label for="t-f1-voz-2">Selector de 5-10 voces predefinidas en español e inglés</label></li>
+  <li><input type="checkbox" id="t-f1-voz-3"><label for="t-f1-voz-3">Handler <code>gen_voz_corta</code> (&lt;500 chars, 3 cr)</label></li>
+  <li><input type="checkbox" id="t-f1-voz-4"><label for="t-f1-voz-4">Handler <code>gen_voz_larga</code> (&gt;500 chars, 10 cr)</label></li>
+  <li><input type="checkbox" id="t-f1-voz-5"><label for="t-f1-voz-5">Envío como audio nativo WhatsApp (no archivo)</label></li>
+  <li><input type="checkbox" id="t-f1-voz-6"><label for="t-f1-voz-6">Clonado de voz del usuario (premium, feature flag)</label></li>
+  <li><input type="checkbox" id="t-f1-voz-7"><label for="t-f1-voz-7">Tests con mock</label></li>
+</ul>
+
+<h4>Música <span class="tag integ">Suno · Udio</span></h4>
+<ul class="tasks" data-section="f1-musica">
+  <li><input type="checkbox" id="t-f1-mus-1"><label for="t-f1-mus-1">Integración Suno API (o Udio)</label></li>
+  <li><input type="checkbox" id="t-f1-mus-2"><label for="t-f1-mus-2">Handler <code>gen_musica</code> (15 cr)</label></li>
+  <li><input type="checkbox" id="t-f1-mus-3"><label for="t-f1-mus-3">Duración configurable (30s / 60s / 90s)</label></li>
+  <li><input type="checkbox" id="t-f1-mus-4"><label for="t-f1-mus-4">Géneros predefinidos (jingle, ambient, corporate, trending)</label></li>
+  <li><input type="checkbox" id="t-f1-mus-5"><label for="t-f1-mus-5">Polling async (música puede tardar 1-2 min)</label></li>
+  <li><input type="checkbox" id="t-f1-mus-6"><label for="t-f1-mus-6">Tests</label></li>
+</ul>
+</div>
+
+<h3>1.3 Video y Reels <span class="pill p0">P0 · diferenciador clave</span></h3>
+<div class="panel">
+<h4>Generación de video <span class="tag integ">Runway · Veo · HeyGen</span></h4>
+<ul class="tasks" data-section="f1-video">
+  <li><input type="checkbox" id="t-f1-vid-1"><label for="t-f1-vid-1">Runway Gen-3 Turbo (video corto 10s, 50 cr)</label></li>
+  <li><input type="checkbox" id="t-f1-vid-2"><label for="t-f1-vid-2">Google Veo 3 (video largo con audio nativo, 150 cr)</label></li>
+  <li><input type="checkbox" id="t-f1-vid-3"><label for="t-f1-vid-3">HeyGen avatar (talking head 1 min, 80 cr)</label></li>
+  <li><input type="checkbox" id="t-f1-vid-4"><label for="t-f1-vid-4">Image-to-video (animar imagen existente)</label></li>
+  <li><input type="checkbox" id="t-f1-vid-5"><label for="t-f1-vid-5">Jobs de larga duración con arq + reintentos</label></li>
+  <li><input type="checkbox" id="t-f1-vid-6"><label for="t-f1-vid-6">Notificación de progreso ("va por el 40%") cada X minutos</label></li>
+</ul>
+
+<h4>Reel stitcher <span class="tag new">secret sauce</span></h4>
+<ul class="tasks" data-section="f1-reel">
+  <li><input type="checkbox" id="t-f1-reel-1"><label for="t-f1-reel-1">FFmpeg instalado en imagen Docker del worker</label></li>
+  <li><input type="checkbox" id="t-f1-reel-2"><label for="t-f1-reel-2">Stitcher: video + música + voz + subtítulos</label></li>
+  <li><input type="checkbox" id="t-f1-reel-3"><label for="t-f1-reel-3">Subtítulos auto-generados con Whisper timings</label></li>
+  <li><input type="checkbox" id="t-f1-reel-4"><label for="t-f1-reel-4">Styling de subtítulos (estilo TikTok, bold yellow, karaoke)</label></li>
+  <li><input type="checkbox" id="t-f1-reel-5"><label for="t-f1-reel-5">Render 9:16 optimizado</label></li>
+  <li><input type="checkbox" id="t-f1-reel-6"><label for="t-f1-reel-6">B-roll automático de stock (Pexels API) si el prompt lo pide</label></li>
+  <li><input type="checkbox" id="t-f1-reel-7"><label for="t-f1-reel-7">Handler <code>gen_reel</code> compuesto (usa otros handlers)</label></li>
+</ul>
+
+<h4>Publicación directa <span class="tag integ">Meta Graph API · TikTok API · YouTube API</span></h4>
+<ul class="tasks" data-section="f1-pub">
+  <li><input type="checkbox" id="t-f1-pub-1"><label for="t-f1-pub-1">OAuth Instagram (Meta Graph API)</label></li>
+  <li><input type="checkbox" id="t-f1-pub-2"><label for="t-f1-pub-2">Publicar Reel a Instagram</label></li>
+  <li><input type="checkbox" id="t-f1-pub-3"><label for="t-f1-pub-3">OAuth TikTok Business</label></li>
+  <li><input type="checkbox" id="t-f1-pub-4"><label for="t-f1-pub-4">Publicar a TikTok</label></li>
+  <li><input type="checkbox" id="t-f1-pub-5"><label for="t-f1-pub-5">YouTube Shorts (OAuth + upload)</label></li>
+  <li><input type="checkbox" id="t-f1-pub-6"><label for="t-f1-pub-6">Programación de publicaciones (scheduler)</label></li>
+  <li><input type="checkbox" id="t-f1-pub-7"><label for="t-f1-pub-7">Analytics por publicación (views, engagement) poll diario</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>FASE 2 · Documentos y PDFs <span class="pill p0">P0 · 2-3 semanas</span></h2>
+<p>Habilitar que Dona genere documentos entregables por WhatsApp: cotizaciones,
+facturas, reportes, contratos, catálogos.</p>
+
+<h3>2.1 Motor de PDF</h3>
+<div class="panel">
+<ul class="tasks" data-section="f2-pdf">
+  <li><input type="checkbox" id="t-f2-pdf-1"><label for="t-f2-pdf-1">Elegir motor: WeasyPrint (HTML→PDF) vs Playwright headless</label></li>
+  <li><input type="checkbox" id="t-f2-pdf-2"><label for="t-f2-pdf-2">Módulo <code>agent/documentos/pdf.py</code> con render(html, css) → bytes</label></li>
+  <li><input type="checkbox" id="t-f2-pdf-3"><label for="t-f2-pdf-3">Dependencia añadida al Dockerfile del worker</label></li>
+  <li><input type="checkbox" id="t-f2-pdf-4"><label for="t-f2-pdf-4">Subida a R2 + registro como asset</label></li>
+  <li><input type="checkbox" id="t-f2-pdf-5"><label for="t-f2-pdf-5">Envío por WhatsApp como documento (Meta soporta PDF attachment)</label></li>
+  <li><input type="checkbox" id="t-f2-pdf-6"><label for="t-f2-pdf-6">Cache de fuentes y estilos</label></li>
+</ul>
+</div>
+
+<h3>2.2 Plantillas de negocio</h3>
+<div class="panel">
+<ul class="tasks" data-section="f2-tpl">
+  <li><input type="checkbox" id="t-f2-tpl-1"><label for="t-f2-tpl-1">Plantilla <b>cotización</b> con branding del usuario</label></li>
+  <li><input type="checkbox" id="t-f2-tpl-2"><label for="t-f2-tpl-2">Plantilla <b>factura</b> con numeración consecutiva y RFC/EIN</label></li>
+  <li><input type="checkbox" id="t-f2-tpl-3"><label for="t-f2-tpl-3">Plantilla <b>reporte mensual</b> con gráficas (Chart.js render server-side)</label></li>
+  <li><input type="checkbox" id="t-f2-tpl-4"><label for="t-f2-tpl-4">Plantilla <b>catálogo</b> de productos con fotos</label></li>
+  <li><input type="checkbox" id="t-f2-tpl-5"><label for="t-f2-tpl-5">Plantilla <b>recibo</b> de venta</label></li>
+  <li><input type="checkbox" id="t-f2-tpl-6"><label for="t-f2-tpl-6">Plantilla <b>propuesta comercial</b> larga (portada + secciones)</label></li>
+  <li><input type="checkbox" id="t-f2-tpl-7"><label for="t-f2-tpl-7">Plantilla <b>estado de cuenta</b> de cliente</label></li>
+  <li><input type="checkbox" id="t-f2-tpl-8"><label for="t-f2-tpl-8">Editor conversacional ("cambia el color del header a azul")</label></li>
+</ul>
+</div>
+
+<h3>2.3 Otros formatos y flujo docs</h3>
+<div class="panel">
+<ul class="tasks" data-section="f2-otros">
+  <li><input type="checkbox" id="t-f2-otr-1"><label for="t-f2-otr-1">Export Word (.docx) con python-docx</label></li>
+  <li><input type="checkbox" id="t-f2-otr-2"><label for="t-f2-otr-2">Export Excel (.xlsx) con openpyxl</label></li>
+  <li><input type="checkbox" id="t-f2-otr-3"><label for="t-f2-otr-3">Export Google Docs / Sheets (via APIs)</label></li>
+  <li><input type="checkbox" id="t-f2-otr-4"><label for="t-f2-otr-4">Import PDF entrante → extracción OCR (Tesseract / Textract)</label></li>
+  <li><input type="checkbox" id="t-f2-otr-5"><label for="t-f2-otr-5">Parsear recibos/facturas entrantes → registro automático de gasto</label></li>
+  <li><input type="checkbox" id="t-f2-otr-6"><label for="t-f2-otr-6">Firma electrónica integrada (DocuSign / HelloSign / Dropbox Sign)</label></li>
+  <li><input type="checkbox" id="t-f2-otr-7"><label for="t-f2-otr-7">Recordatorios de firma pendiente</label></li>
+</ul>
+</div>
+
+<h3>2.4 Contratos inteligentes</h3>
+<div class="panel">
+<ul class="tasks" data-section="f2-contratos">
+  <li><input type="checkbox" id="t-f2-con-1"><label for="t-f2-con-1">Plantilla <b>NDA</b> (EE.UU. / MX)</label></li>
+  <li><input type="checkbox" id="t-f2-con-2"><label for="t-f2-con-2">Plantilla <b>contrato de servicios</b></label></li>
+  <li><input type="checkbox" id="t-f2-con-3"><label for="t-f2-con-3">Plantilla <b>contrato de renta</b></label></li>
+  <li><input type="checkbox" id="t-f2-con-4"><label for="t-f2-con-4">Campos variables llenados por conversación</label></li>
+  <li><input type="checkbox" id="t-f2-con-5"><label for="t-f2-con-5">Disclaimer legal + revisión obligatoria por abogado</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>FASE 3 · Tiendas y monetización directa <span class="pill p1">P1 · 4-5 semanas</span></h2>
+
+<h3>3.1 Storefront público</h3>
+<div class="panel">
+<ul class="tasks" data-section="f3-store">
+  <li><input type="checkbox" id="t-f3-st-1"><label for="t-f3-st-1">Rutas <code>/tienda/{slug}</code>, <code>/tienda/{slug}/producto/{id}</code></label></li>
+  <li><input type="checkbox" id="t-f3-st-2"><label for="t-f3-st-2">Diseño de página de producto (Next.js en landing/)</label></li>
+  <li><input type="checkbox" id="t-f3-st-3"><label for="t-f3-st-3">Carrito con sessionId (persistente cookies)</label></li>
+  <li><input type="checkbox" id="t-f3-st-4"><label for="t-f3-st-4">Checkout</label></li>
+  <li><input type="checkbox" id="t-f3-st-5"><label for="t-f3-st-5">Páginas de confirmación + seguimiento</label></li>
+  <li><input type="checkbox" id="t-f3-st-6"><label for="t-f3-st-6">SEO básico (meta tags, sitemap por tienda)</label></li>
+  <li><input type="checkbox" id="t-f3-st-7"><label for="t-f3-st-7">Link compartible generado por Dona ("comparte tu tienda: ...")</label></li>
+</ul>
+</div>
+
+<h3>3.2 Stripe Connect <span class="pill risk">crítico regulatorio</span></h3>
+<div class="panel">
+<ul class="tasks" data-section="f3-connect">
+  <li><input type="checkbox" id="t-f3-cn-1"><label for="t-f3-cn-1">Onboarding Stripe Connect Express</label></li>
+  <li><input type="checkbox" id="t-f3-cn-2"><label for="t-f3-cn-2">Recolección KYC (Stripe se encarga)</label></li>
+  <li><input type="checkbox" id="t-f3-cn-3"><label for="t-f3-cn-3">Checkout con <code>destination charges</code> + platform fee</label></li>
+  <li><input type="checkbox" id="t-f3-cn-4"><label for="t-f3-cn-4">Webhook <code>account.updated</code> para estado del seller</label></li>
+  <li><input type="checkbox" id="t-f3-cn-5"><label for="t-f3-cn-5">Payouts automáticos al negocio</label></li>
+  <li><input type="checkbox" id="t-f3-cn-6"><label for="t-f3-cn-6">Payment Links rápidos ("cobra a María $50" → link de pago)</label></li>
+  <li><input type="checkbox" id="t-f3-cn-7"><label for="t-f3-cn-7">Suscripciones recurrentes (membresías, cursos)</label></li>
+  <li><input type="checkbox" id="t-f3-cn-8"><label for="t-f3-cn-8">Disputas y refunds desde WhatsApp</label></li>
+</ul>
+</div>
+
+<h3>3.3 WhatsApp Commerce</h3>
+<div class="panel">
+<ul class="tasks" data-section="f3-wc">
+  <li><input type="checkbox" id="t-f3-wc-1"><label for="t-f3-wc-1">Sync productos → Meta Catalog API</label></li>
+  <li><input type="checkbox" id="t-f3-wc-2"><label for="t-f3-wc-2">Envío de productos por WhatsApp (mensajes interactivos)</label></li>
+  <li><input type="checkbox" id="t-f3-wc-3"><label for="t-f3-wc-3">Carrito embebido en conversación (Meta)</label></li>
+  <li><input type="checkbox" id="t-f3-wc-4"><label for="t-f3-wc-4">Link de pago in-thread</label></li>
+</ul>
+</div>
+
+<h3>3.4 Inventario y connectors</h3>
+<div class="panel">
+<ul class="tasks" data-section="f3-inv">
+  <li><input type="checkbox" id="t-f3-in-1"><label for="t-f3-in-1">Campo <code>stock</code> en producto + historial de movimientos</label></li>
+  <li><input type="checkbox" id="t-f3-in-2"><label for="t-f3-in-2">Alertas de stock bajo por WhatsApp</label></li>
+  <li><input type="checkbox" id="t-f3-in-3"><label for="t-f3-in-3">Bloqueo de venta cuando stock = 0</label></li>
+  <li><input type="checkbox" id="t-f3-in-4"><label for="t-f3-in-4">Connector Shopify (opcional, feature flag)</label></li>
+  <li><input type="checkbox" id="t-f3-in-5"><label for="t-f3-in-5">Connector WooCommerce (opcional)</label></li>
+  <li><input type="checkbox" id="t-f3-in-6"><label for="t-f3-in-6">Import productos desde CSV/Sheets</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>FASE 4 · Generación web completa <span class="pill p1">P1 · 4 semanas</span></h2>
+
+<h3>4.1 Handler gen_web</h3>
+<div class="panel">
+<ul class="tasks" data-section="f4-web">
+  <li><input type="checkbox" id="t-f4-w-1"><label for="t-f4-w-1">Repositorio template Next.js parametrizable</label></li>
+  <li><input type="checkbox" id="t-f4-w-2"><label for="t-f4-w-2">6 templates por vertical (salón, restaurante, coach, tienda, servicios, profesional)</label></li>
+  <li><input type="checkbox" id="t-f4-w-3"><label for="t-f4-w-3">Ingestion de brief conversacional ("háblame de tu negocio")</label></li>
+  <li><input type="checkbox" id="t-f4-w-4"><label for="t-f4-w-4">Generación de copy por sección (LLM)</label></li>
+  <li><input type="checkbox" id="t-f4-w-5"><label for="t-f4-w-5">Generación de imágenes hero + secciones (Gemini)</label></li>
+  <li><input type="checkbox" id="t-f4-w-6"><label for="t-f4-w-6">Aplicación de brand kit del usuario</label></li>
+  <li><input type="checkbox" id="t-f4-w-7"><label for="t-f4-w-7">Deploy a Vercel via API (un proyecto por usuario)</label></li>
+  <li><input type="checkbox" id="t-f4-w-8"><label for="t-f4-w-8">Subdominio <code>{slug}.dona.app</code></label></li>
+  <li><input type="checkbox" id="t-f4-w-9"><label for="t-f4-w-9">Custom domain opcional (CNAME + verification)</label></li>
+  <li><input type="checkbox" id="t-f4-w-10"><label for="t-f4-w-10">Handler <code>gen_web</code> con preparar/confirmar (100 cr)</label></li>
+</ul>
+</div>
+
+<h3>4.2 Editor conversacional</h3>
+<div class="panel">
+<ul class="tasks" data-section="f4-edit">
+  <li><input type="checkbox" id="t-f4-e-1"><label for="t-f4-e-1">"cambia el hero a X" → edita JSON → re-deploy incremental</label></li>
+  <li><input type="checkbox" id="t-f4-e-2"><label for="t-f4-e-2">"agrega sección testimonios" → scaffold + contenido</label></li>
+  <li><input type="checkbox" id="t-f4-e-3"><label for="t-f4-e-3">Versiones (rollback a la anterior)</label></li>
+  <li><input type="checkbox" id="t-f4-e-4"><label for="t-f4-e-4">Preview link antes de publicar</label></li>
+</ul>
+</div>
+
+<h3>4.3 Formularios y analytics</h3>
+<div class="panel">
+<ul class="tasks" data-section="f4-form">
+  <li><input type="checkbox" id="t-f4-f-1"><label for="t-f4-f-1">Form captador → leads entran al CRM del usuario</label></li>
+  <li><input type="checkbox" id="t-f4-f-2"><label for="t-f4-f-2">Notificación por WhatsApp cuando llega un lead</label></li>
+  <li><input type="checkbox" id="t-f4-f-3"><label for="t-f4-f-3">Analytics ligero embebido (Plausible o Umami)</label></li>
+  <li><input type="checkbox" id="t-f4-f-4"><label for="t-f4-f-4">Reporte semanal de tráfico / conversión vía WhatsApp</label></li>
+  <li><input type="checkbox" id="t-f4-f-5"><label for="t-f4-f-5">A/B testing de hero / CTA (opcional)</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>FASE 5 · Marketing y broadcast <span class="pill p1">P1 · 4-5 semanas</span></h2>
+
+<h3>5.1 Meta Ads</h3>
+<div class="panel">
+<ul class="tasks" data-section="f5-meta">
+  <li><input type="checkbox" id="t-f5-m-1"><label for="t-f5-m-1">OAuth Meta Business Manager</label></li>
+  <li><input type="checkbox" id="t-f5-m-2"><label for="t-f5-m-2">Crear campaña con objetivo (leads / tráfico / mensajes)</label></li>
+  <li><input type="checkbox" id="t-f5-m-3"><label for="t-f5-m-3">Audiencia (geo, edad, interés) por conversación</label></li>
+  <li><input type="checkbox" id="t-f5-m-4"><label for="t-f5-m-4">Creativos generados por Dona (imagen/video/copy) inyectados</label></li>
+  <li><input type="checkbox" id="t-f5-m-5"><label for="t-f5-m-5">Publicación vía Marketing API</label></li>
+  <li><input type="checkbox" id="t-f5-m-6"><label for="t-f5-m-6">Reporte diario (CPC, CTR, CPM, ROAS) por WhatsApp</label></li>
+  <li><input type="checkbox" id="t-f5-m-7"><label for="t-f5-m-7">Ajuste automático de budget por IA (optional)</label></li>
+  <li><input type="checkbox" id="t-f5-m-8"><label for="t-f5-m-8">Handler <code>gen_campana_meta</code> (30 cr)</label></li>
+</ul>
+</div>
+
+<h3>5.2 Google Ads + TikTok Ads</h3>
+<div class="panel">
+<ul class="tasks" data-section="f5-google-tiktok">
+  <li><input type="checkbox" id="t-f5-gt-1"><label for="t-f5-gt-1">Google Ads Search campaign básico</label></li>
+  <li><input type="checkbox" id="t-f5-gt-2"><label for="t-f5-gt-2">Google Performance Max</label></li>
+  <li><input type="checkbox" id="t-f5-gt-3"><label for="t-f5-gt-3">Keyword research automático</label></li>
+  <li><input type="checkbox" id="t-f5-gt-4"><label for="t-f5-gt-4">TikTok Ads API integration</label></li>
+  <li><input type="checkbox" id="t-f5-gt-5"><label for="t-f5-gt-5">Spark Ads con contenido orgánico del usuario</label></li>
+  <li><input type="checkbox" id="t-f5-gt-6"><label for="t-f5-gt-6">Dashboard unificado ROAS cross-platform</label></li>
+</ul>
+</div>
+
+<h3>5.3 Broadcast y CRM avanzado</h3>
+<div class="panel">
+<ul class="tasks" data-section="f5-broadcast">
+  <li><input type="checkbox" id="t-f5-b-1"><label for="t-f5-b-1">Segmentación de CRM (últimas compras, inactivos, top spenders)</label></li>
+  <li><input type="checkbox" id="t-f5-b-2"><label for="t-f5-b-2">Email broadcast (Postmark / SendGrid)</label></li>
+  <li><input type="checkbox" id="t-f5-b-3"><label for="t-f5-b-3">WhatsApp broadcast con HSM (Meta Templates)</label></li>
+  <li><input type="checkbox" id="t-f5-b-4"><label for="t-f5-b-4">Opt-in explícito y STOP compliance (TCPA)</label></li>
+  <li><input type="checkbox" id="t-f5-b-5"><label for="t-f5-b-5">Tracking de aperturas / clicks</label></li>
+  <li><input type="checkbox" id="t-f5-b-6"><label for="t-f5-b-6">Automation triggers ("cliente no compra en 30 días → promo")</label></li>
+  <li><input type="checkbox" id="t-f5-b-7"><label for="t-f5-b-7">Pipeline/funnel de ventas visible en dashboard</label></li>
+  <li><input type="checkbox" id="t-f5-b-8"><label for="t-f5-b-8">Import clientes desde CSV/Sheets</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>FASE 6 · App móvil y web dedicada <span class="pill p1">P1 · 8-10 semanas</span></h2>
+<p>Canal adicional para usuarios que prefieran interfaz visual o que quieran
+ver dashboards ricos. Paridad conversacional con WhatsApp.</p>
+
+<h3>6.1 Arquitectura</h3>
+<div class="panel">
+<ul class="tasks" data-section="f6-arq">
+  <li><input type="checkbox" id="t-f6-a-1"><label for="t-f6-a-1">Decisión stack móvil: React Native + Expo (recomendado)</label></li>
+  <li><input type="checkbox" id="t-f6-a-2"><label for="t-f6-a-2">API pública versionada <code>/api/v1/...</code></label></li>
+  <li><input type="checkbox" id="t-f6-a-3"><label for="t-f6-a-3">Auth: OTP por WhatsApp (mismo teléfono, sin passwords)</label></li>
+  <li><input type="checkbox" id="t-f6-a-4"><label for="t-f6-a-4">JWT con refresh tokens</label></li>
+  <li><input type="checkbox" id="t-f6-a-5"><label for="t-f6-a-5">Estado compartido: misma DB que WhatsApp (sync automático)</label></li>
+  <li><input type="checkbox" id="t-f6-a-6"><label for="t-f6-a-6">Rate limiting por usuario (no sólo por teléfono)</label></li>
+</ul>
+</div>
+
+<h3>6.2 App móvil MVP</h3>
+<div class="panel">
+<ul class="tasks" data-section="f6-mvp">
+  <li><input type="checkbox" id="t-f6-m-1"><label for="t-f6-m-1">Login con OTP WhatsApp</label></li>
+  <li><input type="checkbox" id="t-f6-m-2"><label for="t-f6-m-2">Chat con Dona (paridad con WhatsApp, mismo backend)</label></li>
+  <li><input type="checkbox" id="t-f6-m-3"><label for="t-f6-m-3">Dashboard: tareas, recordatorios, finanzas del día</label></li>
+  <li><input type="checkbox" id="t-f6-m-4"><label for="t-f6-m-4">Catálogo visual de productos con fotos grandes</label></li>
+  <li><input type="checkbox" id="t-f6-m-5"><label for="t-f6-m-5">Gestión de clientes con filtros</label></li>
+  <li><input type="checkbox" id="t-f6-m-6"><label for="t-f6-m-6">Galería de creativos generados</label></li>
+  <li><input type="checkbox" id="t-f6-m-7"><label for="t-f6-m-7">Cámara → análisis (foto de recibo → gasto automático)</label></li>
+  <li><input type="checkbox" id="t-f6-m-8"><label for="t-f6-m-8">Notas de voz (reusa transcripción)</label></li>
+  <li><input type="checkbox" id="t-f6-m-9"><label for="t-f6-m-9">Notificaciones push (nuevos pedidos, recordatorios)</label></li>
+  <li><input type="checkbox" id="t-f6-m-10"><label for="t-f6-m-10">Onboarding en app (animado, 4 pantallas)</label></li>
+</ul>
+</div>
+
+<h3>6.3 Web app completa (expandir landing actual)</h3>
+<div class="panel">
+<ul class="tasks" data-section="f6-web">
+  <li><input type="checkbox" id="t-f6-w-1"><label for="t-f6-w-1">Expandir dashboard existente a feature completo</label></li>
+  <li><input type="checkbox" id="t-f6-w-2"><label for="t-f6-w-2">Chat embebido (mismo backend)</label></li>
+  <li><input type="checkbox" id="t-f6-w-3"><label for="t-f6-w-3">Editor de creativos (preview de imágenes/videos)</label></li>
+  <li><input type="checkbox" id="t-f6-w-4"><label for="t-f6-w-4">Gestión de tienda/catálogo visual</label></li>
+  <li><input type="checkbox" id="t-f6-w-5"><label for="t-f6-w-5">Analytics de ads y web</label></li>
+  <li><input type="checkbox" id="t-f6-w-6"><label for="t-f6-w-6">PWA (instalable desde browser)</label></li>
+  <li><input type="checkbox" id="t-f6-w-7"><label for="t-f6-w-7">Dark mode</label></li>
+</ul>
+</div>
+
+<h3>6.4 Distribución y CI/CD móvil</h3>
+<div class="panel">
+<ul class="tasks" data-section="f6-dist">
+  <li><input type="checkbox" id="t-f6-d-1"><label for="t-f6-d-1">Apple Developer Account ($99/año)</label></li>
+  <li><input type="checkbox" id="t-f6-d-2"><label for="t-f6-d-2">Google Play Console ($25 una vez)</label></li>
+  <li><input type="checkbox" id="t-f6-d-3"><label for="t-f6-d-3">EAS Build (Expo) para pipelines de build</label></li>
+  <li><input type="checkbox" id="t-f6-d-4"><label for="t-f6-d-4">TestFlight + Internal testing track</label></li>
+  <li><input type="checkbox" id="t-f6-d-5"><label for="t-f6-d-5">Launch en ambas stores</label></li>
+  <li><input type="checkbox" id="t-f6-d-6"><label for="t-f6-d-6">OTA updates para fixes menores (Expo Updates)</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>FASE 7 · Adaptabilidad por vertical <span class="pill p2">P2 · ongoing</span></h2>
+<p>Hacer que Dona se adapte automáticamente al tipo de negocio del usuario
+con vocabulario, tools y plantillas específicas.</p>
+
+<div class="panel">
+<ul class="tasks" data-section="f7-verticales">
+  <li><input type="checkbox" id="t-f7-v-1"><label for="t-f7-v-1">Vertical <b>Restaurante / food</b>: menú, reservas, pedidos, delivery</label></li>
+  <li><input type="checkbox" id="t-f7-v-2"><label for="t-f7-v-2">Vertical <b>Salón de belleza</b>: citas, staff, servicios, fidelidad</label></li>
+  <li><input type="checkbox" id="t-f7-v-3"><label for="t-f7-v-3">Vertical <b>Coach / consultor</b>: paquetes, sesiones, contenido</label></li>
+  <li><input type="checkbox" id="t-f7-v-4"><label for="t-f7-v-4">Vertical <b>Retail / tienda</b>: inventario, promos, catálogo</label></li>
+  <li><input type="checkbox" id="t-f7-v-5"><label for="t-f7-v-5">Vertical <b>Servicios a domicilio</b>: rutas, técnicos, órdenes de trabajo</label></li>
+  <li><input type="checkbox" id="t-f7-v-6"><label for="t-f7-v-6">Vertical <b>Profesional independiente</b>: timesheets, facturación, clientes</label></li>
+  <li><input type="checkbox" id="t-f7-v-7"><label for="t-f7-v-7">Cada vertical: onboarding específico + vocabulario + plantillas + tools</label></li>
+  <li><input type="checkbox" id="t-f7-v-8"><label for="t-f7-v-8">Detección automática de vertical en onboarding</label></li>
+  <li><input type="checkbox" id="t-f7-v-9"><label for="t-f7-v-9">Switch de vertical manualmente</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>FASE 8 · Plataforma y calidad <span class="pill p2">P2 · continuo</span></h2>
+
+<h3>8.1 Multi-idioma</h3>
+<div class="panel">
+<ul class="tasks" data-section="f8-i18n">
+  <li><input type="checkbox" id="t-f8-i-1"><label for="t-f8-i-1">Detección de idioma por mensaje (langdetect)</label></li>
+  <li><input type="checkbox" id="t-f8-i-2"><label for="t-f8-i-2">System prompt y respuestas en inglés</label></li>
+  <li><input type="checkbox" id="t-f8-i-3"><label for="t-f8-i-3">Docs legales y onboarding en inglés</label></li>
+  <li><input type="checkbox" id="t-f8-i-4"><label for="t-f8-i-4">Plantillas de documentos en inglés</label></li>
+  <li><input type="checkbox" id="t-f8-i-5"><label for="t-f8-i-5">Preferencia guardada por usuario</label></li>
+</ul>
+</div>
+
+<h3>8.2 Observabilidad prod</h3>
+<div class="panel">
+<ul class="tasks" data-section="f8-obs">
+  <li><input type="checkbox" id="t-f8-o-1"><label for="t-f8-o-1">Sentry para errores y exceptions</label></li>
+  <li><input type="checkbox" id="t-f8-o-2"><label for="t-f8-o-2">Log aggregation (Logtail / Grafana Loki)</label></li>
+  <li><input type="checkbox" id="t-f8-o-3"><label for="t-f8-o-3">Dashboard de métricas por usuario (retención, créditos/mes)</label></li>
+  <li><input type="checkbox" id="t-f8-o-4"><label for="t-f8-o-4">Alertas por Slack / email cuando error rate &gt; X%</label></li>
+  <li><input type="checkbox" id="t-f8-o-5"><label for="t-f8-o-5">SLO dashboard (latencia, disponibilidad)</label></li>
+  <li><input type="checkbox" id="t-f8-o-6"><label for="t-f8-o-6">Detección de churn temprano (usuarios que dejan de mandar mensajes)</label></li>
+</ul>
+</div>
+
+<h3>8.3 Performance y escala</h3>
+<div class="panel">
+<ul class="tasks" data-section="f8-perf">
+  <li><input type="checkbox" id="t-f8-p-1"><label for="t-f8-p-1">Prompt caching de Anthropic (system prompt largo)</label></li>
+  <li><input type="checkbox" id="t-f8-p-2"><label for="t-f8-p-2">Batch processing para jobs no urgentes</label></li>
+  <li><input type="checkbox" id="t-f8-p-3"><label for="t-f8-p-3">Horizontal scaling de workers (arq + Redis)</label></li>
+  <li><input type="checkbox" id="t-f8-p-4"><label for="t-f8-p-4">CDN para assets (Cloudflare en R2)</label></li>
+  <li><input type="checkbox" id="t-f8-p-5"><label for="t-f8-p-5">Read replicas de Postgres si carga lo requiere</label></li>
+  <li><input type="checkbox" id="t-f8-p-6"><label for="t-f8-p-6">Compresión de imágenes antes de enviar (avif/webp)</label></li>
+</ul>
+</div>
+
+<h3>8.4 Testing y calidad</h3>
+<div class="panel">
+<ul class="tasks" data-section="f8-qa">
+  <li><input type="checkbox" id="t-f8-q-1"><label for="t-f8-q-1">Tests para refund path de imagen</label></li>
+  <li><input type="checkbox" id="t-f8-q-2"><label for="t-f8-q-2">Tests para regex imagen-sin-sujeto</label></li>
+  <li><input type="checkbox" id="t-f8-q-3"><label for="t-f8-q-3">Tests de cada handler creativo nuevo</label></li>
+  <li><input type="checkbox" id="t-f8-q-4"><label for="t-f8-q-4">E2E tests via Playwright para storefront y web generada</label></li>
+  <li><input type="checkbox" id="t-f8-q-5"><label for="t-f8-q-5">Load testing (k6) antes de cada release mayor</label></li>
+  <li><input type="checkbox" id="t-f8-q-6"><label for="t-f8-q-6">Coverage &gt; 80% para módulos core</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>FASE 9 · Cumplimiento, seguridad y madurez <span class="pill p2">P2 · antes de scale</span></h2>
+<div class="panel">
+<ul class="tasks" data-section="f9-compl">
+  <li><input type="checkbox" id="t-f9-c-1"><label for="t-f9-c-1">Data retention policy + auto-deletion de mensajes &gt; N meses</label></li>
+  <li><input type="checkbox" id="t-f9-c-2"><label for="t-f9-c-2">Encryption at rest para PII (cliente + SSN/EIN si aplica)</label></li>
+  <li><input type="checkbox" id="t-f9-c-3"><label for="t-f9-c-3">Backup strategy + disaster recovery plan</label></li>
+  <li><input type="checkbox" id="t-f9-c-4"><label for="t-f9-c-4">Incident response playbook</label></li>
+  <li><input type="checkbox" id="t-f9-c-5"><label for="t-f9-c-5">Penetration testing externo</label></li>
+  <li><input type="checkbox" id="t-f9-c-6"><label for="t-f9-c-6">SOC 2 Type I readiness (si hay clientes enterprise)</label></li>
+  <li><input type="checkbox" id="t-f9-c-7"><label for="t-f9-c-7">Meta Business Verification para WhatsApp Business API nativo</label></li>
+  <li><input type="checkbox" id="t-f9-c-8"><label for="t-f9-c-8">Legal review de contratos generados por Dona</label></li>
+  <li><input type="checkbox" id="t-f9-c-9"><label for="t-f9-c-9">Términos de uso clarificando responsabilidad de contenido generado</label></li>
+  <li><input type="checkbox" id="t-f9-c-10"><label for="t-f9-c-10">Política de uso aceptable + filtros de contenido prohibido</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>Integraciones externas — resumen</h2>
+<p>Lista consolidada de APIs de terceros que Dona usará. Cada una requiere
+cuenta, keys y tests de integración.</p>
+
+<div class="grid">
+  <div class="card"><b>LLM</b><br>Anthropic, OpenAI, DeepSeek</div>
+  <div class="card"><b>Imagen</b><br>Gemini, Ideogram, Recraft, Replicate (Real-ESRGAN), Photoroom</div>
+  <div class="card"><b>Audio</b><br>ElevenLabs, Suno / Udio, OpenAI Whisper / tts</div>
+  <div class="card"><b>Video</b><br>Runway Gen-3, Google Veo 3, HeyGen, Pexels (b-roll)</div>
+  <div class="card"><b>WhatsApp</b><br>Whapi, Meta Cloud API, Twilio</div>
+  <div class="card"><b>Redes sociales</b><br>Instagram Graph, TikTok Business, YouTube Data API</div>
+  <div class="card"><b>Ads</b><br>Meta Marketing, Google Ads, TikTok Ads</div>
+  <div class="card"><b>Pagos</b><br>Stripe + Stripe Connect</div>
+  <div class="card"><b>Email</b><br>Postmark o SendGrid</div>
+  <div class="card"><b>Deploy</b><br>Vercel API, Cloudflare Pages</div>
+  <div class="card"><b>Storage</b><br>Cloudflare R2, Google Drive</div>
+  <div class="card"><b>Firma electrónica</b><br>DocuSign o Dropbox Sign</div>
+  <div class="card"><b>Google Workspace</b><br>Calendar, Gmail, Contacts, Sheets, Drive, Tasks</div>
+  <div class="card"><b>OCR</b><br>Tesseract (local) o AWS Textract</div>
+  <div class="card"><b>Analytics</b><br>Plausible o Umami</div>
+  <div class="card"><b>Monitoring</b><br>Sentry, Logtail</div>
+  <div class="card"><b>Stock media</b><br>Pexels, Unsplash</div>
+  <div class="card"><b>Mobile</b><br>Expo + EAS Build</div>
+</div>
+
+<hr>
+
+<h2>Modelo económico</h2>
+<p>Ingresos por créditos prepagos + comisión de Stripe Connect + posibles
+suscripciones.</p>
+
+<div class="panel">
+<h4>Revenue streams</h4>
+<ul class="tasks" data-section="revenue">
+  <li><input type="checkbox" id="t-rev-1"><label for="t-rev-1">Créditos prepagos (activo): paquetes 100/500/2000 via Stripe</label></li>
+  <li><input type="checkbox" id="t-rev-2"><label for="t-rev-2">Plan mensual/anual con créditos incluidos + features</label></li>
+  <li><input type="checkbox" id="t-rev-3"><label for="t-rev-3">Platform fee sobre transacciones del storefront (Stripe Connect)</label></li>
+  <li><input type="checkbox" id="t-rev-4"><label for="t-rev-4">Features premium (clonado de voz, videos largos, custom domains)</label></li>
+  <li><input type="checkbox" id="t-rev-5"><label for="t-rev-5">White-label / agencias (pricing especial)</label></li>
+</ul>
+
+<h4>Control de costos</h4>
+<ul class="tasks" data-section="costos">
+  <li><input type="checkbox" id="t-cost-1"><label for="t-cost-1">Margen por handler (precio crédito &gt; costo API)</label></li>
+  <li><input type="checkbox" id="t-cost-2"><label for="t-cost-2">Quotas por plan para limitar abuso</label></li>
+  <li><input type="checkbox" id="t-cost-3"><label for="t-cost-3">Alertas de consumo anómalo</label></li>
+  <li><input type="checkbox" id="t-cost-4"><label for="t-cost-4">Dashboard de unit economics (LTV/CAC/CM)</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>Métricas de éxito</h2>
+<div class="grid">
+  <div class="card"><b>North star</b><br>Créditos consumidos por usuario activo / mes</div>
+  <div class="card"><b>Producto</b><br>MAU, retention D7/D30, time-to-first-value</div>
+  <div class="card"><b>Negocio</b><br>LTV/CAC, gross margin por handler, ARPU</div>
+  <div class="card"><b>Calidad</b><br>Error rate por handler, refund rate, NPS</div>
+  <div class="card"><b>Operación</b><br>Latencia P95, disponibilidad, jobs-stuck ratio</div>
+  <div class="card"><b>Crecimiento</b><br>Viralidad (referrals), conversión trial → paid</div>
+</div>
+
+<hr>
+
+<h2>Riesgos principales y mitigaciones</h2>
+<div class="panel">
+<ul class="tasks" data-section="riesgos">
+  <li><input type="checkbox" id="t-r-1"><label for="t-r-1"><b>Costo de APIs explosivo</b> — quotas por plan + caching + modelos más baratos por default</label></li>
+  <li><input type="checkbox" id="t-r-2"><label for="t-r-2"><b>Prompt injection vía datos externos</b> — sanitización ya implementada; ampliar a nuevos inputs</label></li>
+  <li><input type="checkbox" id="t-r-3"><label for="t-r-3"><b>Spam / TCPA violations</b> — opt-in explícito, rate-limit, STOP keyword, templates HSM aprobadas</label></li>
+  <li><input type="checkbox" id="t-r-4"><label for="t-r-4"><b>Suspensión Meta/Whapi</b> — business verification + policy compliance + diversificación de providers</label></li>
+  <li><input type="checkbox" id="t-r-5"><label for="t-r-5"><b>Calidad inconsistente de creativos</b> — feedback loop + retry inteligente + refund automático</label></li>
+  <li><input type="checkbox" id="t-r-6"><label for="t-r-6"><b>Soporte 24/7 imposible para founder</b> — agente de soporte triage + FAQ + scheduling</label></li>
+  <li><input type="checkbox" id="t-r-7"><label for="t-r-7"><b>Legal de contenido generado (copyright)</b> — disclaimers + T&C + preferir modelos con licencia comercial</label></li>
+  <li><input type="checkbox" id="t-r-8"><label for="t-r-8"><b>Stripe Connect demora KYC</b> — onboarding async que permita usar Dona sin storefront</label></li>
+  <li><input type="checkbox" id="t-r-9"><label for="t-r-9"><b>Dependencia mono-proveedor (Gemini/Runway)</b> — abstracción y fallbacks por tier</label></li>
+  <li><input type="checkbox" id="t-r-10"><label for="t-r-10"><b>Churn silencioso</b> — monitoring de usuarios inactivos + re-engagement automático</label></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>Roadmap temporal sugerido</h2>
+<p class="sub">Duraciones son estimados con 1-2 devs full-time. Las fases 1 y 2
+son críticas para alcanzar la visión mínima. Fases 3-5 desbloquean valor para
+el negocio del usuario. Fase 6 abre un canal nuevo. 7-9 son continuos.</p>
+<div class="panel">
+<table style="width:100%;border-collapse:collapse;font-size:13.5px">
+<thead><tr style="background:#1c2230">
+  <th style="padding:8px;text-align:left;border-bottom:1px solid #2a3142">Fase</th>
+  <th style="padding:8px;text-align:left;border-bottom:1px solid #2a3142">Duración</th>
+  <th style="padding:8px;text-align:left;border-bottom:1px solid #2a3142">Prioridad</th>
+  <th style="padding:8px;text-align:left;border-bottom:1px solid #2a3142">Impacto</th>
+</tr></thead>
+<tbody>
+<tr><td style="padding:7px;border-bottom:1px solid #222938">1 · Creativos completos</td><td style="padding:7px;border-bottom:1px solid #222938">5-6 sem</td><td style="padding:7px;border-bottom:1px solid #222938">P0</td><td style="padding:7px;border-bottom:1px solid #222938">Diferenciación</td></tr>
+<tr><td style="padding:7px;border-bottom:1px solid #222938">2 · Documentos / PDFs</td><td style="padding:7px;border-bottom:1px solid #222938">2-3 sem</td><td style="padding:7px;border-bottom:1px solid #222938">P0</td><td style="padding:7px;border-bottom:1px solid #222938">Valor inmediato</td></tr>
+<tr><td style="padding:7px;border-bottom:1px solid #222938">3 · Tiendas + Stripe Connect</td><td style="padding:7px;border-bottom:1px solid #222938">4-5 sem</td><td style="padding:7px;border-bottom:1px solid #222938">P1</td><td style="padding:7px;border-bottom:1px solid #222938">Monetización usuario</td></tr>
+<tr><td style="padding:7px;border-bottom:1px solid #222938">4 · Gen web + deploy</td><td style="padding:7px;border-bottom:1px solid #222938">4 sem</td><td style="padding:7px;border-bottom:1px solid #222938">P1</td><td style="padding:7px;border-bottom:1px solid #222938">Wow factor</td></tr>
+<tr><td style="padding:7px;border-bottom:1px solid #222938">5 · Marketing / ads</td><td style="padding:7px;border-bottom:1px solid #222938">4-5 sem</td><td style="padding:7px;border-bottom:1px solid #222938">P1</td><td style="padding:7px;border-bottom:1px solid #222938">Ciclo completo</td></tr>
+<tr><td style="padding:7px;border-bottom:1px solid #222938">6 · App móvil + web</td><td style="padding:7px;border-bottom:1px solid #222938">8-10 sem</td><td style="padding:7px;border-bottom:1px solid #222938">P1</td><td style="padding:7px;border-bottom:1px solid #222938">Canal nuevo</td></tr>
+<tr><td style="padding:7px;border-bottom:1px solid #222938">7 · Verticales</td><td style="padding:7px;border-bottom:1px solid #222938">continuo</td><td style="padding:7px;border-bottom:1px solid #222938">P2</td><td style="padding:7px;border-bottom:1px solid #222938">Adaptabilidad</td></tr>
+<tr><td style="padding:7px;border-bottom:1px solid #222938">8 · Plataforma / calidad</td><td style="padding:7px;border-bottom:1px solid #222938">continuo</td><td style="padding:7px;border-bottom:1px solid #222938">P2</td><td style="padding:7px;border-bottom:1px solid #222938">Madurez</td></tr>
+<tr><td style="padding:7px">9 · Compliance</td><td style="padding:7px">antes scale</td><td style="padding:7px">P2</td><td style="padding:7px">Riesgo</td></tr>
+</tbody>
+</table>
+</div>
+
+<hr>
+
+<h2>Notas finales</h2>
+<div class="note">
+  Este plan mantiene la convención <b>preparar_X / confirmar_X</b> para toda tool
+  con costo o efecto irreversible. Cada nuevo handler debe seguir el patrón y
+  tener refund automático en caso de fallo.
+</div>
+<div class="note">
+  Todo nuevo módulo debe respetar: tests con mocks httpx, logging con
+  <code>getLogger("dona")</code>, audit trail de créditos, compliance TCPA/CCPA.
+</div>
+<div class="warn">
+  Antes de cualquier release que toque billing o compliance: <b>pytest</b>
+  completo + revisión manual por humano + staging deploy.
+</div>
+
+<p class="sub" style="margin-top:40px">
+  Generado 2026-04-21 · Versión 1.0 ·
+  <a href="javascript:window.print()" style="color:var(--accent)">Imprimir a PDF</a>
+</p>
+
+</div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'dona-plan-v1';
+  const boxes = document.querySelectorAll('input[type="checkbox"]');
+
+  function load(){
+    try{ return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }
+    catch{ return {}; }
+  }
+  function save(state){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+  const state = load();
+  boxes.forEach(b=>{
+    if(state[b.id]){
+      b.checked = true;
+      b.closest('li')?.classList.add('done');
+    }
+    b.addEventListener('change', ()=>{
+      state[b.id] = b.checked;
+      save(state);
+      b.closest('li')?.classList.toggle('done', b.checked);
+      updateProgress();
+    });
+  });
+
+  function updateProgress(){
+    const all = document.querySelectorAll('input[type="checkbox"]');
+    const done = document.querySelectorAll('input[type="checkbox"]:checked');
+    const pct = all.length ? Math.round(done.length/all.length*100) : 0;
+    document.getElementById('bar-global').style.width = pct + '%';
+    document.getElementById('pct-global').textContent =
+      done.length + ' / ' + all.length + ' tareas · ' + pct + '%';
+  }
+  updateProgress();
+
+  window.expandAll = function(open){
+    document.querySelectorAll('details').forEach(d=> d.open = open);
+  };
+  window.resetAll = function(){
+    if(!confirm('Esto borrará todo el progreso marcado. ¿Continuar?')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    boxes.forEach(b=>{ b.checked=false; b.closest('li')?.classList.remove('done'); });
+    updateProgress();
+  };
+  window.exportState = function(){
+    const blob = new Blob([JSON.stringify(load(),null,2)],{type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'dona-plan-progreso.json'; a.click();
+    URL.revokeObjectURL(url);
+  };
+})();
+</script>
+</body>
+</html>
