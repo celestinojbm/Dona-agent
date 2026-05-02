@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { reenviarEventoStripeABackend } from "@/lib/internal-bridge";
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
@@ -68,6 +69,23 @@ export async function POST(req: NextRequest) {
     default:
       // Unhandled event type
       break;
+  }
+
+  // Bridge T1.3.E: reenviar el evento verificado al backend Dona.
+  // El backend (procesar_evento_suscripcion) maneja la persistencia de
+  // suscripciones y la acreditación de créditos. Si el bridge falla,
+  // respondemos 500 a Stripe para que reintente (mejor retry + alerta
+  // que perder un evento).
+  const bridge = await reenviarEventoStripeABackend(event);
+  if (!bridge.ok) {
+    console.error(
+      `[WEBHOOK] Bridge a backend falló (status=${bridge.status ?? "n/a"} ` +
+        `error=${bridge.error}). Respondiendo 500 a Stripe para retry.`,
+    );
+    return NextResponse.json(
+      { error: "bridge_failed", reason: bridge.error },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ received: true });
