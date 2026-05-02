@@ -555,3 +555,409 @@ async def procesar_evento_stripe(evento: dict) -> dict:
     )
     logger.info(f"[BILLING] Acreditado {creditos} cr → {telefono} (saldo={saldo})")
     return {"handled": True, "telefono": telefono, "creditos": creditos, "saldo": saldo}
+
+
+# ── API: Webhook de Stripe — eventos de suscripción (T1.3.C) ───────────────
+#
+# Esta función es el dispatcher de los 4 tipos de evento que componen el ciclo
+# de vida de una suscripción Stripe en Dona:
+#
+#   1. checkout.session.completed (mode=subscription)
+#        El cliente terminó el checkout de la landing. Crea/actualiza la fila
+#        en `suscripcion_stripe` con telefono + plan + creditos_mensuales.
+#        NO acredita créditos todavía — eso lo hace invoice.payment_succeeded
+#        cuando Stripe cobra el primer mes (típicamente segundos después).
+#        Si el evento de invoice llega ANTES (race), `_procesar_invoice_*`
+#        rechaza por "subscription_no_persistida" y Stripe reintenta.
+#
+#   2. invoice.payment_succeeded
+#        Stripe cobró un periodo (el primero o una renovación). Acredita
+#        `creditos_mensuales` al teléfono de la suscripción. Idempotente por
+#        `invoice.id` (`ultimo_invoice_acreditado` en SuscripcionStripe) y
+#        adicionalmente por `acreditar(stripe_session_id=invoice_id)` que
+#        revisa TransaccionCredito. Decisión owner: créditos son ACUMULABLES
+#        (no resetean saldo).
+#
+#   3. customer.subscription.updated
+#        Cambio de plan, status (past_due, active, etc.) o price. Actualiza
+#        la fila pero NO toca saldo. Si cambia el plan_codigo, recalcula
+#        `creditos_mensuales` para la próxima renovación.
+#
+#   4. customer.subscription.deleted
+#        Cancelación. Marca status="canceled" pero PRESERVA el saldo de
+#        créditos del usuario (decisión owner: lo que ya pagaron es suyo).
+#
+# Idempotencia a tres niveles para defender contra reentregas de Stripe:
+#   - `EventoStripeProcesado.event_id` (cualquier evento, primer filtro).
+#   - `SuscripcionStripe.ultimo_invoice_acreditado` (solo invoices, segundo).
+#   - `TransaccionCredito.stripe_session_id` (último filtro dentro de acreditar).
+#
+# El llamador (T1.3.D, endpoint /internal/stripe-event) decide qué hacer con
+# el resultado: 200 si handled o si fue duplicado conocido, 500 si hubo error
+# inesperado para forzar el retry de Stripe.
+
+
+async def procesar_evento_suscripcion(evento: dict) -> dict:
+    """
+    Procesa un evento Stripe de suscripción (4 tipos soportados).
+
+    Maneja la idempotencia por ``event.id`` antes de despachar al handler.
+    Retorna dict con ``handled: bool`` y contexto. Nunca propaga excepciones
+    de DB hacia arriba (el llamador decide el status HTTP).
+    """
+    from agent.memory import async_session, EventoStripeProcesado
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+
+    tipo = evento.get("type", "") or ""
+    event_id = evento.get("id", "") or ""
+
+    if not event_id:
+        logger.warning("[BILLING] Evento de suscripción sin event_id — no procesable")
+        return {"handled": False, "reason": "missing_event_id"}
+
+    # Filtro 1 (idempotencia general): event_id ya procesado.
+    async with async_session() as session:
+        ya = (await session.execute(
+            select(EventoStripeProcesado).where(
+                EventoStripeProcesado.event_id == event_id
+            )
+        )).scalar_one_or_none()
+        if ya is not None:
+            logger.info(f"[BILLING] Evento ya procesado, skip: {event_id} ({tipo})")
+            return {"handled": False, "reason": "duplicate_event", "event_id": event_id}
+
+    data = (evento.get("data") or {}).get("object") or {}
+
+    if tipo == "checkout.session.completed":
+        # Solo procesamos checkouts mode=subscription. Los mode=payment los
+        # maneja `procesar_evento_stripe` (legacy paquetes one-time).
+        if data.get("mode") != "subscription":
+            return {
+                "handled": False,
+                "reason": f"checkout no es subscription (mode={data.get('mode')})",
+            }
+        resultado = await _procesar_checkout_subscription(data)
+    elif tipo == "invoice.payment_succeeded":
+        resultado = await _procesar_invoice_payment_succeeded(data)
+    elif tipo == "customer.subscription.updated":
+        resultado = await _procesar_subscription_updated(data)
+    elif tipo == "customer.subscription.deleted":
+        resultado = await _procesar_subscription_deleted(data)
+    else:
+        return {"handled": False, "reason": f"tipo no soportado: {tipo}"}
+
+    # Solo marcamos como procesado si el handler confirmó éxito. Eventos
+    # rechazados (plan inválido, telefono faltante, etc.) NO se marcan: si
+    # Stripe reentrega después de que el owner arregle la config, se vuelven
+    # a procesar. Decisión consciente — preferimos reintentos sobre eventos
+    # huérfanos que requieren intervención manual.
+    if resultado.get("handled"):
+        async with async_session() as session:
+            session.add(EventoStripeProcesado(event_id=event_id, tipo=tipo))
+            try:
+                await session.commit()
+            except IntegrityError:
+                # Race: otro hilo lo marcó al mismo tiempo. El estado en DB
+                # ya es consistente; el resultado del handler es válido.
+                await session.rollback()
+                logger.info(
+                    f"[BILLING] Evento {event_id} marcado por otro hilo (race benigno)"
+                )
+
+    return resultado
+
+
+async def _procesar_checkout_subscription(data: dict) -> dict:
+    """
+    checkout.session.completed con mode=subscription.
+
+    Crea o actualiza la fila SuscripcionStripe. NO acredita créditos.
+    Los créditos se acreditan en invoice.payment_succeeded para que un
+    checkout sin pago concretado (raro pero posible) no regale créditos.
+    """
+    from agent.memory import async_session, SuscripcionStripe
+    from sqlalchemy import select
+
+    subscription_id = (data.get("subscription") or "").strip()
+    customer_id = (data.get("customer") or "").strip()
+    metadata = data.get("metadata") or {}
+    plan_codigo = (metadata.get("plan") or "").strip().lower()
+
+    # Telefono: prioridad metadata.phone (lo que setea el landing al crear la
+    # session), fallback customer_details.phone (lo que llena el cliente en
+    # el checkout). Quitamos el "+" inicial para alinear con el formato que
+    # usa el resto del backend (e164 sin signo).
+    telefono = (
+        metadata.get("phone")
+        or (data.get("customer_details") or {}).get("phone")
+        or ""
+    ).strip().lstrip("+")
+
+    if not subscription_id:
+        logger.warning("[BILLING] checkout subscription sin subscription_id")
+        return {"handled": False, "reason": "missing_subscription_id"}
+
+    if not telefono:
+        logger.warning(
+            f"[BILLING] checkout subscription sin telefono: sub={subscription_id}"
+        )
+        return {"handled": False, "reason": "missing_telefono"}
+
+    creditos = creditos_de_plan(plan_codigo)
+    if creditos is None:
+        # creditos_de_plan ya logueó el motivo (plan desconocido o env faltante).
+        return {"handled": False, "reason": f"plan_invalido: {plan_codigo!r}"}
+
+    async with async_session() as session:
+        existing = (await session.execute(
+            select(SuscripcionStripe).where(
+                SuscripcionStripe.subscription_id == subscription_id
+            )
+        )).scalar_one_or_none()
+
+        if existing is not None:
+            # Re-checkout para la misma subscription (raro pero posible si el
+            # cliente reabre el link). Actualizamos plan/telefono en lugar de
+            # crear duplicado.
+            existing.telefono = telefono
+            existing.customer_id = customer_id
+            existing.plan_codigo = plan_codigo
+            existing.creditos_mensuales = creditos
+            existing.status = "active"
+            existing.actualizado = datetime.utcnow()
+            accion = "updated"
+        else:
+            session.add(SuscripcionStripe(
+                subscription_id=subscription_id,
+                telefono=telefono,
+                customer_id=customer_id,
+                plan_codigo=plan_codigo,
+                price_id="",  # se completa en customer.subscription.updated
+                status="active",
+                creditos_mensuales=creditos,
+            ))
+            accion = "created"
+        await session.commit()
+
+    logger.info(
+        f"[BILLING] Checkout {accion}: sub={subscription_id} "
+        f"plan={plan_codigo} creditos_mensuales={creditos}"
+    )
+    return {
+        "handled": True,
+        "tipo": "checkout.session.completed",
+        "accion": accion,
+        "subscription_id": subscription_id,
+        "telefono": telefono,
+        "plan_codigo": plan_codigo,
+        "creditos_mensuales": creditos,
+    }
+
+
+async def _procesar_invoice_payment_succeeded(data: dict) -> dict:
+    """
+    invoice.payment_succeeded — acredita créditos del periodo (acumulables).
+
+    Doble idempotencia:
+      - ``SuscripcionStripe.ultimo_invoice_acreditado``: si ya acreditamos este
+        invoice, no acreditamos de nuevo.
+      - ``acreditar(stripe_session_id=invoice_id)``: revisa TransaccionCredito.
+
+    Si la suscripción no existe en DB (race con checkout.session.completed),
+    rechazamos. Stripe reintenta y debería llegar después.
+    """
+    from agent.memory import async_session, SuscripcionStripe
+    from sqlalchemy import select
+
+    invoice_id = (data.get("id") or "").strip()
+    subscription_id = (data.get("subscription") or "").strip()
+
+    if not invoice_id:
+        logger.warning("[BILLING] invoice sin id")
+        return {"handled": False, "reason": "missing_invoice_id"}
+
+    if not subscription_id:
+        logger.warning(f"[BILLING] invoice {invoice_id} sin subscription")
+        return {"handled": False, "reason": "missing_subscription_id"}
+
+    # Cargar SuscripcionStripe; capturar campos que necesitamos antes de salir
+    # del session scope (telefono, creditos_mensuales, plan_codigo).
+    async with async_session() as session:
+        sub = (await session.execute(
+            select(SuscripcionStripe).where(
+                SuscripcionStripe.subscription_id == subscription_id
+            )
+        )).scalar_one_or_none()
+
+        if sub is None:
+            logger.warning(
+                f"[BILLING] invoice {invoice_id} para sub desconocida {subscription_id} "
+                f"— posible race con checkout.session.completed; Stripe reintentará"
+            )
+            return {"handled": False, "reason": "subscription_no_persistida"}
+
+        # Filtro 2: invoice ya acreditado para esta suscripción.
+        if sub.ultimo_invoice_acreditado == invoice_id:
+            logger.info(
+                f"[BILLING] invoice {invoice_id} ya acreditado para sub {subscription_id}"
+            )
+            return {"handled": False, "reason": "invoice_ya_acreditado"}
+
+        creditos = int(sub.creditos_mensuales)
+        telefono = sub.telefono
+        plan_codigo = sub.plan_codigo
+        status_actual = sub.status
+
+    # Acreditar fuera del session scope anterior; `acreditar` abre el suyo.
+    # El stripe_session_id lleva el invoice_id como tercer nivel de idempotencia.
+    saldo = await acreditar(
+        telefono=telefono,
+        creditos=creditos,
+        razon=f"Renovación {plan_codigo} ({creditos} créditos)",
+        stripe_session_id=invoice_id,
+    )
+
+    # Marcar invoice como procesado y reactivar status si venía de past_due.
+    async with async_session() as session:
+        sub = (await session.execute(
+            select(SuscripcionStripe).where(
+                SuscripcionStripe.subscription_id == subscription_id
+            )
+        )).scalar_one_or_none()
+        if sub is not None:
+            sub.ultimo_invoice_acreditado = invoice_id
+            sub.actualizado = datetime.utcnow()
+            # Solo reactivamos a "active" si el status anterior NO era una
+            # cancelación firme. Si la suscripción fue cancelada y por alguna
+            # razón llega un invoice tardío, no la resucitamos.
+            if status_actual not in ("canceled",):
+                sub.status = "active"
+            await session.commit()
+
+    logger.info(
+        f"[BILLING] Acreditado {creditos} cr (invoice={invoice_id} sub={subscription_id} saldo={saldo})"
+    )
+    return {
+        "handled": True,
+        "tipo": "invoice.payment_succeeded",
+        "subscription_id": subscription_id,
+        "invoice_id": invoice_id,
+        "telefono": telefono,
+        "creditos": creditos,
+        "saldo": saldo,
+    }
+
+
+async def _procesar_subscription_updated(data: dict) -> dict:
+    """
+    customer.subscription.updated — actualiza plan/status/price/creditos_mensuales.
+
+    NO toca saldo: el cambio aplica a la próxima renovación. Si el cliente sube
+    de Premium a Pro a mitad de periodo, los 100 créditos de este mes ya están
+    acreditados; la próxima invoice traerá los 500 nuevos.
+    """
+    from agent.memory import async_session, SuscripcionStripe
+    from sqlalchemy import select
+
+    subscription_id = (data.get("id") or "").strip()
+    if not subscription_id:
+        logger.warning("[BILLING] subscription_updated sin id")
+        return {"handled": False, "reason": "missing_subscription_id"}
+
+    nuevo_status = (data.get("status") or "").strip()
+    items = (data.get("items") or {}).get("data") or []
+    nuevo_price_id = ""
+    if items:
+        nuevo_price_id = ((items[0].get("price") or {}).get("id") or "").strip()
+
+    metadata = data.get("metadata") or {}
+    nuevo_plan = (metadata.get("plan") or "").strip().lower()
+
+    async with async_session() as session:
+        sub = (await session.execute(
+            select(SuscripcionStripe).where(
+                SuscripcionStripe.subscription_id == subscription_id
+            )
+        )).scalar_one_or_none()
+
+        if sub is None:
+            logger.warning(
+                f"[BILLING] subscription_updated para sub desconocida {subscription_id}"
+            )
+            return {"handled": False, "reason": "subscription_no_persistida"}
+
+        cambios = []
+        if nuevo_status and nuevo_status != sub.status:
+            cambios.append(f"status:{sub.status}->{nuevo_status}")
+            sub.status = nuevo_status
+        if nuevo_price_id and nuevo_price_id != sub.price_id:
+            cambios.append(f"price_id:{sub.price_id}->{nuevo_price_id}")
+            sub.price_id = nuevo_price_id
+        if nuevo_plan and nuevo_plan != sub.plan_codigo:
+            nuevos_creditos = creditos_de_plan(nuevo_plan)
+            if nuevos_creditos is not None:
+                cambios.append(f"plan:{sub.plan_codigo}->{nuevo_plan}")
+                cambios.append(
+                    f"creditos_mensuales:{sub.creditos_mensuales}->{nuevos_creditos}"
+                )
+                sub.plan_codigo = nuevo_plan
+                sub.creditos_mensuales = nuevos_creditos
+            else:
+                # creditos_de_plan ya logueó. Mantenemos el plan anterior.
+                cambios.append(f"plan:{nuevo_plan}_rechazado")
+
+        sub.actualizado = datetime.utcnow()
+        await session.commit()
+
+    logger.info(
+        f"[BILLING] subscription_updated {subscription_id}: "
+        f"{('; '.join(cambios)) if cambios else 'sin cambios relevantes'}"
+    )
+    return {
+        "handled": True,
+        "tipo": "customer.subscription.updated",
+        "subscription_id": subscription_id,
+        "cambios": cambios,
+    }
+
+
+async def _procesar_subscription_deleted(data: dict) -> dict:
+    """
+    customer.subscription.deleted — marca status="canceled".
+
+    NO toca el saldo de créditos del usuario. Decisión owner: lo que el cliente
+    ya pagó es suyo aunque haya cancelado. La próxima renovación simplemente
+    no llegará (Stripe deja de generar invoices).
+    """
+    from agent.memory import async_session, SuscripcionStripe
+    from sqlalchemy import select
+
+    subscription_id = (data.get("id") or "").strip()
+    if not subscription_id:
+        logger.warning("[BILLING] subscription_deleted sin id")
+        return {"handled": False, "reason": "missing_subscription_id"}
+
+    async with async_session() as session:
+        sub = (await session.execute(
+            select(SuscripcionStripe).where(
+                SuscripcionStripe.subscription_id == subscription_id
+            )
+        )).scalar_one_or_none()
+
+        if sub is None:
+            logger.warning(
+                f"[BILLING] subscription_deleted para sub desconocida {subscription_id}"
+            )
+            return {"handled": False, "reason": "subscription_no_persistida"}
+
+        sub.status = "canceled"
+        sub.actualizado = datetime.utcnow()
+        await session.commit()
+
+    logger.info(f"[BILLING] subscription canceled: {subscription_id}")
+    return {
+        "handled": True,
+        "tipo": "customer.subscription.deleted",
+        "subscription_id": subscription_id,
+    }
