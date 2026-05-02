@@ -402,6 +402,52 @@ class TransaccionCredito(Base):
     creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class SuscripcionStripe(Base):
+    """
+    Suscripción Stripe activa de un usuario (T1.3.A).
+
+    Una fila por suscripción Stripe (PK = subscription_id). Permite mapear
+    eventos de Stripe (renovaciones, cambios de plan, cancelaciones) al
+    teléfono del usuario y al plan vigente.
+
+    `creditos_mensuales` se acredita cada vez que llega `invoice.payment_succeeded`
+    (decisión owner: créditos acumulables, no se resetean). `ultimo_invoice_acreditado`
+    es la llave de idempotencia: si el mismo invoice.id se reentrega no acreditamos
+    dos veces.
+
+    Esta tabla **no** se usa todavía — T1.3.A solo crea la estructura.
+    Los handlers que la pueblan se agregan en T1.3.C/D/E.
+    """
+    __tablename__ = "suscripcion_stripe"
+
+    subscription_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    customer_id: Mapped[str] = mapped_column(String(200), index=True)
+    plan_codigo: Mapped[str] = mapped_column(String(50))   # "premium" | "pro"
+    price_id: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(40))         # active | past_due | canceled | incomplete
+    creditos_mensuales: Mapped[int] = mapped_column(Integer)
+    ultimo_invoice_acreditado: Mapped[str] = mapped_column(String(200), default="")
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class EventoStripeProcesado(Base):
+    """
+    Marca de eventos Stripe ya procesados — idempotencia a nivel de evento (T1.3.A).
+
+    Cada evento Stripe tiene un `event.id` único. Antes de procesar un evento
+    hacemos lookup por `event_id`; si ya está, retornamos sin reprocesar.
+
+    Esta tabla **no** se usa todavía — T1.3.A solo crea la estructura.
+    """
+    __tablename__ = "evento_stripe_procesado"
+
+    event_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    tipo: Mapped[str] = mapped_column(String(80), index=True)
+    recibido_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 # Timeout de sesión: 30 minutos de inactividad → nueva sesión
 SESION_TIMEOUT_MINUTOS = 30
 
