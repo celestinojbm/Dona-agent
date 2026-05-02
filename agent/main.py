@@ -9,6 +9,8 @@ Funciona con cualquier proveedor (Whapi, Meta, Twilio) gracias a la capa de prov
 import os
 import re
 import hmac
+import json
+import hashlib
 import logging
 import httpx
 from time import monotonic
@@ -33,6 +35,29 @@ import agent.billing  # noqa: F401
 # inbound_tokens levanta RuntimeError al import y el deploy aborta antes de
 # servir webhooks que aceptarían tokens forjados.
 import agent.inbound_tokens  # noqa: F401
+
+
+# Fail-fast para INTERNAL_BRIDGE_SECRET (T1.3.D). El endpoint
+# /internal/stripe-event recibe eventos del bridge landing→backend; sin
+# secreto compartido un atacante podría POSTear payloads forjados con
+# checkout.session.completed o invoice.payment_succeeded y acreditar
+# créditos arbitrarios. En producción exigimos la variable al import; en
+# dev/test no abortamos, pero el endpoint rechazará 401 sin secreto
+# (no hay path permisivo).
+def _check_internal_bridge_secret() -> None:
+    """Aborta el deploy si ENVIRONMENT=production y falta INTERNAL_BRIDGE_SECRET."""
+    env = os.getenv("ENVIRONMENT", "development").lower()
+    if env == "production" and not os.getenv("INTERNAL_BRIDGE_SECRET", "").strip():
+        raise RuntimeError(
+            "[MAIN] INTERNAL_BRIDGE_SECRET no configurada en producción — "
+            "el endpoint /internal/stripe-event aceptaría payloads forjados "
+            "del bridge landing→backend, lo que permitiría a un atacante "
+            "acreditar créditos arbitrarios. Configura la variable antes "
+            "de reintentar el deploy."
+        )
+
+
+_check_internal_bridge_secret()
 
 from agent.brain import generar_respuesta
 from agent.memory import (
@@ -2157,6 +2182,112 @@ async def webhook_stripe(request: Request):
                 )
             except Exception as _e_notif:
                 logger.warning(f"[STRIPE] No se pudo notificar por WhatsApp a {tel}: {_e_notif}")
+
+    return {"status": "ok", **resultado}
+
+
+# ── Bridge interno landing → backend para eventos de suscripción (T1.3.D) ──
+#
+# Stripe Dashboard apunta a la landing (Vercel) por razones históricas. El
+# landing recibe el webhook firmado por Stripe, lo verifica, y reenvía el
+# evento al backend a través de este endpoint para que se acrediten los
+# créditos en la base de datos del backend.
+#
+# Seguridad: HMAC-SHA256 sobre el body crudo, llave compartida
+# INTERNAL_BRIDGE_SECRET. El header X-Internal-Signature lleva el hex digest.
+# Sin firma válida → 401 (no se parsea el body siquiera).
+#
+# Códigos de respuesta clasificados deliberadamente:
+#   200 → procesado o no-retryable. Stripe debería conservar.
+#   500 → retryable. Solo race entre invoice y checkout, o excepción inesperada.
+#   400 → JSON inválido tras HMAC válido (no debería ocurrir en operación normal;
+#         si pasa hay un bug en el bridge — no retryable, alertar).
+#   401 → firma faltante o inválida.
+
+
+def _verificar_firma_interna(body: bytes, sig_header: str) -> bool:
+    """HMAC-SHA256(body) == sig_header (hex). False si secret no está
+    configurado o si la firma no coincide. Compara con compare_digest."""
+    secret = os.getenv("INTERNAL_BRIDGE_SECRET", "").strip()
+    if not secret or not sig_header:
+        return False
+    esperado = hmac.new(
+        secret.encode("utf-8"), body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(esperado, sig_header.strip())
+
+
+@app.post("/internal/stripe-event")
+async def internal_stripe_event(request: Request):
+    """
+    Bridge landing → backend para eventos de suscripción Stripe.
+
+    Flujo:
+      1. Lee body crudo y header X-Internal-Signature.
+      2. Verifica HMAC-SHA256 contra INTERNAL_BRIDGE_SECRET. Si falla, 401.
+      3. Parsea JSON. Si falla, 400.
+      4. Llama a agent.billing.procesar_evento_suscripcion(evento).
+      5. Clasifica el resultado en 200 / 500 según retryable o no.
+
+    Idempotencia: la maneja procesar_evento_suscripcion (event.id +
+    invoice.id + stripe_session_id en TransaccionCredito). Este endpoint
+    solo despacha.
+    """
+    from agent.billing import procesar_evento_suscripcion
+
+    body = await request.body()
+    sig = request.headers.get("X-Internal-Signature", "")
+
+    if not _verificar_firma_interna(body, sig):
+        logger.warning(
+            "[INTERNAL] Firma inválida o ausente en /internal/stripe-event — rechazando"
+        )
+        raise HTTPException(status_code=401, detail="signature_invalid")
+
+    try:
+        evento = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        logger.warning(f"[INTERNAL] JSON inválido tras HMAC válido: {e}")
+        raise HTTPException(status_code=400, detail="json_invalid")
+
+    if not isinstance(evento, dict):
+        logger.warning("[INTERNAL] Payload no es un objeto JSON")
+        raise HTTPException(status_code=400, detail="json_not_object")
+
+    evento_tipo = evento.get("type", "")
+
+    try:
+        resultado = await procesar_evento_suscripcion(evento)
+    except Exception as e:
+        # Excepción inesperada → 500 para que el bridge reintente.
+        logger.exception(f"[INTERNAL] Error procesando evento suscripción: {e}")
+        raise HTTPException(status_code=500, detail="processing_error")
+
+    # Decisión de retry: solo el race "subscription_no_persistida" en
+    # invoice.payment_succeeded amerita 500 para que Stripe (vía bridge)
+    # reintente. Todo lo demás es no-retryable: ya procesamos, o el evento
+    # está mal formado / fuera de scope. Retornamos 200 para que el bridge
+    # responda 200 a Stripe y el evento no se reentregue eternamente.
+    if not resultado.get("handled"):
+        razon = resultado.get("reason", "")
+        es_race_invoice = (
+            evento_tipo == "invoice.payment_succeeded"
+            and razon == "subscription_no_persistida"
+        )
+        if es_race_invoice:
+            logger.warning(
+                f"[INTERNAL] Race invoice→checkout, pidiendo retry "
+                f"(invoice subscription={evento.get('data', {}).get('object', {}).get('subscription')})"
+            )
+            raise HTTPException(
+                status_code=500, detail="subscription_no_persistida_retry"
+            )
+        # No retryable: 200 con detalle.
+        logger.info(
+            f"[INTERNAL] Evento no procesado (no retryable): "
+            f"tipo={evento_tipo} reason={razon}"
+        )
+        return {"status": "ok", **resultado}
 
     return {"status": "ok", **resultado}
 
