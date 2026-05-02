@@ -138,7 +138,7 @@ const i18n = {
       tagline: "Tu agente de productividad en WhatsApp",
       terms: "Terminos y condiciones",
       privacy: "Politica de privacidad",
-      legal: "Aviso legal",
+      support: "Soporte",
       disclaimer: "Dona actua como asistente inteligente para tu negocio. Puede responder mensajes de WhatsApp, procesar imagenes como facturas y gestionar tu agenda. El uso del servicio implica la aceptacion de nuestros terminos.",
       copy: "Todos los derechos reservados.",
     },
@@ -253,7 +253,7 @@ const i18n = {
       tagline: "Your WhatsApp productivity agent",
       terms: "Terms and conditions",
       privacy: "Privacy policy",
-      legal: "Legal notice",
+      support: "Support",
       disclaimer: "Dona acts as an intelligent assistant for your business. It can reply to WhatsApp messages, process images such as invoices, and manage your calendar. Using the service implies acceptance of our terms.",
       copy: "All rights reserved.",
     },
@@ -791,9 +791,9 @@ export default function Home() {
           <div className="mt-8 pt-8 border-t border-white/[0.06]">
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-6 text-xs text-white/30 font-light">
-                <a href="#" className="nav-link">{t.footer.terms}</a>
-                <a href="#" className="nav-link">{t.footer.privacy}</a>
-                <a href="#" className="nav-link">{t.footer.legal}</a>
+                <a href="/terminos-y-condiciones" className="nav-link">{t.footer.terms}</a>
+                <a href="/politica-de-privacidad" className="nav-link">{t.footer.privacy}</a>
+                <a href="/soporte" className="nav-link">{t.footer.support}</a>
               </div>
             </div>
             <p className="text-[11px] text-white/25 font-light mt-6 max-w-2xl mx-auto text-center leading-relaxed">
