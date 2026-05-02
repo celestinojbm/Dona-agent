@@ -102,6 +102,98 @@ COSTO_CAMPAÑA_ADS = 30         # Creación Meta/Google Ads campaign
 COSTO_DOCUMENTO = 3            # Factura / presupuesto / recibo en PDF (LLM + reportlab)
 
 
+# ── Mapping plan Stripe → créditos mensuales (T1.3.B) ──────────────────────
+# El landing crea Stripe Checkout Sessions con `metadata.plan` valores
+# "premium" ($20/mes) o "pro" ($40/mes). Cuando llegue el webhook al backend
+# (T1.3.C-E), `creditos_de_plan(metadata.plan)` resuelve cuántos créditos
+# acreditar al usuario en cada periodo.
+#
+# Política de configuración (decisión owner):
+#   - En producción exigimos las env vars STRIPE_CREDITOS_PREMIUM y
+#     STRIPE_CREDITOS_PRO setadas en Render. Si faltan, retornamos None y
+#     loguemos ERROR (no acreditar > acreditar mal).
+#   - En dev/test aceptamos defaults conservadores (premium=100, pro=500)
+#     con warning, para permitir tests locales sin configurar Stripe.
+#
+# Defaults para dev/test — tentativos, NO se usan en producción.
+_CREDITOS_DEFAULT_DEV = {
+    "premium": 100,
+    "pro": 500,
+}
+
+# Mapping plan_codigo → nombre de la env var.
+_ENV_VAR_POR_PLAN = {
+    "premium": "STRIPE_CREDITOS_PREMIUM",
+    "pro": "STRIPE_CREDITOS_PRO",
+}
+
+
+def creditos_de_plan(plan_codigo: str) -> int | None:
+    """
+    Mapea un ``plan_codigo`` Stripe ("premium" | "pro") a créditos mensuales.
+
+    Comportamiento:
+      - Plan conocido + env var seteada → ``int(env_var)``.
+      - Plan conocido + env var faltante en **producción** → loguea ERROR y
+        retorna ``None`` (no acreditar nada > acreditar mal).
+      - Plan conocido + env var faltante en **dev/test** → fallback default
+        (premium=100, pro=500) con warning.
+      - Plan desconocido → loguea warning y retorna ``None``.
+      - env var con valor no entero → loguea ERROR y retorna ``None``.
+
+    El llamador (T1.3.C+) debe verificar el resultado con ``is None`` antes de
+    invocar ``acreditar()`` — un None significa "no se acredita esta vez".
+
+    Las variables de entorno se leen en cada llamada para facilitar tests con
+    ``monkeypatch.setenv``.
+    """
+    plan = (plan_codigo or "").strip().lower()
+    if plan not in _ENV_VAR_POR_PLAN:
+        logger.warning(
+            f"[BILLING] Plan desconocido en creditos_de_plan: {plan_codigo!r} — "
+            f"no se acredita. Planes soportados: {list(_ENV_VAR_POR_PLAN)}."
+        )
+        return None
+
+    env_var = _ENV_VAR_POR_PLAN[plan]
+    raw = os.getenv(env_var, "").strip()
+
+    if not raw:
+        environment = os.getenv("ENVIRONMENT", "development").lower()
+        if environment == "production":
+            logger.error(
+                f"[BILLING] {env_var} no configurada en producción — "
+                f"NO se acreditan créditos para plan '{plan}'. Configura la "
+                f"variable en Render o suspende ventas del plan."
+            )
+            return None
+        # Dev/test: fallback default + warning explícito.
+        default = _CREDITOS_DEFAULT_DEV[plan]
+        logger.warning(
+            f"[BILLING] {env_var} no configurada — usando default {default} "
+            f"(SOLO dev/test, configurar antes de producción)."
+        )
+        return default
+
+    try:
+        creditos = int(raw)
+    except ValueError:
+        logger.error(
+            f"[BILLING] {env_var} no es un entero válido: {raw!r} — "
+            f"NO se acreditan créditos para plan '{plan}'."
+        )
+        return None
+
+    if creditos <= 0:
+        logger.error(
+            f"[BILLING] {env_var}={creditos} debe ser > 0 — "
+            f"NO se acreditan créditos para plan '{plan}'."
+        )
+        return None
+
+    return creditos
+
+
 # ── Errores ─────────────────────────────────────────────────────────────────
 
 class SaldoInsuficienteError(Exception):
