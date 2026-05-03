@@ -132,7 +132,15 @@ export async function GET() {
   }
 
   // 5. Merge: datos del backend + Stripe + email de sesión.
+  // Para `estado` y `puede_cancelar` Stripe es fuente más fresca: si el
+  // webhook al backend está retrasado, Stripe ya sabe si la sub fue
+  // cancelada o quedó past_due. Si Stripe no está disponible (defaults
+  // null), usamos lo que diga el backend.
   const data: UsuarioResumen = backendRes.data;
+  const estadoFinal = stripeOverrides.status_stripe ?? data.suscripcion.estado;
+  const puedeCancelar =
+    estadoFinal === "active" && !stripeOverrides.cancel_at_period_end;
+
   const merged = {
     ...data,
     usuario: {
@@ -141,8 +149,13 @@ export async function GET() {
     },
     suscripcion: {
       ...data.suscripcion,
+      estado: estadoFinal,
       current_period_end: stripeOverrides.current_period_end,
       cancel_at_period_end: stripeOverrides.cancel_at_period_end,
+    },
+    resumen: {
+      ...data.resumen,
+      puede_cancelar: puedeCancelar,
     },
   };
 

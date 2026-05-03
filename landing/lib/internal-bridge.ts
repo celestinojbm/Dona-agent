@@ -10,6 +10,12 @@
 // Importante: el cuerpo que se firma DEBE ser exactamente el cuerpo que se
 // envía al backend. Por eso construimos el JSON una sola vez y reusamos el
 // string para HMAC y para el body del fetch.
+//
+// `server-only` evita que cualquier Client Component o código de cliente lo
+// importe accidentalmente: si pasa, el build de Next falla con un error
+// claro. Estas funciones leen INTERNAL_BRIDGE_SECRET y nunca deben correr
+// en el browser.
+import "server-only";
 
 import crypto from "node:crypto";
 
