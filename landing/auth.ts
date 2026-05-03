@@ -1,6 +1,10 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { getStripe } from "@/lib/stripe";
+import {
+  deriveDashboardPassword,
+  constantTimeEqual,
+} from "@/lib/dashboard-auth";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -16,7 +20,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         if (!email || !password) return null;
 
-        // Search for a Stripe customer with this email that has an active subscription
+        // Search for a Stripe customer with this email
         const customers = await getStripe().customers.list({
           email,
           limit: 1,
@@ -25,6 +29,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (customers.data.length === 0) return null;
 
         const customer = customers.data[0];
+
+        // T1.4.B — Validar password ANTES de revelar nada del customer.
+        // password = "dona-" + hex(HMAC-SHA256(customer.id, DASHBOARD_PASSWORD_SECRET))[:12]
+        // Si DASHBOARD_PASSWORD_SECRET no está configurada, derive() devuelve null
+        // y rechazamos. NO hay path permisivo: mejor bloquear logins que aceptar
+        // sin password.
+        const expected = deriveDashboardPassword(customer.id);
+        if (!expected || !constantTimeEqual(password, expected)) {
+          return null;
+        }
 
         // Check for active subscription
         const subscriptions = await getStripe().subscriptions.list({
