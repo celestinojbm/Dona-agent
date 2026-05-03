@@ -2292,6 +2292,157 @@ async def internal_stripe_event(request: Request):
     return {"status": "ok", **resultado}
 
 
+# ── Resumen de usuario para el dashboard (T1.4.C) ──────────────────────────
+#
+# Endpoint interno read-only consumido por el landing en
+# /api/dashboard-data (T1.4.D). Devuelve los datos del usuario que el
+# landing va a mostrar en el dashboard:
+#   - identidad (telefono — el email viene de la sesión NextAuth en el
+#     landing, el backend no lo persiste para Stripe customers).
+#   - créditos (saldo actual, créditos mensuales del plan, último
+#     movimiento).
+#   - suscripción (estado, plan, IDs Stripe; current_period_end y
+#     cancel_at_period_end vienen de Stripe SDK desde el landing — el
+#     backend no las cachea).
+#   - últimas 10 transacciones para el historial.
+#   - flags computados (puede_cancelar, dashboard_ready).
+#
+# Identificador: subscription_id. Es la PK natural de SuscripcionStripe;
+# la sesión NextAuth ya lo tiene; un atacante que intente forjar uno
+# de otro usuario falla la verificación HMAC primero.
+#
+# Estrictamente read-only: solo SELECTs en saldo_creditos,
+# transacciones_credito y suscripcion_stripe. Ninguna escritura.
+
+
+@app.post("/internal/usuario-resumen")
+async def internal_usuario_resumen(request: Request):
+    """
+    Resumen de usuario para el dashboard (read-only).
+
+    Auth: HMAC-SHA256(body, INTERNAL_BRIDGE_SECRET) en header
+    X-Internal-Signature (mismo patrón que /internal/stripe-event).
+
+    Body request:
+        {"subscription_id": "sub_xxx"}
+
+    Códigos:
+        401 → firma faltante o inválida.
+        400 → JSON malformado / no objeto / sin subscription_id.
+        404 → subscription_id no existe en suscripcion_stripe.
+        200 → JSON con la estructura documentada en el cuerpo de la función.
+    """
+    from agent.memory import (
+        async_session, SuscripcionStripe, SaldoCreditos, TransaccionCredito,
+    )
+    from sqlalchemy import select, desc
+
+    body = await request.body()
+    sig = request.headers.get("X-Internal-Signature", "")
+
+    if not _verificar_firma_interna(body, sig):
+        logger.warning(
+            "[INTERNAL] Firma inválida o ausente en /internal/usuario-resumen — rechazando"
+        )
+        raise HTTPException(status_code=401, detail="signature_invalid")
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        logger.warning(f"[INTERNAL] JSON inválido en /internal/usuario-resumen: {e}")
+        raise HTTPException(status_code=400, detail="json_invalid")
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="json_not_object")
+
+    subscription_id = (payload.get("subscription_id") or "").strip()
+    if not subscription_id:
+        raise HTTPException(status_code=400, detail="missing_subscription_id")
+
+    async with async_session() as session:
+        sub = (await session.execute(
+            select(SuscripcionStripe).where(
+                SuscripcionStripe.subscription_id == subscription_id
+            )
+        )).scalar_one_or_none()
+
+        if sub is None:
+            # No es race aquí (no es un webhook): el usuario o se creó
+            # antes del fix de auth, o el subscription_id es inválido.
+            # No filtramos cuál es el caso al cliente.
+            logger.info(
+                f"[INTERNAL] usuario-resumen: subscription_id no encontrado: {subscription_id}"
+            )
+            raise HTTPException(status_code=404, detail="subscription_no_persistida")
+
+        # Capturar campos antes de salir del session scope (ORM auto-refresca).
+        telefono = sub.telefono
+        plan_codigo = sub.plan_codigo
+        sub_estado = sub.status
+        creditos_mensuales = int(sub.creditos_mensuales)
+        customer_id = sub.customer_id
+        sub_actualizado = sub.actualizado
+
+        saldo_row = (await session.execute(
+            select(SaldoCreditos).where(SaldoCreditos.telefono == telefono)
+        )).scalar_one_or_none()
+        saldo_actual = int(saldo_row.saldo) if saldo_row else 0
+
+        # Últimas 10 transacciones
+        txs = (await session.execute(
+            select(TransaccionCredito)
+            .where(TransaccionCredito.telefono == telefono)
+            .order_by(desc(TransaccionCredito.creado), desc(TransaccionCredito.id))
+            .limit(10)
+        )).scalars().all()
+
+        transacciones_recientes = [
+            {
+                "delta": int(t.delta),
+                "razon": t.razon or "",
+                "saldo_resultante": int(t.saldo_resultante),
+                "creado": t.creado.isoformat() if t.creado else None,
+            }
+            for t in txs
+        ]
+
+    ultimo_movimiento = transacciones_recientes[0] if transacciones_recientes else None
+    puede_cancelar = sub_estado == "active"
+
+    return {
+        "usuario": {
+            # id estable para que el landing pueda referenciar; usamos
+            # subscription_id porque es lo que el caller ya conoce.
+            "id": subscription_id,
+            # email no está en backend para Stripe customers; el landing
+            # debe completarlo con session.user.email.
+            "email": None,
+            "telefono": telefono,
+        },
+        "creditos": {
+            "saldo_actual": saldo_actual,
+            "creditos_mensuales": creditos_mensuales,
+            "ultimo_movimiento": ultimo_movimiento,
+        },
+        "suscripcion": {
+            "estado": sub_estado,
+            "plan": plan_codigo,
+            "stripe_customer_id": customer_id,
+            "stripe_subscription_id": subscription_id,
+            # current_period_end y cancel_at_period_end no se persisten en
+            # backend; el landing los obtiene de Stripe SDK en T1.4.D.
+            "current_period_end": None,
+            "cancel_at_period_end": False,
+            "actualizado": sub_actualizado.isoformat() if sub_actualizado else None,
+        },
+        "transacciones_recientes": transacciones_recientes,
+        "resumen": {
+            "puede_cancelar": puede_cancelar,
+            "dashboard_ready": True,
+        },
+    }
+
+
 @app.post("/webhook")
 async def webhook_handler(request: Request):
     """Webhook genérico."""
