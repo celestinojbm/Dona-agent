@@ -128,46 +128,19 @@ export async function reenviarEventoStripeABackend(
 // El backend expone POST /internal/usuario-resumen (T1.4.C) que devuelve el
 // dato consolidado para el dashboard. Esta función firma con HMAC y traduce
 // la respuesta a tipos TS para que el route handler pueda mergear con Stripe.
+//
+// Los tipos viven en lib/dashboard-types.ts para que Client Components
+// puedan importarlos sin chocar con `import "server-only"` de este archivo.
 
-/** Forma de la transacción tal como la devuelve el backend. */
-export type TransaccionResumen = {
-  delta: number;
-  razon: string;
-  saldo_resultante: number;
-  creado: string | null;
-};
-
-/** Estructura completa del response 200 de /internal/usuario-resumen. */
-export type UsuarioResumen = {
-  usuario: {
-    id: string;
-    email: string | null;
-    telefono: string;
-  };
-  creditos: {
-    saldo_actual: number;
-    creditos_mensuales: number;
-    ultimo_movimiento: TransaccionResumen | null;
-  };
-  suscripcion: {
-    estado: string;
-    plan: string;
-    stripe_customer_id: string;
-    stripe_subscription_id: string;
-    current_period_end: number | null;
-    cancel_at_period_end: boolean;
-    actualizado: string | null;
-  };
-  transacciones_recientes: TransaccionResumen[];
-  resumen: {
-    puede_cancelar: boolean;
-    dashboard_ready: boolean;
-  };
-};
-
-export type FetchUsuarioResumenResult =
-  | { ok: true; data: UsuarioResumen }
-  | { ok: false; status?: number; error: string };
+export type {
+  TransaccionResumen,
+  UsuarioResumen,
+  FetchUsuarioResumenResult,
+} from "./dashboard-types";
+import type {
+  UsuarioResumen,
+  FetchUsuarioResumenResult,
+} from "./dashboard-types";
 
 /** Trunca un identificador Stripe para logs: prefijo + sufijo, sin filtrar el ID completo. */
 function shortId(id: string): string {
