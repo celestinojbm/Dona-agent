@@ -13,6 +13,17 @@ que dieron forma al estado actual.
   Tool Intelligence Layer + benchmark creativo. Este es el documento por
   el que se rige el backlog hoy.
 
+## Addendums vigentes
+
+- **`Addendum_Manus_Integration_2026-05-05.md`** — integra la referencia
+  Manus al ADN de Dona. Define 7 conceptos (Playbooks, Execution Sandbox,
+  Browser Operator por niveles, Builder orientado a crecimiento, Wide
+  Research, documentos accionables, Workspace + Action Center) y un
+  backlog priorizado con prefijo `M` (M0..M4) que se suma al backlog
+  `T.x` del Plan v2.1 sin reemplazarlo. Incluye 6 anti-patterns
+  vinculantes ("qué NO copiar de Manus") y mapping con las piezas Dona
+  ya en producción (T1.3 / T1.4 / T1.5).
+
 ## Histórico (orden cronológico inverso)
 
 - **`Plan_Dona_Refinado_v2_2026-04-29.pdf`** — v2. Introduce las 18 capas de
