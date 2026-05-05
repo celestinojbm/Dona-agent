@@ -73,6 +73,7 @@ export async function reenviarEventoStripeABackend(
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), BRIDGE_TIMEOUT_MS);
+  const reqId = generarRequestId();
 
   try {
     const res = await fetch(url, {
@@ -80,6 +81,7 @@ export async function reenviarEventoStripeABackend(
       headers: {
         "Content-Type": "application/json",
         "X-Internal-Signature": signature,
+        "X-Request-ID": reqId,
       },
       body,
       signal: controller.signal,
@@ -99,7 +101,7 @@ export async function reenviarEventoStripeABackend(
       // ignorar errores leyendo el body de error
     }
     console.error(
-      `[BRIDGE] Backend respondió ${res.status} ${res.statusText} — body: ${preview}`,
+      `[BRIDGE] stripe-event rid=${reqId} status=${res.status} ${res.statusText} — body: ${preview}`,
     );
     return { ok: false, status: res.status, error: `backend_${res.status}` };
   } catch (err) {
@@ -108,14 +110,12 @@ export async function reenviarEventoStripeABackend(
       (err.name === "AbortError" || err.message.includes("aborted"));
     if (isAbort) {
       console.error(
-        `[BRIDGE] Timeout (${BRIDGE_TIMEOUT_MS}ms) llamando al backend`,
+        `[BRIDGE] stripe-event rid=${reqId} timeout (${BRIDGE_TIMEOUT_MS}ms)`,
       );
       return { ok: false, error: "timeout" };
     }
-    // Otros errores: red, DNS, etc. No incluimos err entero por si Node
-    // adjunta info sensible.
     const msg = err instanceof Error ? err.message : "unknown";
-    console.error(`[BRIDGE] Fetch al backend falló: ${msg}`);
+    console.error(`[BRIDGE] stripe-event rid=${reqId} fetch falló: ${msg}`);
     return { ok: false, error: "fetch_failed" };
   } finally {
     clearTimeout(timeout);
@@ -147,6 +147,14 @@ function shortId(id: string): string {
   if (!id) return "***";
   if (id.length <= 12) return "***";
   return `${id.slice(0, 8)}...${id.slice(-4)}`;
+}
+
+/**
+ * T1.6 · Genera un request_id corto para correlacionar logs cliente↔backend.
+ * Prefijo `lnd_` para distinguir de los `req_` que asigna el backend.
+ */
+function generarRequestId(): string {
+  return "lnd_" + crypto.randomBytes(6).toString("hex");
 }
 
 /**
@@ -195,6 +203,7 @@ export async function fetchUsuarioResumen(
   const url = `${backendUrl.replace(/\/+$/, "")}/internal/usuario-resumen`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), BRIDGE_TIMEOUT_MS);
+  const reqId = generarRequestId();
 
   try {
     const res = await fetch(url, {
@@ -202,6 +211,7 @@ export async function fetchUsuarioResumen(
       headers: {
         "Content-Type": "application/json",
         "X-Internal-Signature": signature,
+        "X-Request-ID": reqId,
       },
       body,
       signal: controller.signal,
@@ -215,7 +225,7 @@ export async function fetchUsuarioResumen(
     // No-2xx: propagar status para que el route handler decida 502/504/etc.
     // No incluimos preview del body en el log para no filtrar nada del backend.
     console.error(
-      `[BRIDGE] usuario-resumen status=${res.status} sub=${shortId(subscriptionId)}`,
+      `[BRIDGE] usuario-resumen rid=${reqId} status=${res.status} sub=${shortId(subscriptionId)}`,
     );
     return { ok: false, status: res.status, error: `backend_${res.status}` };
   } catch (err) {
@@ -224,12 +234,12 @@ export async function fetchUsuarioResumen(
       (err.name === "AbortError" || err.message.includes("aborted"));
     if (isAbort) {
       console.error(
-        `[BRIDGE] Timeout (${BRIDGE_TIMEOUT_MS}ms) usuario-resumen sub=${shortId(subscriptionId)}`,
+        `[BRIDGE] usuario-resumen rid=${reqId} timeout (${BRIDGE_TIMEOUT_MS}ms) sub=${shortId(subscriptionId)}`,
       );
       return { ok: false, error: "timeout" };
     }
     const msg = err instanceof Error ? err.message : "unknown";
-    console.error(`[BRIDGE] usuario-resumen fetch falló: ${msg}`);
+    console.error(`[BRIDGE] usuario-resumen rid=${reqId} fetch falló: ${msg}`);
     return { ok: false, error: "fetch_failed" };
   } finally {
     clearTimeout(timeout);
