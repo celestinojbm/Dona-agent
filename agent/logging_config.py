@@ -43,6 +43,8 @@ _PATRON_BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-+/=]+")
 # Claves API frecuentes: OpenAI/Anthropic (sk-...), Stripe webhook (whsec_...),
 # Stripe session/customer/sub/payment-intent/invoice/setup-intent/charge ids,
 # Slack (xoxb-...), Resend (re_...), generic xkeysib (Brevo).
+# T2.0.B: password de dashboard (dona-<12 hex>) derivado de
+# DASHBOARD_PASSWORD_SECRET — debe redactarse de cualquier log.
 _PATRON_API_KEY = re.compile(
     r"\b("
     r"sk-[A-Za-z0-9_\-]{16,}"
@@ -53,6 +55,7 @@ _PATRON_API_KEY = re.compile(
     r"|xox[abps]-[A-Za-z0-9-]{10,}"
     r"|re_[A-Za-z0-9_\-]{16,}"
     r"|xkeysib-[A-Za-z0-9]{16,}"
+    r"|dona-[a-f0-9]{12}"
     r")\b"
 )
 

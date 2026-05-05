@@ -428,6 +428,12 @@ class SuscripcionStripe(Base):
     status: Mapped[str] = mapped_column(String(40))         # active | past_due | canceled | incomplete
     creditos_mensuales: Mapped[int] = mapped_column(Integer)
     ultimo_invoice_acreditado: Mapped[str] = mapped_column(String(200), default="")
+    # T2.0.B — flag de idempotencia para el welcome con password.
+    # Se setea a True cuando enviar_bienvenida_premium logró enviar (o
+    # simular en DRY_RUN). Si Stripe reintenta el webhook o el evento
+    # llega de nuevo por algún motivo, _procesar_checkout_subscription
+    # NO reenvía el welcome.
+    bienvenida_enviada: Mapped[bool] = mapped_column(Boolean, default=False)
     creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

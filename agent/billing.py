@@ -694,6 +694,13 @@ async def _procesar_checkout_subscription(data: dict) -> dict:
         or ""
     ).strip().lstrip("+")
 
+    # Nombre del customer · best-effort para personalizar el welcome (T2.0.B).
+    # checkout.session.completed trae customer_details.name si Stripe lo
+    # capturó en el form. Si falta, el welcome usa "Hola!" sin nombre.
+    nombre_customer = (
+        (data.get("customer_details") or {}).get("name") or ""
+    ).strip() or None
+
     if not subscription_id:
         logger.warning("[BILLING] checkout subscription sin subscription_id")
         return {"handled": False, "reason": "missing_subscription_id"}
@@ -744,6 +751,31 @@ async def _procesar_checkout_subscription(data: dict) -> dict:
         f"[BILLING] Checkout {accion}: sub={subscription_id} "
         f"plan={plan_codigo} creditos_mensuales={creditos}"
     )
+
+    # T2.0.B — Welcome automático con password derivado SOLO en accion=created.
+    # Idempotencia adicional vía SuscripcionStripe.bienvenida_enviada (la función
+    # vuelve a chequear el flag). Si falla, no rompemos el procesamiento del
+    # evento — el owner puede regenerar manualmente con el CLI helper de T1.4.B.
+    welcome_resultado: str | None = None
+    if accion == "created":
+        try:
+            from agent.welcome import enviar_bienvenida_premium
+            welcome_resultado = await enviar_bienvenida_premium(
+                subscription_id=subscription_id,
+                customer_id=customer_id,
+                telefono=telefono,
+                plan_codigo=plan_codigo,
+                creditos_mensuales=creditos,
+                nombre_customer=nombre_customer,
+            )
+        except Exception as e:
+            # Defensa adicional: enviar_bienvenida_premium ya tiene su propio
+            # try/except, pero por si algo más arriba (import, DB) explota.
+            logger.exception(
+                f"[BILLING] welcome falló sub={subscription_id}: {type(e).__name__}"
+            )
+            welcome_resultado = "envio_fallo"
+
     return {
         "handled": True,
         "tipo": "checkout.session.completed",
@@ -752,6 +784,8 @@ async def _procesar_checkout_subscription(data: dict) -> dict:
         "telefono": telefono,
         "plan_codigo": plan_codigo,
         "creditos_mensuales": creditos,
+        # Solo aparece cuando accion=created. None en updated.
+        "welcome": welcome_resultado,
     }
 
 
