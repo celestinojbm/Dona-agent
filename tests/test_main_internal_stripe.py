@@ -468,12 +468,14 @@ class TestNoRetryable:
         assert r.status_code == 200
         assert "no soportado" in r.json().get("reason", "")
 
-    def test_checkout_mode_payment_devuelve_200(self, setup_endpoint):
-        """El bridge ideal solo manda eventos de suscripción, pero si llega
-        un checkout one-time por error, no retryable."""
+    def test_checkout_mode_payment_va_a_path_topup(self, setup_endpoint):
+        """T1.7: mode=payment ya NO se rechaza con 'subscription' — ahora
+        despacha a procesar_evento_stripe (top-ups one-time). Sin
+        metadata.creditos, ese path retorna 'metadata faltante'."""
         client, _, _ = setup_endpoint
         ev = _evento_checkout_subscription()
         ev["data"]["object"]["mode"] = "payment"
+        # Sin metadata.creditos el legacy no acredita.
         body = json.dumps(ev).encode("utf-8")
         sig = _firmar(body)
         r = client.post(
@@ -482,7 +484,9 @@ class TestNoRetryable:
             headers={"X-Internal-Signature": sig},
         )
         assert r.status_code == 200
-        assert "subscription" in r.json().get("reason", "")
+        # El path nuevo (procesar_evento_stripe) reporta motivo distinto.
+        reason = r.json().get("reason", "")
+        assert "metadata" in reason or "subscription" not in reason
 
 
 # ── 9. Fail-fast: ENVIRONMENT=production sin INTERNAL_BRIDGE_SECRET ────────

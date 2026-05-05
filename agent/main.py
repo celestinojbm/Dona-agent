@@ -2342,7 +2342,7 @@ async def internal_stripe_event(request: Request):
     invoice.id + stripe_session_id en TransaccionCredito). Este endpoint
     solo despacha.
     """
-    from agent.billing import procesar_evento_suscripcion
+    from agent.billing import procesar_evento_suscripcion, procesar_evento_stripe
 
     body = await request.body()
     sig = request.headers.get("X-Internal-Signature", "")
@@ -2366,8 +2366,22 @@ async def internal_stripe_event(request: Request):
 
     evento_tipo = evento.get("type", "")
 
+    # T1.7 — dispatch dual: si llega un checkout.session.completed con
+    # mode=payment, es un top-up one-time (paquete de créditos). Lo despacha
+    # procesar_evento_stripe (path legacy) que ya sabe leer metadata.creditos
+    # y acreditar idempotente por stripe_session_id.
+    # Si no es mode=payment, sigue al dispatcher de suscripción T1.3.C.
+    evento_data = (evento.get("data") or {}).get("object") or {}
+    es_topup = (
+        evento_tipo == "checkout.session.completed"
+        and evento_data.get("mode") == "payment"
+    )
+
     try:
-        resultado = await procesar_evento_suscripcion(evento)
+        if es_topup:
+            resultado = await procesar_evento_stripe(evento)
+        else:
+            resultado = await procesar_evento_suscripcion(evento)
     except Exception as e:
         # Excepción inesperada → 500 para que el bridge reintente.
         logger.exception(f"[INTERNAL] Error procesando evento suscripción: {e}")
