@@ -428,6 +428,12 @@ class SuscripcionStripe(Base):
     status: Mapped[str] = mapped_column(String(40))         # active | past_due | canceled | incomplete
     creditos_mensuales: Mapped[int] = mapped_column(Integer)
     ultimo_invoice_acreditado: Mapped[str] = mapped_column(String(200), default="")
+    # T2.0.B — flag de idempotencia para el welcome con password.
+    # Se setea a True cuando enviar_bienvenida_premium logró enviar (o
+    # simular en DRY_RUN). Si Stripe reintenta el webhook o el evento
+    # llega de nuevo por algún motivo, _procesar_checkout_subscription
+    # NO reenvía el welcome.
+    bienvenida_enviada: Mapped[bool] = mapped_column(Boolean, default=False)
     creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -463,6 +469,11 @@ _MIGRACIONES = [
     "ALTER TABLE usuario_mirofish ADD COLUMN mensajes_desde_sync INTEGER DEFAULT 0",
     "ALTER TABLE usuario_proactividad ADD COLUMN ultimo_consejo_estrategico TIMESTAMP",
     "ALTER TABLE usuario_proactividad ADD COLUMN ultimo_revision_correo TIMESTAMP",
+    # T2.0.B — flag de idempotencia para welcome con password derivado.
+    # Equivalente a alembic/versions/003_bienvenida_enviada.py. Se aplica
+    # en runtime para PostgreSQL prod (Render) ya que el backend no
+    # ejecuta `alembic upgrade head` automáticamente.
+    "ALTER TABLE suscripcion_stripe ADD COLUMN bienvenida_enviada BOOLEAN DEFAULT FALSE",
     # ── Tablas nuevas (respaldo explícito) ──────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS memoria_largo_plazo (
