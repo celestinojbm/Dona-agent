@@ -15,6 +15,8 @@ import {
   Receipt,
   AlertCircle,
   RefreshCw,
+  Zap,
+  Plus,
 } from "lucide-react";
 import Link from "next/link";
 import type { UsuarioResumen } from "@/lib/dashboard-types";
@@ -102,9 +104,21 @@ function mensajeError(code: string): string {
 
 // ── Componente principal ─────────────────────────────────────────────────
 
+// T1.7 — Paquetes de top-up (deben coincidir con landing/lib/stripe.ts).
+// Solo display; el priceId real lo resuelve el server. Si un priceId no
+// está configurado en Vercel, el backend devuelve 503 y la UI muestra
+// mensaje claro.
+const TOPUP_PAQUETES = [
+  { codigo: "100", creditos: 100, precio_usd: 10, sub: "Para puntuales" },
+  { codigo: "500", creditos: 500, precio_usd: 40, sub: "Más conveniente" },
+  { codigo: "2000", creditos: 2000, precio_usd: 120, sub: "Uso intensivo" },
+] as const;
+
+
 export default function DashboardClient({ session }: DashboardProps) {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [openingPortal, setOpeningPortal] = useState(false);
+  const [comprandoTopup, setComprandoTopup] = useState<string | null>(null);
 
   // Fetch puro (solo setea al final). El "loading" inicial viene del
   // useState; el retry lo dispara explícitamente vía handleRetry.
@@ -175,6 +189,38 @@ export default function DashboardClient({ session }: DashboardProps) {
     setOpeningPortal(false);
   }
 
+  // T1.7 — Top-ups de créditos (compra one-time sin afectar suscripción).
+  // POST /api/checkout con kind=topup → Stripe Checkout mode=payment.
+  // El backend recibe el webhook checkout.session.completed mode=payment
+  // y acredita vía procesar_evento_stripe (legacy path) por
+  // metadata.creditos. Idempotente por stripe_session_id.
+  async function handleTopup(codigo: string) {
+    setComprandoTopup(codigo);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "topup", paquete: codigo }),
+      });
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      if (data.error === "paquete_no_configurado") {
+        alert(
+          "Este paquete todavía no está disponible. " +
+            "Escríbenos a hola@usadona.com y te ayudamos.",
+        );
+      } else {
+        alert("No pudimos iniciar la compra. Intenta de nuevo en un momento.");
+      }
+    } catch {
+      alert("Error de conexión. Intenta de nuevo.");
+    }
+    setComprandoTopup(null);
+  }
+
   const connections = [
     {
       name: "Gmail",
@@ -234,6 +280,10 @@ export default function DashboardClient({ session }: DashboardProps) {
               data={load.data}
               openingPortal={openingPortal}
               onManageBilling={handleManageBilling}
+            />
+            <SeccionTopups
+              comprando={comprandoTopup}
+              onComprar={handleTopup}
             />
             <SeccionHistorial data={load.data} />
           </>
@@ -420,6 +470,67 @@ function SeccionSuscripcion({
     </section>
   );
 }
+
+function SeccionTopups({
+  comprando,
+  onComprar,
+}: {
+  comprando: string | null;
+  onComprar: (codigo: string) => void;
+}) {
+  return (
+    <section>
+      <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+        <Zap className="w-4 h-4" />
+        Comprar créditos extra
+      </h2>
+
+      <div className="grid md:grid-cols-3 gap-4">
+        {TOPUP_PAQUETES.map((p) => {
+          const isLoading = comprando === p.codigo;
+          const isDisabled = comprando !== null && comprando !== p.codigo;
+          return (
+            <button
+              key={p.codigo}
+              onClick={() => onComprar(p.codigo)}
+              disabled={isDisabled || isLoading}
+              className="glass-card rounded-2xl p-6 text-left transition-colors hover:border-white/[0.12] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-white/35 mb-1 font-light">
+                    Paquete {p.codigo}
+                  </p>
+                  <p className="text-3xl font-light text-white tabular-nums tracking-tighter">
+                    {p.creditos.toLocaleString("es-MX")}
+                  </p>
+                  <p className="text-xs text-white/35 font-light mt-1">
+                    créditos · {p.sub}
+                  </p>
+                </div>
+                <Plus className="w-5 h-5 text-white/30 shrink-0" />
+              </div>
+              <div className="flex items-center justify-between border-t border-white/[0.04] pt-4">
+                <span className="text-lg text-white font-normal">
+                  ${p.precio_usd}
+                </span>
+                <span className="text-xs text-white/40 font-light">
+                  {isLoading ? "Abriendo..." : "Comprar"}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-xs text-white/25 font-light mt-4 max-w-md">
+        Los créditos extra se suman a tu saldo y no expiran. Tu plan
+        Premium / Pro sigue activo y se renueva normalmente.
+      </p>
+    </section>
+  );
+}
+
 
 function SeccionHistorial({ data }: { data: UsuarioResumen }) {
   const txs = data.transacciones_recientes;
