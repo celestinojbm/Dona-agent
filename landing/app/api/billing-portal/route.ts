@@ -10,8 +10,10 @@
 // Reglas:
 //   - server-only handler. customerId viene SOLO de la sesión NextAuth
 //     (regla T1.4.D #1: nunca aceptar identificadores desde el browser).
-//   - return_url apunta a /dashboard del mismo origen (o
-//     STRIPE_PORTAL_RETURN_URL si está configurada).
+//   - return_url se resuelve SOLO de fuentes server-side confiables; el
+//     header Origin del request NO se usa (T1.5 follow-up: Origin es
+//     controlable por el cliente, no queremos un return_url derivado
+//     de un header no confiable). Cadena de fallbacks abajo.
 //   - Si el portal no está configurado en Stripe Dashboard, Stripe
 //     responde "No configuration provided"; lo traducimos a 503 con
 //     código 'portal_not_configured' para que el cliente muestre un
@@ -22,12 +24,13 @@
 //     activar. Habilitar al menos: "Cancel subscriptions", "Update
 //     payment methods", "View invoices".
 //   - (Opcional) STRIPE_PORTAL_RETURN_URL en Vercel si se quiere
-//     forzar un return_url distinto al origen del request.
+//     forzar un return_url distinto al de NEXTAUTH_URL.
 
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { getStripe } from "@/lib/stripe";
+
+const URL_RE = /^https?:\/\//i;
 
 function shortId(id: string): string {
   if (!id) return "***";
@@ -35,18 +38,42 @@ function shortId(id: string): string {
   return `${id.slice(0, 8)}...${id.slice(-4)}`;
 }
 
-function resolveReturnUrl(req: NextRequest): string {
-  const fromEnv = process.env.STRIPE_PORTAL_RETURN_URL?.trim();
-  if (fromEnv) return fromEnv;
-  const origin = req.headers.get("origin") || "";
-  if (origin) return `${origin}/dashboard`;
-  // Fallback hardcoded al dominio operativo. Solo se usa si tanto la
-  // env var como el header origin faltan, lo que en práctica no ocurre
-  // en el flujo normal (NextAuth siempre setea origin).
+/**
+ * Resuelve el return_url SOLO de fuentes server-side confiables, en
+ * este orden de prioridad:
+ *
+ *   1. STRIPE_PORTAL_RETURN_URL  (URL completa con path)
+ *   2. NEXTAUTH_URL              (origen + /dashboard)
+ *   3. NEXT_PUBLIC_SITE_URL      (origen + /dashboard)
+ *   4. fallback fijo "https://www.usadona.com/dashboard"
+ *
+ * Cada candidato se descarta si no empieza con http(s)://. NO se lee
+ * `req.headers.get("origin")` ni ningún otro header controlable por
+ * el cliente: el endpoint requiere sesión, pero queremos defensa en
+ * profundidad — un return_url derivado de Origin podría ser usado por
+ * un cliente con sesión válida para que Stripe redirija a un dominio
+ * arbitrario tras cerrar el portal.
+ */
+function resolveReturnUrl(): string {
+  const override = process.env.STRIPE_PORTAL_RETURN_URL?.trim();
+  if (override && URL_RE.test(override)) {
+    return override;
+  }
+
+  const fromNextAuth = process.env.NEXTAUTH_URL?.trim();
+  if (fromNextAuth && URL_RE.test(fromNextAuth)) {
+    return `${fromNextAuth.replace(/\/+$/, "")}/dashboard`;
+  }
+
+  const fromSite = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (fromSite && URL_RE.test(fromSite)) {
+    return `${fromSite.replace(/\/+$/, "")}/dashboard`;
+  }
+
   return "https://www.usadona.com/dashboard";
 }
 
-export async function POST(req: NextRequest) {
+export async function POST() {
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
@@ -62,7 +89,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const returnUrl = resolveReturnUrl(req);
+  const returnUrl = resolveReturnUrl();
 
   try {
     const portal = await getStripe().billingPortal.sessions.create({
