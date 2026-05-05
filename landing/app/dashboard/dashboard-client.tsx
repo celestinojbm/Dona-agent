@@ -104,8 +104,7 @@ function mensajeError(code: string): string {
 
 export default function DashboardClient({ session }: DashboardProps) {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
-  const [canceling, setCanceling] = useState(false);
-  const [cancelDone, setCancelDone] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
 
   // Fetch puro (solo setea al final). El "loading" inicial viene del
   // useState; el retry lo dispara explícitamente vía handleRetry.
@@ -147,29 +146,33 @@ export default function DashboardClient({ session }: DashboardProps) {
     void fetchDashboard();
   }, [fetchDashboard]);
 
-  async function handleCancel() {
-    if (
-      !confirm(
-        "¿Estás seguro de que quieres cancelar tu suscripción? El cambio aplica al final del período actual.",
-      )
-    )
-      return;
-
-    setCanceling(true);
+  // T1.5 — Abre Stripe Customer Portal en una pestaña del navegador.
+  // El portal es la fuente canónica para cambiar método de pago,
+  // descargar facturas, pausar / cancelar / reactivar la suscripción.
+  // Reemplaza al flow custom de cancelación (T1.4.F sigue como
+  // endpoint legacy disponible para callers programáticos).
+  async function handleManageBilling() {
+    setOpeningPortal(true);
     try {
-      const res = await fetch("/api/cancel-subscription", { method: "POST" });
-      const data = (await res.json()) as { error?: string };
-      if (res.ok) {
-        setCancelDone(true);
-        // Refrescar datos para reflejar cancel_at_period_end
-        fetchDashboard();
+      const res = await fetch("/api/billing-portal", { method: "POST" });
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+        // No reseteamos openingPortal: la página ya está navegando.
+        return;
+      }
+      if (data.error === "portal_not_configured") {
+        alert(
+          "El portal de facturación todavía no está configurado. " +
+            "Escríbenos a hola@usadona.com y te ayudamos.",
+        );
       } else {
-        alert(data.error || "Error al cancelar. Intenta de nuevo.");
+        alert("No pudimos abrir el portal. Intenta de nuevo en un momento.");
       }
     } catch {
       alert("Error de conexión. Intenta de nuevo.");
     }
-    setCanceling(false);
+    setOpeningPortal(false);
   }
 
   const connections = [
@@ -229,9 +232,8 @@ export default function DashboardClient({ session }: DashboardProps) {
             <SeccionSaldo data={load.data} />
             <SeccionSuscripcion
               data={load.data}
-              canceling={canceling}
-              cancelDone={cancelDone}
-              onCancel={handleCancel}
+              openingPortal={openingPortal}
+              onManageBilling={handleManageBilling}
             />
             <SeccionHistorial data={load.data} />
           </>
@@ -339,18 +341,15 @@ function SeccionSaldo({ data }: { data: UsuarioResumen }) {
 
 function SeccionSuscripcion({
   data,
-  canceling,
-  cancelDone,
-  onCancel,
+  openingPortal,
+  onManageBilling,
 }: {
   data: UsuarioResumen;
-  canceling: boolean;
-  cancelDone: boolean;
-  onCancel: () => void;
+  openingPortal: boolean;
+  onManageBilling: () => void;
 }) {
   const { plan, estado, current_period_end, cancel_at_period_end } =
     data.suscripcion;
-  const { puede_cancelar } = data.resumen;
   const chip = chipEstado(estado);
   const fechaRenovacion = formatFechaUnix(current_period_end);
 
@@ -362,74 +361,61 @@ function SeccionSuscripcion({
       </h2>
 
       <div className="glass-card rounded-2xl p-8">
-        {cancelDone ? (
-          <div className="text-center py-4">
-            <XCircle className="w-10 h-10 text-white/30 mx-auto mb-3" />
-            <p className="text-white/60 font-light">
-              Solicitud de cancelación enviada. La suscripción se cancela al
-              final del período actual.
-            </p>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="text-lg font-normal text-white">
+                Plan {planNombre(plan)}
+              </span>
+              <span
+                className={`text-xs px-2.5 py-1 rounded-full border font-mono ${chip.color}`}
+              >
+                {chip.texto}
+              </span>
+            </div>
+
+            {cancel_at_period_end && fechaRenovacion ? (
+              <p className="flex items-center gap-2 text-sm text-amber-300/70 font-light">
+                <AlertCircle className="w-4 h-4" />
+                Se cancela el {fechaRenovacion}
+              </p>
+            ) : estado === "active" && fechaRenovacion ? (
+              <p className="flex items-center gap-2 text-sm text-white/35 font-light">
+                <CheckCircle2 className="w-4 h-4 text-white/30" />
+                Próxima renovación: {fechaRenovacion}
+              </p>
+            ) : estado === "canceled" ? (
+              <p className="flex items-center gap-2 text-sm text-white/35 font-light">
+                <XCircle className="w-4 h-4 text-white/30" />
+                Suscripción cancelada — los créditos siguen disponibles
+              </p>
+            ) : null}
+
+            {estado !== "canceled" && (
+              <p className="text-xs text-white/30 font-light max-w-md">
+                Cambia método de pago, descarga facturas, pausa, cancela o
+                reactiva tu plan desde el portal de facturación.
+              </p>
+            )}
+          </div>
+
+          {estado === "canceled" ? (
             <Link
               href="/#pricing"
-              className="text-sm text-white/40 hover:text-white underline font-light mt-2 inline-block"
+              className="btn-primary px-6 py-3 rounded-full text-sm text-center"
             >
               Reactivar plan
             </Link>
-          </div>
-        ) : (
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <span className="text-lg font-normal text-white">
-                  Plan {planNombre(plan)}
-                </span>
-                <span
-                  className={`text-xs px-2.5 py-1 rounded-full border font-mono ${chip.color}`}
-                >
-                  {chip.texto}
-                </span>
-              </div>
-
-              {cancel_at_period_end && fechaRenovacion ? (
-                <p className="flex items-center gap-2 text-sm text-amber-300/70 font-light">
-                  <AlertCircle className="w-4 h-4" />
-                  Se cancela el {fechaRenovacion}
-                </p>
-              ) : estado === "active" && fechaRenovacion ? (
-                <p className="flex items-center gap-2 text-sm text-white/35 font-light">
-                  <CheckCircle2 className="w-4 h-4 text-white/30" />
-                  Próxima renovación: {fechaRenovacion}
-                </p>
-              ) : estado === "canceled" ? (
-                <p className="flex items-center gap-2 text-sm text-white/35 font-light">
-                  <XCircle className="w-4 h-4 text-white/30" />
-                  Suscripción cancelada — los créditos siguen disponibles
-                </p>
-              ) : null}
-            </div>
-
-            {estado === "canceled" ? (
-              <Link
-                href="/#pricing"
-                className="btn-primary px-6 py-3 rounded-full text-sm text-center"
-              >
-                Reactivar plan
-              </Link>
-            ) : (
-              <button
-                onClick={onCancel}
-                disabled={canceling || !puede_cancelar}
-                className="btn-secondary px-6 py-3 rounded-full text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {canceling
-                  ? "Cancelando..."
-                  : cancel_at_period_end
-                    ? "Cancelación pendiente"
-                    : "Cancelar suscripción"}
-              </button>
-            )}
-          </div>
-        )}
+          ) : (
+            <button
+              onClick={onManageBilling}
+              disabled={openingPortal}
+              className="btn-secondary px-6 py-3 rounded-full text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {openingPortal ? "Abriendo..." : "Gestionar facturación"}
+            </button>
+          )}
+        </div>
       </div>
     </section>
   );
