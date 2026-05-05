@@ -134,9 +134,9 @@ def _componer_mensaje(
         f"📊 *Dashboard*: {dashboard_url}\n"
         f"🔑 *Contraseña*: {password}\n"
         f"\n"
-        f"Para empezar, respóndeme *hola* aquí en WhatsApp y "
-        f"te hago algunas preguntas para conocerte y serte útil. "
-        f"También puedo ayudarte sin esperar — solo escribime."
+        f"Para empezar, responde *hola* aquí en WhatsApp y "
+        f"te haré algunas preguntas para conocerte y serte útil. "
+        f"También puedo ayudarte sin esperar — solo escríbeme."
     )
 
 

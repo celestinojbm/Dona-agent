@@ -469,6 +469,11 @@ _MIGRACIONES = [
     "ALTER TABLE usuario_mirofish ADD COLUMN mensajes_desde_sync INTEGER DEFAULT 0",
     "ALTER TABLE usuario_proactividad ADD COLUMN ultimo_consejo_estrategico TIMESTAMP",
     "ALTER TABLE usuario_proactividad ADD COLUMN ultimo_revision_correo TIMESTAMP",
+    # T2.0.B — flag de idempotencia para welcome con password derivado.
+    # Equivalente a alembic/versions/003_bienvenida_enviada.py. Se aplica
+    # en runtime para PostgreSQL prod (Render) ya que el backend no
+    # ejecuta `alembic upgrade head` automáticamente.
+    "ALTER TABLE suscripcion_stripe ADD COLUMN bienvenida_enviada BOOLEAN DEFAULT FALSE",
     # ── Tablas nuevas (respaldo explícito) ──────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS memoria_largo_plazo (
