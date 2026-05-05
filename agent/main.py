@@ -26,6 +26,11 @@ load_dotenv()
 from agent.logging_config import configurar_logging
 configurar_logging()
 
+# T1.6 — instalar filtro de request_id sobre el logger root para que TODO
+# log durante un request lleve el id (correlación cliente↔servidor).
+from agent.observability import instalar_filtro_request_id
+instalar_filtro_request_id()
+
 # Forzar el check de STRIPE_WEBHOOK_SECRET al startup. Si ENVIRONMENT=production
 # y la variable no está configurada, agent.billing levanta RuntimeError al
 # import y aborta el deploy antes de empezar a servir tráfico.
@@ -116,6 +121,18 @@ class _Metricas:
         self.latencia_count = 0
         self.requests_lentos = 0  # > 5s
 
+        # T1.6 — buckets por status (2xx / 4xx / 5xx) y por ruta crítica.
+        # Aditivos: no rompen los contadores anteriores.
+        self.por_status_class: dict[str, int] = {"2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0}
+        self.endpoints_criticos = (
+            "/internal/usuario-resumen",
+            "/internal/stripe-event",
+            "/webhook/stripe",
+            "/webhook",
+        )
+        # status × ruta crítica → count
+        self.criticos_breakdown: dict[str, dict[str, int]] = {}
+
     def registrar_request(self, ruta: str, duracion_ms: float, status_code: int):
         with self._lock:
             self.requests_total += 1
@@ -126,6 +143,23 @@ class _Metricas:
                 self.errores_total += 1
             if duracion_ms > 5000:
                 self.requests_lentos += 1
+
+            # T1.6 buckets adicionales.
+            clase = f"{status_code // 100}xx"
+            if clase in self.por_status_class:
+                self.por_status_class[clase] += 1
+            if ruta in self.endpoints_criticos:
+                bucket = self.criticos_breakdown.setdefault(
+                    ruta, {"2xx": 0, "4xx": 0, "5xx": 0, "otros": 0}
+                )
+                if 200 <= status_code < 300:
+                    bucket["2xx"] += 1
+                elif 400 <= status_code < 500:
+                    bucket["4xx"] += 1
+                elif status_code >= 500:
+                    bucket["5xx"] += 1
+                else:
+                    bucket["otros"] += 1
 
     def registrar_mensaje(self):
         with self._lock:
@@ -141,6 +175,12 @@ class _Metricas:
                 "mensajes_procesados": self.mensajes_procesados,
                 "latencia_promedio_ms": round(avg, 1),
                 "requests_lentos_5s": self.requests_lentos,
+                # T1.6: buckets nuevos sin sustituir los anteriores.
+                "por_status_class": dict(self.por_status_class),
+                "endpoints_criticos": {
+                    ruta: dict(buckets)
+                    for ruta, buckets in self.criticos_breakdown.items()
+                },
             }
 
 metricas = _Metricas()
@@ -149,11 +189,35 @@ metricas = _Metricas()
 # ── Middleware: Request logging + timing ──────────────────────────────────────
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Registra cada request con duración y status code."""
+    """Registra cada request con duración y status code.
+
+    T1.6: además asigna un request_id corto (o reusa el `X-Request-ID`
+    que mande el caller) y lo expone en la respuesta. El filtro de
+    logging instalado en startup lee ese id desde el contextvar y lo
+    inyecta en `record.request_id` para que JsonFormatter lo emita.
+    """
     async def dispatch(self, request: Request, call_next):
+        # Importes locales para no agregar dependencia al boot.
+        from agent.observability import (
+            asignar_nuevo_request_id, fijar_request_id, obtener_request_id,
+        )
+
         inicio = monotonic()
         ruta = request.url.path
         metodo = request.method
+
+        # Si el caller mandó X-Request-ID, lo respetamos para correlación
+        # cliente↔servidor. Si no, generamos uno nuevo. fijar_request_id
+        # valida formato; si no pasa, deja el contextvar como estaba y
+        # asignar_nuevo_request_id lo sobreescribe con uno válido.
+        forwarded = request.headers.get("x-request-id", "").strip()
+        if forwarded:
+            fijar_request_id(forwarded)
+            if not obtener_request_id():
+                asignar_nuevo_request_id()
+        else:
+            asignar_nuevo_request_id()
+        request_id = obtener_request_id() or ""
 
         try:
             response = await call_next(request)
@@ -165,6 +229,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         duracion_ms = (monotonic() - inicio) * 1000
         metricas.registrar_request(ruta, duracion_ms, response.status_code)
+
+        # Devolver el request_id al caller para que pueda correlacionar.
+        if request_id:
+            response.headers["X-Request-ID"] = request_id
 
         # Solo loguear requests no triviales (omitir health checks frecuentes)
         if ruta != "/" or response.status_code != 200:
@@ -371,6 +439,21 @@ async def admin_metrics(request: Request, token: str = ""):
     data["timestamp"] = _dt.now(_tz.utc).isoformat()
     data["uptime_info"] = "desde último deploy"
     return data
+
+
+@app.get("/admin/tools-catalog")
+async def admin_tools_catalog(request: Request, token: str = ""):
+    """Catálogo M0 (T1.6): tools con nivel de riesgo, permiso y costo.
+
+    Read-only. Sirve para que el owner / Dona Control pueda diagnosticar
+    qué tools están declaradas, con qué permisos, y cuál es la matriz
+    riesgo×permiso del producto. Base para M1 Playbook Engine que
+    consultará permisos antes de ejecutar.
+    """
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.tools_catalog import resumen_catalogo
+    return resumen_catalogo()
 
 
 @app.get("/webhook")
@@ -2217,6 +2300,32 @@ def _verificar_firma_interna(body: bytes, sig_header: str) -> bool:
     return hmac.compare_digest(esperado, sig_header.strip())
 
 
+def _diagnosticar_firma_interna(body: bytes, sig_header: str) -> str:
+    """T1.6 · Devuelve un motivo específico para logging interno cuando
+    la verificación HMAC falla. NO se expone al cliente: el detail
+    público sigue siendo 'signature_invalid' (defense in depth).
+
+    Motivos:
+      - 'secret_no_configurado': INTERNAL_BRIDGE_SECRET vacío en env.
+        Indica deploy/config mal configurada en Vercel/Render.
+      - 'signature_missing': el caller no mandó el header.
+      - 'signature_mismatch': el HMAC computado no coincide. Caller
+        firmó con otro secret o el body fue modificado en tránsito.
+      - 'ok': la firma es válida (no debería invocarse en este caso).
+    """
+    secret = os.getenv("INTERNAL_BRIDGE_SECRET", "").strip()
+    if not secret:
+        return "secret_no_configurado"
+    if not sig_header:
+        return "signature_missing"
+    esperado = hmac.new(
+        secret.encode("utf-8"), body, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(esperado, sig_header.strip()):
+        return "signature_mismatch"
+    return "ok"
+
+
 @app.post("/internal/stripe-event")
 async def internal_stripe_event(request: Request):
     """
@@ -2239,8 +2348,9 @@ async def internal_stripe_event(request: Request):
     sig = request.headers.get("X-Internal-Signature", "")
 
     if not _verificar_firma_interna(body, sig):
+        motivo = _diagnosticar_firma_interna(body, sig)
         logger.warning(
-            "[INTERNAL] Firma inválida o ausente en /internal/stripe-event — rechazando"
+            f"[INTERNAL] /internal/stripe-event 401 motivo={motivo}"
         )
         raise HTTPException(status_code=401, detail="signature_invalid")
 
@@ -2341,8 +2451,9 @@ async def internal_usuario_resumen(request: Request):
     sig = request.headers.get("X-Internal-Signature", "")
 
     if not _verificar_firma_interna(body, sig):
+        motivo = _diagnosticar_firma_interna(body, sig)
         logger.warning(
-            "[INTERNAL] Firma inválida o ausente en /internal/usuario-resumen — rechazando"
+            f"[INTERNAL] /internal/usuario-resumen 401 motivo={motivo}"
         )
         raise HTTPException(status_code=401, detail="signature_invalid")
 
