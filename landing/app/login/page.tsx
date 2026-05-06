@@ -26,7 +26,7 @@ export default function LoginPage() {
 
     if (result?.error) {
       setError(
-        "Tu suscripcion no esta activa. Selecciona un plan para continuar."
+        "No pudimos validar tu acceso. Si ya pagaste y crees que es un error, escribenos a hola@usadona.com y lo resolvemos enseguida."
       );
     } else if (result?.ok) {
       window.location.href = "/dashboard";
@@ -71,12 +71,12 @@ export default function LoginPage() {
           {error && (
             <div className="glass-card rounded-xl px-4 py-3 border-red-500/20">
               <p className="text-sm text-red-400/80 font-light">{error}</p>
-              <Link
-                href="/#pricing"
+              <a
+                href="mailto:hola@usadona.com"
                 className="text-sm text-white/50 hover:text-white underline font-light mt-1 inline-block"
               >
-                Ver planes disponibles
-              </Link>
+                Escribir a soporte
+              </a>
             </div>
           )}
 

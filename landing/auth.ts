@@ -5,6 +5,7 @@ import {
   deriveDashboardPassword,
   constantTimeEqual,
 } from "@/lib/dashboard-auth";
+import { encontrarCustomerConSub } from "@/lib/auth-matcher";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -20,44 +21,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         if (!email || !password) return null;
 
-        // Search for a Stripe customer with this email
-        const customers = await getStripe().customers.list({
-          email,
-          limit: 1,
+        // Hotfix login: itera TODOS los customers con ese email (no solo
+        // el primero) y admite subs en active/trialing/past_due. Si Stripe
+        // tiene duplicados de customer (caso real reportado en prod), el
+        // login funciona contra el customer correcto.
+        // Lógica completa en lib/auth-matcher.ts (testeable con stubs).
+        const stripe = getStripe();
+        const match = await encontrarCustomerConSub(email, password, {
+          customers: stripe.customers,
+          subscriptions: stripe.subscriptions,
+          derivePassword: deriveDashboardPassword,
+          passwordMatch: constantTimeEqual,
         });
 
-        if (customers.data.length === 0) return null;
-
-        const customer = customers.data[0];
-
-        // T1.4.B — Validar password ANTES de revelar nada del customer.
-        // password = "dona-" + hex(HMAC-SHA256(customer.id, DASHBOARD_PASSWORD_SECRET))[:12]
-        // Si DASHBOARD_PASSWORD_SECRET no está configurada, derive() devuelve null
-        // y rechazamos. NO hay path permisivo: mejor bloquear logins que aceptar
-        // sin password.
-        const expected = deriveDashboardPassword(customer.id);
-        if (!expected || !constantTimeEqual(password, expected)) {
-          return null;
-        }
-
-        // Check for active subscription
-        const subscriptions = await getStripe().subscriptions.list({
-          customer: customer.id,
-          status: "active",
-          limit: 1,
-        });
-
-        if (subscriptions.data.length === 0) return null;
-
-        const sub = subscriptions.data[0];
+        if (!match) return null;
 
         return {
-          id: customer.id,
-          email: customer.email ?? email,
-          name: customer.name ?? email,
-          stripeCustomerId: customer.id,
-          subscriptionId: sub.id,
-          plan: sub.items.data[0]?.price?.id ?? "unknown",
+          id: match.customer.id,
+          email: match.customer.email ?? email,
+          name: match.customer.name ?? email,
+          stripeCustomerId: match.customer.id,
+          subscriptionId: match.subscription.id,
+          plan: match.subscription.items.data[0]?.price?.id ?? "unknown",
         };
       },
     }),
@@ -68,16 +53,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.stripeCustomerId = (user as any).stripeCustomerId;
-        token.subscriptionId = (user as any).subscriptionId;
-        token.plan = (user as any).plan;
+        token.stripeCustomerId = (user as { stripeCustomerId?: string })
+          .stripeCustomerId;
+        token.subscriptionId = (user as { subscriptionId?: string })
+          .subscriptionId;
+        token.plan = (user as { plan?: string }).plan;
       }
       return token;
     },
     async session({ session, token }) {
-      (session as any).stripeCustomerId = token.stripeCustomerId;
-      (session as any).subscriptionId = token.subscriptionId;
-      (session as any).plan = token.plan;
+      const s = session as {
+        stripeCustomerId?: unknown;
+        subscriptionId?: unknown;
+        plan?: unknown;
+      };
+      s.stripeCustomerId = token.stripeCustomerId;
+      s.subscriptionId = token.subscriptionId;
+      s.plan = token.plan;
       return session;
     },
   },
