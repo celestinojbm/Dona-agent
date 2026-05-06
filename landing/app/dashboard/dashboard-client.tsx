@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { UsuarioResumen } from "@/lib/dashboard-types";
+import TourDashboard from "./tour";
 
 interface DashboardProps {
   session: { user?: { email?: string | null } };
@@ -286,6 +287,13 @@ export default function DashboardClient({ session }: DashboardProps) {
               onComprar={handleTopup}
             />
             <SeccionHistorial data={load.data} />
+            {/* T2.0.D — Tour de primer login. Solo se muestra si la sub
+                está activa y el usuario aún no marcó "visto" en
+                localStorage. No bloquea ni reemplaza el contenido del
+                dashboard si el usuario lo cierra. */}
+            <TourDashboard
+              habilitado={load.data.suscripcion.estado !== "canceled"}
+            />
           </>
         )}
 
