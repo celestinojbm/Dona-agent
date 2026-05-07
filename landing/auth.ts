@@ -21,11 +21,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         if (!email || !password) return null;
 
-        // Hotfix login: itera TODOS los customers con ese email (no solo
-        // el primero) y admite subs en active/trialing/past_due. Si Stripe
-        // tiene duplicados de customer (caso real reportado en prod), el
-        // login funciona contra el customer correcto.
-        // Lógica completa en lib/auth-matcher.ts (testeable con stubs).
+        // Itera TODOS los customers con ese email · admite subs en
+        // active/trialing/past_due · si el password coincide con un
+        // customer del email pero la sub está en otro (caso recovery
+        // cross-customer), también autoriza. Lógica completa y
+        // testeable en lib/auth-matcher.ts.
         const stripe = getStripe();
         const match = await encontrarCustomerConSub(email, password, {
           customers: stripe.customers,
@@ -35,6 +35,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         });
 
         if (!match) return null;
+
+        // Log estructurado sin PII para correlacionar el patrón de
+        // recovery en producción. NO logueamos email ni password.
+        if (match.recovery) {
+          const shortSub = match.subscription.id.slice(0, 8) + "...";
+          const shortCus = match.customer.id.slice(0, 8) + "...";
+          const shortPwd = match.passwordOwnerCustomerId.slice(0, 8) + "...";
+          console.warn(
+            `[AUTH] recovery cross-customer · sub=${shortSub} ` +
+              `dashboard_customer=${shortCus} password_customer=${shortPwd}`,
+          );
+        }
 
         return {
           id: match.customer.id,

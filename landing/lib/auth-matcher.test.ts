@@ -164,6 +164,86 @@ describe("encontrarCustomerConSub", () => {
     expect(r?.customer.id).toBe("cus_NEW");
     expect(r?.subscription.id).toBe("sub_NEW");
     expect(r?.subscription.status).toBe("active");
+    expect(r?.recovery).toBe(false);
+    expect(r?.passwordOwnerCustomerId).toBe("cus_NEW");
+  });
+
+  it("RECOVERY · password viejo de cus_OLD + sub activa en cus_NEW autoriza con recovery=true", async () => {
+    const cViejo = makeCustomer("cus_OLD", "celes@x.com");
+    const cNuevo = makeCustomer("cus_NEW", "celes@x.com");
+    const deps = makeDeps(
+      {
+        customersByEmail: { "celes@x.com": [cViejo, cNuevo] },
+        subsByCustomer: {
+          cus_OLD: [makeSub("sub_OLD", "cus_OLD", "canceled")],
+          cus_NEW: [makeSub("sub_NEW", "cus_NEW", "active")],
+        },
+      },
+      {
+        cus_OLD: "dona-oldpass1234",
+        cus_NEW: "dona-newpass5678",
+      },
+    );
+    // El usuario solo conoce el password de cus_OLD (su welcome viejo).
+    const r = await encontrarCustomerConSub(
+      "celes@x.com",
+      "dona-oldpass1234",
+      deps,
+    );
+    expect(r).not.toBeNull();
+    expect(r?.customer.id).toBe("cus_NEW"); // dashboard del customer con sub
+    expect(r?.subscription.id).toBe("sub_NEW");
+    expect(r?.recovery).toBe(true);
+    expect(r?.passwordOwnerCustomerId).toBe("cus_OLD");
+  });
+
+  it("RECOVERY · si NINGÚN password de los customers del email coincide, no autoriza ni siquiera con sub activa presente (sin ownership)", async () => {
+    const cViejo = makeCustomer("cus_OLD", "x@x.com");
+    const cNuevo = makeCustomer("cus_NEW", "x@x.com");
+    const deps = makeDeps(
+      {
+        customersByEmail: { "x@x.com": [cViejo, cNuevo] },
+        subsByCustomer: {
+          cus_OLD: [],
+          cus_NEW: [makeSub("sub_NEW", "cus_NEW", "active")],
+        },
+      },
+      {
+        cus_OLD: "dona-realold1234",
+        cus_NEW: "dona-realnew5678",
+      },
+    );
+    // password no coincide con ninguno · sin ownership demostrado
+    const r = await encontrarCustomerConSub(
+      "x@x.com",
+      "dona-attacker0000",
+      deps,
+    );
+    expect(r).toBeNull();
+  });
+
+  it("RECOVERY · ownership demostrado pero NINGÚN customer del email tiene sub válida → null", async () => {
+    const cViejo = makeCustomer("cus_OLD", "x@x.com");
+    const cNuevo = makeCustomer("cus_NEW", "x@x.com");
+    const deps = makeDeps(
+      {
+        customersByEmail: { "x@x.com": [cViejo, cNuevo] },
+        subsByCustomer: {
+          cus_OLD: [makeSub("sub_OLD", "cus_OLD", "canceled")],
+          cus_NEW: [makeSub("sub_NEW", "cus_NEW", "incomplete")],
+        },
+      },
+      {
+        cus_OLD: "dona-oldpass1234",
+        cus_NEW: "dona-newpass5678",
+      },
+    );
+    const r = await encontrarCustomerConSub(
+      "x@x.com",
+      "dona-oldpass1234",
+      deps,
+    );
+    expect(r).toBeNull();
   });
 
   it("password incorrecto del primer customer no impide encontrar el segundo con password correcto", async () => {
