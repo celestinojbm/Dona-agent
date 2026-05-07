@@ -26,12 +26,38 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // customer del email pero la sub está en otro (caso recovery
         // cross-customer), también autoriza. Lógica completa y
         // testeable en lib/auth-matcher.ts.
+        //
+        // Diagnóstico (rama diag/auth-instrumentation): si la env var
+        // AUTH_DIAG="1" está presente, el matcher emite telemetría sin
+        // PII a Vercel logs. Útil para debug del incidente de login.
+        // Default OFF en producción · activar solo durante ventanas
+        // breves de diagnóstico y desactivar después.
         const stripe = getStripe();
+        const diagOn = process.env.AUTH_DIAG === "1";
         const match = await encontrarCustomerConSub(email, password, {
           customers: stripe.customers,
           subscriptions: stripe.subscriptions,
           derivePassword: deriveDashboardPassword,
           passwordMatch: constantTimeEqual,
+          onTelemetry: diagOn
+            ? (m) => {
+                // Solo contadores y booleanos · sin PII. Visible en
+                // Vercel logs como una sola línea estructurada.
+                console.warn(
+                  "[AUTH_DIAG] " +
+                    JSON.stringify({
+                      customersCount: m.customersCount,
+                      candidatesCount: m.candidatesCount,
+                      passwordMatchedAnyCustomer:
+                        m.passwordMatchedAnyCustomer,
+                      validSubFoundOnOwner: m.validSubFoundOnOwner,
+                      recoveryAttemptedAndFound:
+                        m.recoveryAttemptedAndFound,
+                      nullReason: m.nullReason,
+                    }),
+                );
+              }
+            : undefined,
         });
 
         if (!match) return null;

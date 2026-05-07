@@ -80,6 +80,61 @@ export interface AuthMatcherDeps {
   };
   derivePassword: (customerId: string) => string | null;
   passwordMatch: (a: string, b: string) => boolean;
+  /**
+   * Telemetría opcional · diagnóstico read-only sin PII. El matcher
+   * llama esto al terminar (incluso si retorna null). El payload tiene
+   * SOLO contadores y booleanos · ningún email, password, customer_id
+   * o subscription_id completo. El caller decide si loguea o no.
+   */
+  onTelemetry?: (m: AuthTelemetry) => void;
+}
+
+/**
+ * Métricas read-only del matcher para diagnosticar fallos de login en
+ * producción sin filtrar PII. Activable desde el caller (auth.ts) vía
+ * env var · ver auth.ts para cómo se enciende/apaga.
+ */
+export interface AuthTelemetry {
+  /** customers.list().data.length · número de customers con ese email. */
+  customersCount: number;
+  /**
+   * Cuántos pasaron los filtros (esCustomerActivo + email exacto). Si
+   * customersCount > 0 pero candidatesCount === 0, sospechar mismatch
+   * de email (mayúscula, alias, espacio) o que todos están deleted.
+   */
+  candidatesCount: number;
+  /**
+   * true si el password coincidió con AL MENOS UN customer entre los
+   * candidatos (es decir, ownership demostrado). Si false con
+   * candidatesCount > 0, el password que el usuario tipea no es un
+   * password derivado válido para ningún customer del email.
+   */
+  passwordMatchedAnyCustomer: boolean;
+  /**
+   * true si Pass 1 encontró un customer con sub válida Y password match.
+   * Es el camino "happy path" del v1.
+   */
+  validSubFoundOnOwner: boolean;
+  /**
+   * true si Pass 2 encontró un customer (distinto del passwordOwner)
+   * con sub válida. Este es el caso recovery cross-customer.
+   */
+  recoveryAttemptedAndFound: boolean;
+  /**
+   * Si el matcher terminó retornando null, este flag explica por qué.
+   * - "no_email_or_password"
+   * - "no_candidates" · email sin customers o sin candidatos válidos
+   * - "no_password_match" · candidatos pero password no matchea ninguno
+   * - "no_valid_sub" · ownership demostrado pero ningún customer del
+   *   email tiene sub en active/trialing/past_due
+   * - null si el matcher retornó match (no es null)
+   */
+  nullReason:
+    | "no_email_or_password"
+    | "no_candidates"
+    | "no_password_match"
+    | "no_valid_sub"
+    | null;
 }
 
 function esCustomerActivo(
@@ -126,9 +181,24 @@ export async function encontrarCustomerConSub(
   password: string,
   deps: AuthMatcherDeps,
 ): Promise<AuthMatch | null> {
-  if (!email || !password) return null;
+  const tel: AuthTelemetry = {
+    customersCount: 0,
+    candidatesCount: 0,
+    passwordMatchedAnyCustomer: false,
+    validSubFoundOnOwner: false,
+    recoveryAttemptedAndFound: false,
+    nullReason: null,
+  };
+  const emit = (final: AuthTelemetry) => deps.onTelemetry?.(final);
+
+  if (!email || !password) {
+    tel.nullReason = "no_email_or_password";
+    emit(tel);
+    return null;
+  }
 
   const customers = await deps.customers.list({ email, limit: 100 });
+  tel.customersCount = customers.data.length;
 
   // Filtrar a customers activos y con email exacto. Hacemos esto una
   // vez para no recorrer dos veces.
@@ -137,6 +207,13 @@ export async function encontrarCustomerConSub(
     if (!esCustomerActivo(raw)) continue;
     if (raw.email !== email) continue;
     candidatos.push(raw);
+  }
+  tel.candidatesCount = candidatos.length;
+
+  if (candidatos.length === 0) {
+    tel.nullReason = "no_candidates";
+    emit(tel);
+    return null;
   }
 
   // Pass 1 — match exacto: password ↔ customer con sub válida.
@@ -148,9 +225,12 @@ export async function encontrarCustomerConSub(
 
     // Password coincide con este customer · marcamos ownership.
     passwordOwner = c;
+    tel.passwordMatchedAnyCustomer = true;
 
     const sub = await buscarSubValida(c.id, deps);
     if (sub) {
+      tel.validSubFoundOnOwner = true;
+      emit(tel);
       return {
         customer: c,
         subscription: sub,
@@ -163,12 +243,18 @@ export async function encontrarCustomerConSub(
   // Pass 2 — recovery: ownership demostrado pero el customer dueño del
   // password no tiene sub válida. Buscar entre los OTROS customers del
   // mismo email uno que sí tenga.
-  if (!passwordOwner) return null;
+  if (!passwordOwner) {
+    tel.nullReason = "no_password_match";
+    emit(tel);
+    return null;
+  }
 
   for (const c of candidatos) {
     if (c.id === passwordOwner.id) continue;
     const sub = await buscarSubValida(c.id, deps);
     if (sub) {
+      tel.recoveryAttemptedAndFound = true;
+      emit(tel);
       return {
         customer: c,
         subscription: sub,
@@ -178,5 +264,7 @@ export async function encontrarCustomerConSub(
     }
   }
 
+  tel.nullReason = "no_valid_sub";
+  emit(tel);
   return null;
 }
