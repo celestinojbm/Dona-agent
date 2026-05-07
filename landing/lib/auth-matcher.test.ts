@@ -90,6 +90,7 @@ function makeDeps(
   stub: StripeStub,
   passwordTable: Record<string, string>,
   secretAvailable = true,
+  telemetrySink?: (m: import("./auth-matcher").AuthTelemetry) => void,
 ): AuthMatcherDeps {
   return {
     customers: {
@@ -107,6 +108,7 @@ function makeDeps(
       return passwordTable[cid] ?? `dona-${cid.slice(-12)}`;
     },
     passwordMatch: (a, b) => a === b,
+    onTelemetry: telemetrySink,
   };
 }
 
@@ -348,5 +350,156 @@ describe("encontrarCustomerConSub", () => {
     expect([...ESTADOS_SUB_VALIDOS].sort()).toEqual(
       ["active", "past_due", "trialing"],
     );
+  });
+});
+
+// ─── Tests de telemetría (instrumentación de diagnóstico) ──────────
+
+describe("encontrarCustomerConSub · telemetría", () => {
+  function makeStubWithTelemetry(
+    stub: StripeStub,
+    passwordTable: Record<string, string>,
+    secretAvailable = true,
+  ) {
+    let captured: import("./auth-matcher").AuthTelemetry | null = null;
+    const deps = makeDeps(stub, passwordTable, secretAvailable, (m) => {
+      captured = m;
+    });
+    return { deps, get: () => captured };
+  }
+
+  it("emite telemetría con customersCount=0 cuando email no existe", async () => {
+    const { deps, get } = makeStubWithTelemetry(
+      { customersByEmail: {}, subsByCustomer: {} },
+      {},
+    );
+    await encontrarCustomerConSub("nadie@x.com", "dona-x", deps);
+    const m = get();
+    expect(m).not.toBeNull();
+    expect(m?.customersCount).toBe(0);
+    expect(m?.candidatesCount).toBe(0);
+    expect(m?.passwordMatchedAnyCustomer).toBe(false);
+    expect(m?.nullReason).toBe("no_candidates");
+  });
+
+  it("nullReason=no_password_match cuando hay candidatos pero password no matchea", async () => {
+    const c1 = makeCustomer("cus_1", "x@x.com");
+    const c2 = makeCustomer("cus_2", "x@x.com");
+    const { deps, get } = makeStubWithTelemetry(
+      {
+        customersByEmail: { "x@x.com": [c1, c2] },
+        subsByCustomer: {
+          cus_1: [makeSub("sub_1", "cus_1", "active")],
+          cus_2: [makeSub("sub_2", "cus_2", "active")],
+        },
+      },
+      { cus_1: "dona-realuno1234", cus_2: "dona-realdos5678" },
+    );
+    await encontrarCustomerConSub("x@x.com", "dona-attacker0000", deps);
+    const m = get();
+    expect(m?.customersCount).toBe(2);
+    expect(m?.candidatesCount).toBe(2);
+    expect(m?.passwordMatchedAnyCustomer).toBe(false);
+    expect(m?.validSubFoundOnOwner).toBe(false);
+    expect(m?.nullReason).toBe("no_password_match");
+  });
+
+  it("nullReason=no_valid_sub cuando ownership demostrado pero ninguna sub válida", async () => {
+    const cOld = makeCustomer("cus_OLD", "x@x.com");
+    const cNew = makeCustomer("cus_NEW", "x@x.com");
+    const { deps, get } = makeStubWithTelemetry(
+      {
+        customersByEmail: { "x@x.com": [cOld, cNew] },
+        subsByCustomer: {
+          cus_OLD: [makeSub("sub_OLD", "cus_OLD", "canceled")],
+          cus_NEW: [makeSub("sub_NEW", "cus_NEW", "incomplete")],
+        },
+      },
+      { cus_OLD: "dona-oldpass1234", cus_NEW: "dona-newpass5678" },
+    );
+    await encontrarCustomerConSub("x@x.com", "dona-oldpass1234", deps);
+    const m = get();
+    expect(m?.passwordMatchedAnyCustomer).toBe(true);
+    expect(m?.validSubFoundOnOwner).toBe(false);
+    expect(m?.recoveryAttemptedAndFound).toBe(false);
+    expect(m?.nullReason).toBe("no_valid_sub");
+  });
+
+  it("validSubFoundOnOwner=true cuando Pass 1 encuentra match", async () => {
+    const c = makeCustomer("cus_A", "a@x.com");
+    const { deps, get } = makeStubWithTelemetry(
+      {
+        customersByEmail: { "a@x.com": [c] },
+        subsByCustomer: { cus_A: [makeSub("sub_A", "cus_A", "active")] },
+      },
+      { cus_A: "dona-passA1234" },
+    );
+    await encontrarCustomerConSub("a@x.com", "dona-passA1234", deps);
+    const m = get();
+    expect(m?.validSubFoundOnOwner).toBe(true);
+    expect(m?.nullReason).toBeNull();
+  });
+
+  it("recoveryAttemptedAndFound=true cuando Pass 2 autoriza", async () => {
+    const cOld = makeCustomer("cus_OLD", "r@x.com");
+    const cNew = makeCustomer("cus_NEW", "r@x.com");
+    const { deps, get } = makeStubWithTelemetry(
+      {
+        customersByEmail: { "r@x.com": [cOld, cNew] },
+        subsByCustomer: {
+          cus_OLD: [makeSub("sub_OLD", "cus_OLD", "canceled")],
+          cus_NEW: [makeSub("sub_NEW", "cus_NEW", "active")],
+        },
+      },
+      { cus_OLD: "dona-oldpass1234", cus_NEW: "dona-newpass5678" },
+    );
+    await encontrarCustomerConSub("r@x.com", "dona-oldpass1234", deps);
+    const m = get();
+    expect(m?.passwordMatchedAnyCustomer).toBe(true);
+    expect(m?.validSubFoundOnOwner).toBe(false);
+    expect(m?.recoveryAttemptedAndFound).toBe(true);
+    expect(m?.nullReason).toBeNull();
+  });
+
+  it("telemetría NO contiene email, password, customer.id ni subscription.id completos", async () => {
+    const c = makeCustomer("cus_SECRET12345", "user@example.com");
+    const { deps, get } = makeStubWithTelemetry(
+      {
+        customersByEmail: { "user@example.com": [c] },
+        subsByCustomer: {
+          cus_SECRET12345: [
+            makeSub("sub_SECRET12345", "cus_SECRET12345", "active"),
+          ],
+        },
+      },
+      { cus_SECRET12345: "dona-secretpass1" },
+    );
+    await encontrarCustomerConSub(
+      "user@example.com",
+      "dona-secretpass1",
+      deps,
+    );
+    const m = get();
+    expect(m).not.toBeNull();
+    const serialized = JSON.stringify(m);
+    expect(serialized).not.toContain("user@example.com");
+    expect(serialized).not.toContain("cus_SECRET12345");
+    expect(serialized).not.toContain("sub_SECRET12345");
+    expect(serialized).not.toContain("dona-secretpass1");
+  });
+
+  it("sin onTelemetry el matcher funciona normalmente sin emitir nada", async () => {
+    const c = makeCustomer("cus_X", "x@x.com");
+    const deps = makeDeps(
+      {
+        customersByEmail: { "x@x.com": [c] },
+        subsByCustomer: { cus_X: [makeSub("sub_X", "cus_X", "active")] },
+      },
+      { cus_X: "dona-passX1234" },
+      // sin telemetrySink
+    );
+    const r = await encontrarCustomerConSub("x@x.com", "dona-passX1234", deps);
+    expect(r).not.toBeNull();
+    expect(r?.customer.id).toBe("cus_X");
   });
 });
