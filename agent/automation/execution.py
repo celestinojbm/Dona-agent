@@ -228,7 +228,32 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
     riesgo = NivelRiesgo(riesgo_str)
     telefono = accion["telefono"]
 
-    # Bloqueo crítico
+    # Estado válido para ejecutar (aún antes de chequear bloqueos · si el
+    # estado no permite, ni siquiera podemos marcar_fallida desde 'completed'
+    # o similar). Validamos primero para tener una transición consistente.
+    estado_ok = (
+        (estado == "pending" and riesgo == NivelRiesgo.LOW)
+        or estado == "approved"
+    )
+    if not estado_ok:
+        msg = (
+            f"Estado '{estado}' no permite ejecutar; riesgo={riesgo_str}. "
+            f"MEDIUM/HIGH requieren aprobación."
+        )
+        # No intentamos marcar_fallida desde un estado terminal · solo
+        # registramos audit y devolvemos error.
+        await registrar_evento(
+            evento="action_failed", telefono=telefono,
+            accion_id=accion_id, riesgo=riesgo_str,
+            payload={"tipo_accion": tipo, "razon": "estado_invalido"},
+        )
+        return {"estado_final": "failed", "error": msg}
+
+    # Pasamos a 'running' · transición válida desde pending/approved.
+    await marcar_running(accion_id)
+
+    # Bloqueo crítico (después de running para que la transición a failed
+    # sea válida según el lifecycle running→failed).
     if esta_bloqueado_t21(riesgo):
         await registrar_evento(
             evento="action_blocked_critical",
@@ -249,19 +274,6 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
             "error": "critical_blocked_t21a",
         }
 
-    # Estado válido para ejecutar
-    estado_ok = (
-        (estado == "pending" and riesgo == NivelRiesgo.LOW)
-        or estado == "approved"
-    )
-    if not estado_ok:
-        msg = (
-            f"Estado '{estado}' no permite ejecutar; riesgo={riesgo_str}. "
-            f"MEDIUM/HIGH requieren aprobación."
-        )
-        await marcar_fallida(accion_id, error_message=msg)
-        return {"estado_final": "failed", "error": msg}
-
     # Ejecutor mapeado
     ejecutor = EJECUTORES_T21A.get(tipo)
     if ejecutor is None:
@@ -274,8 +286,7 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
         await marcar_fallida(accion_id, error_message=msg)
         return {"estado_final": "failed", "error": msg}
 
-    # Ejecución
-    await marcar_running(accion_id)
+    # Ejecutar (ya estamos en running)
     try:
         # Cargar perfil (best-effort) · si no existe, ejecutor recibe None
         perfil_dict = await _cargar_perfil(telefono)
