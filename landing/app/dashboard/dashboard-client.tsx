@@ -21,6 +21,7 @@ import {
 import Link from "next/link";
 import type { UsuarioResumen } from "@/lib/dashboard-types";
 import TourDashboard from "./tour";
+import SeccionActionCenter from "./seccion-action-center";
 
 interface DashboardProps {
   session: { user?: { email?: string | null } };
@@ -287,6 +288,13 @@ export default function DashboardClient({ session }: DashboardProps) {
               onComprar={handleTopup}
             />
             <SeccionHistorial data={load.data} />
+            {/* T2.1.B — Action Center. Acciones generadas por el
+                Automation Core (T2.1.A). Lista, aprueba, rechaza y
+                ejecuta dry-run. Solo se muestra si la sub está activa
+                (canceled no genera acciones nuevas). */}
+            {load.data.suscripcion.estado !== "canceled" && (
+              <SeccionActionCenter />
+            )}
             {/* T2.0.D — Tour de primer login. Solo se muestra si la sub
                 está activa y el usuario aún no marcó "visto" en
                 localStorage. No bloquea ni reemplaza el contenido del

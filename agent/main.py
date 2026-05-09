@@ -2568,6 +2568,398 @@ async def internal_usuario_resumen(request: Request):
     }
 
 
+# ─── T2.1.B · Action Center · endpoints HTTP ────────────────────────────────
+#
+# Auth dual:
+#   /admin/automation/* — ADMIN_TOKEN (uso operativo del owner)
+#   /internal/automation/* — HMAC bridge (landing → backend, server-to-server)
+#
+# Ambos comparten la lógica de negocio que vive en agent/automation/* (T2.1.A).
+# Estos endpoints son thin wrappers que validan auth, resuelven telefono y
+# devuelven JSON sanitizado · sin PII completa.
+#
+# Reglas (T2.1.A respetadas):
+#   - LOW puede ejecutarse (dry-run) automáticamente
+#   - MEDIUM/HIGH requieren aprobación previa
+#   - CRITICAL siempre bloqueado
+#   - Sin Stripe/WhatsApp/email/publicaciones reales
+
+
+async def _resolver_telefono_desde_subscription(subscription_id: str) -> str | None:
+    """Helper · subscription_id → telefono usando suscripcion_stripe.
+    Retorna None si la sub no existe."""
+    from agent.memory import async_session, SuscripcionStripe
+    from sqlalchemy import select
+    if not subscription_id:
+        return None
+    async with async_session() as session:
+        row = (await session.execute(
+            select(SuscripcionStripe).where(
+                SuscripcionStripe.subscription_id == subscription_id
+            )
+        )).scalar_one_or_none()
+    return row.telefono if row else None
+
+
+def _filtrar_accion_para_dashboard(accion: dict) -> dict:
+    """Sanitiza una acción para enviar al dashboard.
+    NO incluye telefono completo, NO incluye payload_json crudo (puede
+    tener PII de clientes), NO incluye idempotency_key (interno)."""
+    return {
+        "id": accion["id"],
+        "opportunity_id": accion["opportunity_id"],
+        "playbook_id": accion["playbook_id"],
+        "tipo_accion": accion["tipo_accion"],
+        "titulo": accion["titulo"],
+        "descripcion": accion["descripcion"],
+        "razon_recomendacion": accion["razon_recomendacion"],
+        "estado": accion["estado"],
+        "riesgo": accion["riesgo"],
+        "costo_creditos_estimado": accion["costo_creditos_estimado"],
+        "requires_approval": accion["requires_approval"],
+        # result_json se incluye porque es output dry-run que el usuario
+        # debe ver. NO contiene PII (los ejecutores T2.1.A son placeholders).
+        "result_json": accion["result_json"],
+        # error_message ya está sanitizado en marcar_fallida (max 500 chars,
+        # sin stack traces).
+        "error_message": accion["error_message"],
+        "created_at": accion["created_at"],
+        "updated_at": accion["updated_at"],
+        "approved_at": accion["approved_at"],
+        "rejected_at": accion["rejected_at"],
+        "completed_at": accion["completed_at"],
+    }
+
+
+# ── /admin/automation/* (ADMIN_TOKEN) ───────────────────────────────────────
+
+
+@app.get("/admin/automation/oportunidades")
+async def admin_automation_oportunidades(
+    request: Request, telefono: str = "", token: str = "",
+):
+    """Lista oportunidades detectadas para un telefono."""
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    if not telefono:
+        raise HTTPException(status_code=400, detail="telefono requerido")
+    from agent.automation.opportunities import detectar_oportunidades_para_telefono
+    opps = await detectar_oportunidades_para_telefono(telefono)
+    return {"oportunidades": opps, "count": len(opps)}
+
+
+@app.get("/admin/automation/acciones")
+async def admin_automation_acciones(
+    request: Request, telefono: str = "", estado: str = "",
+    token: str = "",
+):
+    """Lista acciones del usuario."""
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    if not telefono:
+        raise HTTPException(status_code=400, detail="telefono requerido")
+    from agent.automation.action_center import listar_acciones
+    rows = await listar_acciones(telefono, estado=estado or None)
+    return {
+        "acciones": [_filtrar_accion_para_dashboard(r) for r in rows],
+        "count": len(rows),
+    }
+
+
+@app.post("/admin/automation/acciones/generar")
+async def admin_automation_acciones_generar(request: Request, token: str = ""):
+    """Genera acciones a partir del Opportunity Engine.
+
+    Body: {"telefono": "..."}
+    Ejecuta detectar_oportunidades_para_telefono y crea una acción por
+    oportunidad usando el primer paso del playbook sugerido (idempotente).
+    """
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(status_code=400, detail="json_invalid")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="json_not_object")
+    telefono = (payload.get("telefono") or "").strip()
+    if not telefono:
+        raise HTTPException(status_code=400, detail="telefono requerido")
+    from agent.automation.opportunities import detectar_oportunidades_para_telefono
+    from agent.automation.playbooks import obtener_playbook
+    from agent.automation.action_center import crear_accion
+    opps = await detectar_oportunidades_para_telefono(telefono)
+    creadas = []
+    for opp in opps:
+        try:
+            pb = obtener_playbook(opp["playbook_sugerido"])
+        except KeyError:
+            continue
+        # Generar UNA acción por cada paso del playbook · da al usuario
+        # la cadena completa de acciones recomendadas (algunas LOW que
+        # auto-ejecutan, algunas MEDIUM/HIGH que requieren aprobación).
+        for paso in pb["pasos"]:
+            a = await crear_accion(
+                telefono=telefono,
+                tipo_accion=paso["tipo_accion"],
+                titulo=paso["titulo"],
+                descripcion=paso.get("descripcion", ""),
+                razon_recomendacion=opp["razon"],
+                opportunity_id=opp["id"],
+                playbook_id=opp["playbook_sugerido"],
+            )
+            creadas.append(_filtrar_accion_para_dashboard(a))
+    return {"oportunidades_evaluadas": len(opps), "acciones": creadas}
+
+
+@app.post("/admin/automation/acciones/{accion_id}/aprobar")
+async def admin_automation_aprobar(
+    request: Request, accion_id: int, token: str = "",
+):
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.automation.action_center import aprobar_accion
+    a = await aprobar_accion(accion_id)
+    if a is None:
+        raise HTTPException(status_code=404, detail="accion_no_existe")
+    return {"accion": _filtrar_accion_para_dashboard(a)}
+
+
+@app.post("/admin/automation/acciones/{accion_id}/rechazar")
+async def admin_automation_rechazar(
+    request: Request, accion_id: int, token: str = "",
+):
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.automation.action_center import rechazar_accion
+    a = await rechazar_accion(accion_id)
+    if a is None:
+        raise HTTPException(status_code=404, detail="accion_no_existe")
+    return {"accion": _filtrar_accion_para_dashboard(a)}
+
+
+@app.post("/admin/automation/acciones/{accion_id}/ejecutar")
+async def admin_automation_ejecutar(
+    request: Request, accion_id: int, token: str = "",
+):
+    """Ejecuta una acción · solo dry-run en T2.1.A/B.
+    CRITICAL queda bloqueado · HIGH sin ejecutor T2.1.A queda bloqueado.
+    """
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.automation.action_center import listar_acciones
+    from agent.automation.execution import ejecutar_accion
+    from agent.memory import async_session
+    from agent.automation.models import AccionAutomatizacion
+    from sqlalchemy import select
+    async with async_session() as session:
+        row = (await session.execute(
+            select(AccionAutomatizacion).where(
+                AccionAutomatizacion.id == accion_id
+            )
+        )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="accion_no_existe")
+    # Convertir a dict como espera execution.ejecutar_accion
+    from agent.automation.action_center import _a_dict
+    accion_dict = _a_dict(row)
+    resultado = await ejecutar_accion(accion_dict)
+    # Releer el estado actualizado tras la ejecución (busca por id).
+    async with async_session() as session:
+        row2 = (await session.execute(
+            select(AccionAutomatizacion).where(
+                AccionAutomatizacion.id == accion_id
+            )
+        )).scalar_one()
+    actualizada = _a_dict(row2)
+    return {
+        "accion": _filtrar_accion_para_dashboard(actualizada),
+        "ejecucion": resultado,
+    }
+
+
+# ── /internal/automation/* (HMAC bridge) ────────────────────────────────────
+#
+# Llamados por landing/lib/automation-bridge.ts (server-side). El landing
+# resuelve subscription_id desde la sesión NextAuth (T1.4.D) · NUNCA acepta
+# subscription_id ni telefono del cliente.
+
+
+async def _verificar_y_parsear_internal(request: Request) -> dict:
+    """HMAC + parse JSON · retorna el payload o lanza HTTPException."""
+    body = await request.body()
+    sig = request.headers.get("X-Internal-Signature", "")
+    if not _verificar_firma_interna(body, sig):
+        motivo = _diagnosticar_firma_interna(body, sig)
+        logger.warning(f"[INTERNAL-AUT] 401 motivo={motivo}")
+        raise HTTPException(status_code=401, detail="signature_invalid")
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="json_invalid")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="json_not_object")
+    return payload
+
+
+@app.post("/internal/automation/oportunidades")
+async def internal_automation_oportunidades(request: Request):
+    """Lista oportunidades a partir de subscription_id (resuelve telefono)."""
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="missing_subscription_id")
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+    from agent.automation.opportunities import detectar_oportunidades_para_telefono
+    opps = await detectar_oportunidades_para_telefono(telefono)
+    return {"oportunidades": opps, "count": len(opps)}
+
+
+@app.post("/internal/automation/acciones")
+async def internal_automation_acciones(request: Request):
+    """Lista acciones a partir de subscription_id."""
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    estado = (payload.get("estado") or "").strip() or None
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="missing_subscription_id")
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+    from agent.automation.action_center import listar_acciones
+    rows = await listar_acciones(telefono, estado=estado)
+    return {
+        "acciones": [_filtrar_accion_para_dashboard(r) for r in rows],
+        "count": len(rows),
+    }
+
+
+@app.post("/internal/automation/acciones/generar")
+async def internal_automation_acciones_generar(request: Request):
+    """Genera acciones a partir del Opportunity Engine."""
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="missing_subscription_id")
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+    from agent.automation.opportunities import detectar_oportunidades_para_telefono
+    from agent.automation.playbooks import obtener_playbook
+    from agent.automation.action_center import crear_accion
+    opps = await detectar_oportunidades_para_telefono(telefono)
+    creadas = []
+    for opp in opps:
+        try:
+            pb = obtener_playbook(opp["playbook_sugerido"])
+        except KeyError:
+            continue
+        # Generar UNA acción por cada paso del playbook · da al usuario
+        # la cadena completa de acciones recomendadas (algunas LOW que
+        # auto-ejecutan, algunas MEDIUM/HIGH que requieren aprobación).
+        for paso in pb["pasos"]:
+            a = await crear_accion(
+                telefono=telefono,
+                tipo_accion=paso["tipo_accion"],
+                titulo=paso["titulo"],
+                descripcion=paso.get("descripcion", ""),
+                razon_recomendacion=opp["razon"],
+                opportunity_id=opp["id"],
+                playbook_id=opp["playbook_sugerido"],
+            )
+            creadas.append(_filtrar_accion_para_dashboard(a))
+    return {"oportunidades_evaluadas": len(opps), "acciones": creadas}
+
+
+async def _accion_pertenece_a_telefono(accion_id: int, telefono: str) -> bool:
+    """Verifica que una acción pertenece al telefono · evita IDOR."""
+    from agent.memory import async_session
+    from agent.automation.models import AccionAutomatizacion
+    from sqlalchemy import select
+    async with async_session() as session:
+        row = (await session.execute(
+            select(AccionAutomatizacion).where(
+                AccionAutomatizacion.id == accion_id
+            )
+        )).scalar_one_or_none()
+    return row is not None and row.telefono == telefono
+
+
+@app.post("/internal/automation/acciones/aprobar")
+async def internal_automation_aprobar(request: Request):
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    accion_id = payload.get("accion_id")
+    if not sub_id or not isinstance(accion_id, int):
+        raise HTTPException(status_code=400, detail="parametros_invalidos")
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+    if not await _accion_pertenece_a_telefono(accion_id, telefono):
+        raise HTTPException(status_code=404, detail="accion_no_existe")
+    from agent.automation.action_center import aprobar_accion
+    a = await aprobar_accion(accion_id)
+    return {"accion": _filtrar_accion_para_dashboard(a)}
+
+
+@app.post("/internal/automation/acciones/rechazar")
+async def internal_automation_rechazar(request: Request):
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    accion_id = payload.get("accion_id")
+    if not sub_id or not isinstance(accion_id, int):
+        raise HTTPException(status_code=400, detail="parametros_invalidos")
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+    if not await _accion_pertenece_a_telefono(accion_id, telefono):
+        raise HTTPException(status_code=404, detail="accion_no_existe")
+    from agent.automation.action_center import rechazar_accion
+    a = await rechazar_accion(accion_id)
+    return {"accion": _filtrar_accion_para_dashboard(a)}
+
+
+@app.post("/internal/automation/acciones/ejecutar")
+async def internal_automation_ejecutar(request: Request):
+    """Ejecuta dry-run · respeta guardrails T2.1.A."""
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    accion_id = payload.get("accion_id")
+    if not sub_id or not isinstance(accion_id, int):
+        raise HTTPException(status_code=400, detail="parametros_invalidos")
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+    if not await _accion_pertenece_a_telefono(accion_id, telefono):
+        raise HTTPException(status_code=404, detail="accion_no_existe")
+    from agent.automation.execution import ejecutar_accion
+    from agent.automation.action_center import _a_dict
+    from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
+    from sqlalchemy import select
+    async with async_session() as session:
+        row = (await session.execute(
+            select(AccionAutomatizacion).where(
+                AccionAutomatizacion.id == accion_id
+            )
+        )).scalar_one()
+    accion_dict = _a_dict(row)
+    resultado = await ejecutar_accion(accion_dict)
+    async with async_session() as session:
+        row2 = (await session.execute(
+            select(AccionAutomatizacion).where(
+                AccionAutomatizacion.id == accion_id
+            )
+        )).scalar_one()
+    actualizada = _a_dict(row2)
+    return {
+        "accion": _filtrar_accion_para_dashboard(actualizada),
+        "ejecucion": resultado,
+    }
+
+
 @app.post("/webhook")
 async def webhook_handler(request: Request):
     """Webhook genérico."""
