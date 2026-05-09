@@ -31,7 +31,17 @@ class PerfilNegocio(Base):
     meta_mensual: Mapped[float] = mapped_column(Float, default=0.0)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     onboarding_paso: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # None = onboarding completado, 0-3 = en progreso
+    # None = onboarding completado, 0-9 = en progreso
+    # T2.0.E.1 — Diagnóstico inicial extendido (texto libre, default "").
+    # Se llenan en el flow de WhatsApp (onboarding_negocio.py) después de
+    # los 4 pasos clásicos (nombre/industria/moneda/meta). Ver el módulo
+    # para el orden y los mensajes.
+    oferta_principal: Mapped[str] = mapped_column(Text, default="")
+    cliente_ideal: Mapped[str] = mapped_column(Text, default="")
+    objetivo_mes: Mapped[str] = mapped_column(Text, default="")
+    canales_actuales: Mapped[str] = mapped_column(Text, default="")
+    bloqueo_actual: Mapped[str] = mapped_column(Text, default="")
+    tareas_delegar: Mapped[str] = mapped_column(Text, default="")
     creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -246,6 +256,74 @@ MIGRACIONES_NEGOCIO = [
             WHERE table_name = 'perfil_negocio' AND column_name = 'onboarding_paso'
         ) THEN
             ALTER TABLE perfil_negocio ADD COLUMN onboarding_paso INTEGER;
+        END IF;
+    END $$
+    """,
+    # T2.0.E.1 — Diagnóstico inicial extendido. 6 columnas Text aditivas
+    # default ''. Se aplican idempotentemente con DO $$ IF NOT EXISTS.
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'perfil_negocio' AND column_name = 'oferta_principal'
+        ) THEN
+            ALTER TABLE perfil_negocio ADD COLUMN oferta_principal TEXT NOT NULL DEFAULT '';
+        END IF;
+    END $$
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'perfil_negocio' AND column_name = 'cliente_ideal'
+        ) THEN
+            ALTER TABLE perfil_negocio ADD COLUMN cliente_ideal TEXT NOT NULL DEFAULT '';
+        END IF;
+    END $$
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'perfil_negocio' AND column_name = 'objetivo_mes'
+        ) THEN
+            ALTER TABLE perfil_negocio ADD COLUMN objetivo_mes TEXT NOT NULL DEFAULT '';
+        END IF;
+    END $$
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'perfil_negocio' AND column_name = 'canales_actuales'
+        ) THEN
+            ALTER TABLE perfil_negocio ADD COLUMN canales_actuales TEXT NOT NULL DEFAULT '';
+        END IF;
+    END $$
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'perfil_negocio' AND column_name = 'bloqueo_actual'
+        ) THEN
+            ALTER TABLE perfil_negocio ADD COLUMN bloqueo_actual TEXT NOT NULL DEFAULT '';
+        END IF;
+    END $$
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'perfil_negocio' AND column_name = 'tareas_delegar'
+        ) THEN
+            ALTER TABLE perfil_negocio ADD COLUMN tareas_delegar TEXT NOT NULL DEFAULT '';
         END IF;
     END $$
     """,
