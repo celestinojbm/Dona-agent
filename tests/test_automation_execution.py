@@ -38,7 +38,10 @@ class TestEjecutarLowAuto:
         r = await ex.ejecutar_accion(a)
         assert r["estado_final"] == "completed"
         assert "result" in r
-        assert r["result"]["modo"] == "dry_run"
+        # T2.1.C: modo='llm' si LLM responde · 'fallback' si no.
+        # En tests sin DEEPSEEK_API_KEY/ANTHROPIC_API_KEY el LLM
+        # retorna None y se usa fallback determinístico.
+        assert r["result"]["modo"] in ("llm", "fallback")
 
     @pytest.mark.asyncio
     async def test_low_genera_output_md(self, db):
