@@ -661,6 +661,12 @@ async def _migrar_columnas():
         todas = _MIGRACIONES + MIGRACIONES_NEGOCIO
     except ImportError:
         todas = _MIGRACIONES
+    # Incluir migraciones del módulo de automation (T2.1.A)
+    try:
+        from agent.automation.models import MIGRACIONES_AUTOMATION
+        todas = todas + MIGRACIONES_AUTOMATION
+    except ImportError:
+        pass
 
     for sql in todas:
         try:
