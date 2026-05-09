@@ -110,6 +110,11 @@ export default function SeccionActionCenter() {
       const res = await fetch("/api/automation/acciones", {
         cache: "no-store",
       });
+      // Hotfix: 200 con lista vacía es el caso normal de usuario sin
+      // acciones todavía (incluye el caso 'subscription_no_persistida'
+      // que el route handler convierte a empty). 4xx/5xx son errores
+      // reales del sistema · UI los muestra distinto pero el botón
+      // 'Generar acciones' sigue disponible siempre.
       if (!res.ok) {
         const code = `error_${res.status}`;
         setLoad({ status: "error", code });
@@ -134,7 +139,15 @@ export default function SeccionActionCenter() {
       const res = await fetch("/api/automation/acciones/generar", {
         method: "POST",
       });
-      if (!res.ok) {
+      if (res.status === 404) {
+        // Sub no persistida en backend · perfil no se ha creado todavía.
+        // Mensaje útil en lugar de alert genérico.
+        alert(
+          "Aún no encontramos tu perfil de negocio en el backend. " +
+            "Inicia o completa el diagnóstico desde WhatsApp escribiendo " +
+            "'empezar diagnóstico' a Dona, y vuelve aquí.",
+        );
+      } else if (!res.ok) {
         alert("No pudimos generar acciones nuevas. Intenta de nuevo.");
       } else {
         await fetchAcciones();
@@ -215,18 +228,32 @@ export default function SeccionActionCenter() {
         </div>
       )}
 
-      {/* Error */}
+      {/* Error real (no empty state). El botón 'Generar acciones'
+          sigue visible arriba · este panel solo informa la falla y
+          ofrece reintento. */}
       {load.status === "error" && (
         <div className="glass-card rounded-2xl p-8 border-rose-500/15">
           <p className="text-white/70 font-light">
             No pudimos cargar tus acciones.
           </p>
-          <button
-            onClick={fetchAcciones}
-            className="btn-secondary mt-3 px-5 py-2 rounded-full text-sm"
-          >
-            Reintentar
-          </button>
+          <p className="text-xs text-white/35 font-light mt-1 font-mono">
+            {load.code}
+          </p>
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              onClick={fetchAcciones}
+              className="btn-secondary px-5 py-2 rounded-full text-sm"
+            >
+              Reintentar
+            </button>
+            <button
+              onClick={handleGenerar}
+              disabled={generando}
+              className="btn-primary px-5 py-2 rounded-full text-sm disabled:opacity-50"
+            >
+              {generando ? "Generando…" : "Generar acciones"}
+            </button>
+          </div>
         </div>
       )}
 

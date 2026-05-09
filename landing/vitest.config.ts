@@ -3,8 +3,11 @@ import path from "node:path";
 
 export default defineConfig({
   test: {
+    // Default node · los tests de componentes React añaden la pragma
+    //   /** @vitest-environment jsdom */
+    // al inicio del archivo.
     environment: "node",
-    include: ["lib/**/*.test.ts"],
+    include: ["lib/**/*.test.ts", "app/**/*.test.tsx"],
     exclude: ["node_modules", ".next"],
   },
   resolve: {
