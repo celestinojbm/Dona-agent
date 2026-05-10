@@ -33,11 +33,20 @@ import type {
   AccionAutomatizacion,
   EstadoAccion,
   NivelRiesgo,
+  PerfilEstado,
 } from "@/lib/automation-types";
 
 interface AccionesData {
   acciones: AccionAutomatizacion[];
   count: number;
+}
+
+interface PerfilDiagInfo {
+  estado: PerfilEstado;
+  campos_llenos: number;
+  campos_totales: number;
+  razon: string;
+  siguiente_paso: string;
 }
 
 type LoadState =
@@ -104,6 +113,10 @@ export default function SeccionActionCenter() {
   const [load, setLoad] = useState<LoadState>({ status: "idle" });
   const [generando, setGenerando] = useState(false);
   const [accionEnCurso, setAccionEnCurso] = useState<number | null>(null);
+  // Hotfix: cuando 'Generar acciones' devuelve 0 acciones, el backend
+  // ahora reporta perfil_estado · usamos esto para mostrar al usuario
+  // POR QUÉ no se generaron y QUÉ hacer.
+  const [perfilDiag, setPerfilDiag] = useState<PerfilDiagInfo | null>(null);
 
   const fetchAcciones = useCallback(async () => {
     try {
@@ -141,15 +154,37 @@ export default function SeccionActionCenter() {
       });
       if (res.status === 404) {
         // Sub no persistida en backend · perfil no se ha creado todavía.
-        // Mensaje útil en lugar de alert genérico.
-        alert(
-          "Aún no encontramos tu perfil de negocio en el backend. " +
-            "Inicia o completa el diagnóstico desde WhatsApp escribiendo " +
-            "'empezar diagnóstico' a Dona, y vuelve aquí.",
-        );
+        setPerfilDiag({
+          estado: "missing",
+          campos_llenos: 0,
+          campos_totales: 6,
+          razon: "Aún no encontramos tu perfil de negocio.",
+          siguiente_paso: (
+            "Escribe 'empezar diagnóstico' a Dona por WhatsApp para " +
+            "configurar tu negocio. Vuelve aquí cuando termines."
+          ),
+        });
       } else if (!res.ok) {
         alert("No pudimos generar acciones nuevas. Intenta de nuevo.");
       } else {
+        // 200 · puede traer perfil_estado del backend
+        const data = await res.json();
+        if (
+          data &&
+          typeof data === "object" &&
+          data.perfil_estado &&
+          data.perfil_estado !== "ready"
+        ) {
+          setPerfilDiag({
+            estado: data.perfil_estado,
+            campos_llenos: data.perfil_campos_llenos ?? 0,
+            campos_totales: data.perfil_campos_totales ?? 6,
+            razon: data.perfil_razon ?? "",
+            siguiente_paso: data.perfil_siguiente_paso ?? "",
+          });
+        } else {
+          setPerfilDiag(null);
+        }
         await fetchAcciones();
       }
     } catch {
@@ -257,19 +292,63 @@ export default function SeccionActionCenter() {
         </div>
       )}
 
-      {/* Empty */}
+      {/* Empty con banner de perfil insuficiente · hotfix
+          'action-center-perfil-insuficiente'. Cuando el backend reporta
+          perfil_estado != 'ready', mostramos POR QUÉ no se generaron
+          acciones y QUÉ hacer. Sin perfilDiag, mostramos el empty
+          state genérico. */}
       {load.status === "ready" && acciones.length === 0 && (
-        <div className="glass-card rounded-2xl p-8 text-center">
-          <p className="text-white/55 font-light mb-4">
-            Aún no hay acciones generadas.
-          </p>
-          <button
-            onClick={handleGenerar}
-            className="btn-primary px-5 py-2.5 rounded-full text-sm"
-            disabled={generando}
-          >
-            Generar acciones desde tu diagnóstico
-          </button>
+        <div className="glass-card rounded-2xl p-8">
+          {perfilDiag ? (
+            <>
+              <p className="text-sm uppercase tracking-widest text-amber-300/80 font-light mb-3">
+                {perfilDiag.estado === "missing"
+                  ? "Diagnóstico pendiente"
+                  : "Diagnóstico incompleto"}
+              </p>
+              <p className="text-white/70 font-light mb-2">
+                {perfilDiag.razon}
+              </p>
+              {perfilDiag.estado === "incomplete" && (
+                <p className="text-xs text-white/40 font-light mb-3 tabular-nums">
+                  {perfilDiag.campos_llenos}/{perfilDiag.campos_totales} campos del diagnóstico llenos
+                </p>
+              )}
+              <p className="text-sm text-white/55 font-light mb-4">
+                {perfilDiag.siguiente_paso}
+              </p>
+              <div className="flex items-center gap-2">
+                <a
+                  href="https://wa.me/?text=empezar%20diagn%C3%B3stico"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary px-5 py-2.5 rounded-full text-sm"
+                >
+                  Abrir WhatsApp
+                </a>
+                <button
+                  onClick={handleGenerar}
+                  disabled={generando}
+                  className="btn-secondary px-5 py-2.5 rounded-full text-sm disabled:opacity-50"
+                >
+                  Reintentar generar
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="text-center">
+              <p className="text-white/55 font-light mb-4">
+                Aún no hay acciones generadas.
+              </p>
+              <button
+                onClick={handleGenerar}
+                className="btn-primary px-5 py-2.5 rounded-full text-sm"
+                disabled={generando}
+              >
+                Generar acciones desde tu diagnóstico
+              </button>
+            </div>
+          )}
         </div>
       )}
 

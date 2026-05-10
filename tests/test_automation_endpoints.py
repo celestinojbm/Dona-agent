@@ -434,6 +434,82 @@ class TestRespuestasNoExponenSensibles:
         assert "payload_json" not in body_text
 
 
+class TestPerfilEstadoEnEndpoints:
+    """Hotfix action-center-perfil-insuficiente: los endpoints incluyen
+    perfil_estado para que el dashboard explique al usuario por qué no
+    se generaron acciones."""
+
+    @pytest.mark.asyncio
+    async def test_admin_oportunidades_sin_perfil_reporta_missing(self, app):
+        await _seed_perfil_y_sub("5810", "sub_p1")
+        # _seed crea perfil COMPLETO; necesitamos uno sin perfil ·
+        # creamos solo la sub:
+        from agent.memory import async_session, SuscripcionStripe
+        from datetime import datetime
+        async with async_session() as session:
+            session.add(SuscripcionStripe(
+                subscription_id="sub_p2", telefono="5811",
+                plan_codigo="premium", price_id="price_test",
+                status="active", customer_id="cus_p2",
+                creditos_mensuales=200,
+                creado=datetime.utcnow(), actualizado=datetime.utcnow(),
+                bienvenida_enviada=True,
+            ))
+            await session.commit()
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get(
+                "/admin/automation/oportunidades?telefono=5811",
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+            )
+        data = r.json()
+        assert r.status_code == 200
+        assert data["perfil_estado"] == "missing"
+        assert data["oportunidades"] == []
+        assert data["perfil_siguiente_paso"]
+
+    @pytest.mark.asyncio
+    async def test_admin_oportunidades_perfil_completo_es_ready(self, app):
+        await _seed_perfil_y_sub("5820", "sub_p3")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get(
+                "/admin/automation/oportunidades?telefono=5820",
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+            )
+        data = r.json()
+        assert data["perfil_estado"] == "ready"
+        assert data["count"] >= 4
+
+    @pytest.mark.asyncio
+    async def test_internal_generar_sin_perfil_devuelve_perfil_estado(self, app):
+        from agent.memory import async_session, SuscripcionStripe
+        from datetime import datetime
+        async with async_session() as session:
+            session.add(SuscripcionStripe(
+                subscription_id="sub_p4", telefono="5830",
+                plan_codigo="premium", price_id="price_test",
+                status="active", customer_id="cus_p4",
+                creditos_mensuales=200,
+                creado=datetime.utcnow(), actualizado=datetime.utcnow(),
+                bienvenida_enviada=True,
+            ))
+            await session.commit()
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            body = json.dumps({"subscription_id": "sub_p4"})
+            r = await c.post(
+                "/internal/automation/acciones/generar",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-Signature": _hmac_sig(body),
+                },
+            )
+        data = r.json()
+        assert r.status_code == 200
+        assert data["acciones"] == []
+        assert data["perfil_estado"] == "missing"
+        assert data["perfil_siguiente_paso"]
+
+
 class TestEjecutarCriticalBloqueado:
     @pytest.mark.asyncio
     async def test_critical_aun_aprobado_falla(self, app):

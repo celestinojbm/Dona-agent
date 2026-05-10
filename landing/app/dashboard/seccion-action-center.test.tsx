@@ -12,11 +12,13 @@
 //   - botón generar funciona aún cuando lista inicial está vacía/error
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import SeccionActionCenter from "./seccion-action-center";
 
 afterEach(() => {
+  cleanup();  // desmontar el árbol React entre tests · evita
+              // 'Found multiple elements' por containers acumulados
   vi.restoreAllMocks();
 });
 
@@ -116,6 +118,102 @@ describe("SeccionActionCenter · loading inicial", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     render(<SeccionActionCenter />);
     expect(screen.getByText(/Cargando…/i)).toBeInTheDocument();
+  });
+});
+
+
+describe("SeccionActionCenter · perfil insuficiente (hotfix)", () => {
+  it("tras generar y recibir perfil_estado=missing muestra banner con CTA WhatsApp", async () => {
+    // Mock: 1) initial GET acciones devuelve [] · 2) POST generar
+    // devuelve perfil_estado=missing · 3) refetch GET sigue []
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce(  // 1) initial GET
+        new Response(JSON.stringify({ acciones: [], count: 0 }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(  // 2) POST generar
+        new Response(JSON.stringify({
+          oportunidades_evaluadas: 0,
+          acciones: [],
+          perfil_estado: "missing",
+          perfil_campos_llenos: 0,
+          perfil_campos_totales: 6,
+          perfil_razon: "Aún no encontramos tu perfil de negocio.",
+          perfil_siguiente_paso: "Escribe 'empezar diagnóstico' a Dona por WhatsApp.",
+        }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(  // 3) refetch GET acciones
+        new Response(JSON.stringify({ acciones: [], count: 0 }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<SeccionActionCenter />);
+    // Esperar empty inicial
+    await waitFor(() =>
+      expect(
+        screen.getByText("Aún no hay acciones generadas."),
+      ).toBeInTheDocument(),
+    );
+    // Click en el botón del empty state · usar findAll y tomar el primero
+    const botones = screen.getAllByRole("button", {
+      name: /Generar acciones desde tu diagnóstico/i,
+    });
+    botones[0].click();
+
+    // Tras la respuesta debe aparecer banner de Diagnóstico pendiente
+    await waitFor(() =>
+      expect(screen.getByText(/Diagnóstico pendiente/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/Aún no encontramos tu perfil de negocio/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Abrir WhatsApp/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("perfil_estado=incomplete muestra contador de campos llenos", async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ acciones: [], count: 0 }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          oportunidades_evaluadas: 0,
+          acciones: [],
+          perfil_estado: "incomplete",
+          perfil_campos_llenos: 1,
+          perfil_campos_totales: 6,
+          perfil_razon: "Tienes 1 de 6 campos llenos.",
+          perfil_siguiente_paso: "Continúa el diagnóstico con Dona.",
+        }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ acciones: [], count: 0 }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<SeccionActionCenter />);
+    await waitFor(() =>
+      expect(screen.getByText(/Aún no hay acciones/i)).toBeInTheDocument(),
+    );
+    const botones = screen.getAllByRole("button", {
+      name: /Generar acciones/i,
+    });
+    botones[botones.length - 1].click();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Diagnóstico incompleto/i),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/1\/6/)).toBeInTheDocument();
   });
 });
 
