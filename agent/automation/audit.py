@@ -41,6 +41,8 @@ EVENTOS_VALIDOS = {
     "credits_released",
     "credits_reservation_failed",
     "action_blocked_insufficient_credits",
+    # T2.1.D.1 · reconciliación post-crash
+    "credits_reservation_reconciled",
     # T2.1.D · pruning
     "pruning_executed",
 }

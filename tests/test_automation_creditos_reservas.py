@@ -444,3 +444,299 @@ class TestAuditExtendido:
         for log in logs:
             assert "5215559999999" not in log.payload_summary
             assert "5215559999999" not in log.telefono_short
+
+
+# ─── T2.1.D.1 · Reconciliación post-crash ─────────────────────────────────
+
+
+async def _crear_reserva_preparing_huerfana(
+    *, accion_id: int, telefono: str, creditos: int,
+    edad_segundos: int = 0,
+):
+    """Inyecta una fila 'preparing' como si el proceso hubiera muerto
+    entre _persistir_reserva(preparing) y el cobro/UPDATE final.
+    edad_segundos controla la antigüedad de la fila.
+    """
+    from datetime import datetime, timedelta
+    from agent.memory import async_session
+    from agent.automation.models import ReservaCreditoAutomation
+    creado = datetime.utcnow() - timedelta(seconds=edad_segundos)
+    async with async_session() as s:
+        r = ReservaCreditoAutomation(
+            accion_id=accion_id,
+            telefono=telefono,
+            creditos=creditos,
+            estado="preparing",
+            razon="crash sim",
+            transaccion_credito_id=None,
+            creado=creado,
+            actualizado=creado,
+        )
+        s.add(r)
+        await s.commit()
+
+
+async def _simular_cobro_sin_reserva(
+    *, accion_id: int, telefono: str, creditos: int,
+):
+    """Simula que billing.cobrar ya commitó (saldo descontado + fila en
+    transacciones_credito con job_id=accion_id) pero la reserva quedó
+    huérfana en 'preparing' por un crash post-cobro.
+    """
+    from agent.billing import cobrar
+    await cobrar(
+        telefono, creditos,
+        razon=f"reserva acción #{accion_id}: crash sim",
+        asset_id=None, job_id=accion_id,
+    )
+
+
+class TestReconciliacionCrashEntreCobroYReserva:
+    """Mitigación del riesgo residual: crash entre billing.cobrar() y
+    el UPDATE final que avanza a 'pending'."""
+
+    @pytest.mark.asyncio
+    async def test_reconcilia_promueve_preparing_a_pending(self, db):
+        """Caso A · cobro OK pero crash antes del UPDATE.
+        reconciliar_accion encuentra la TransaccionCredito y avanza la
+        reserva a 'pending' SIN volver a cobrar."""
+        ac, cr, ex, bi = db
+        await bi.acreditar("5800", 50, "seed")
+        a = await ac.crear_accion(
+            telefono="5800", tipo_accion="generar_plan_semanal",
+            titulo="Crash A",
+        )
+        # 1. Simular write-ahead: fila preparing
+        await _crear_reserva_preparing_huerfana(
+            accion_id=a["id"], telefono="5800", creditos=8,
+        )
+        # 2. Simular que el cobro YA commitó (saldo -8, tx con job_id)
+        await _simular_cobro_sin_reserva(
+            accion_id=a["id"], telefono="5800", creditos=8,
+        )
+        assert await bi.obtener_saldo("5800") == 42
+
+        # 3. Reconciliar
+        r = await cr.reconciliar_accion(a["id"], max_edad_segundos=0)
+        assert r is not None
+        assert r["estado"] == "pending"
+        assert r["transaccion_credito_id"] is not None
+        # Saldo NO se vuelve a tocar (sin doble cobro)
+        assert await bi.obtener_saldo("5800") == 42
+
+    @pytest.mark.asyncio
+    async def test_reconcilia_marca_failed_si_no_hay_tx_y_es_vieja(self, db):
+        """Caso B · crash antes del cobro (no hay TransaccionCredito).
+        Si la fila es vieja la marca 'failed' (saldo nunca se movió)."""
+        ac, cr, ex, bi = db
+        await bi.acreditar("5801", 50, "seed")
+        a = await ac.crear_accion(
+            telefono="5801", tipo_accion="generar_plan_semanal",
+            titulo="Crash B",
+        )
+        await _crear_reserva_preparing_huerfana(
+            accion_id=a["id"], telefono="5801", creditos=8,
+            edad_segundos=300,
+        )
+        # NO se simula cobro · saldo intacto
+        assert await bi.obtener_saldo("5801") == 50
+
+        r = await cr.reconciliar_accion(a["id"], max_edad_segundos=120)
+        assert r["estado"] == "failed"
+        # Saldo intacto · no se descontó nada
+        assert await bi.obtener_saldo("5801") == 50
+
+    @pytest.mark.asyncio
+    async def test_reconcilia_no_toca_preparing_reciente(self, db):
+        """Una fila preparing reciente puede estar legítimamente en
+        vuelo en otro worker · NO la toca."""
+        ac, cr, ex, bi = db
+        await bi.acreditar("5802", 50, "seed")
+        a = await ac.crear_accion(
+            telefono="5802", tipo_accion="generar_plan_semanal",
+            titulo="Joven",
+        )
+        await _crear_reserva_preparing_huerfana(
+            accion_id=a["id"], telefono="5802", creditos=8,
+            edad_segundos=5,
+        )
+
+        r = await cr.reconciliar_accion(a["id"], max_edad_segundos=120)
+        assert r["estado"] == "preparing"  # sin tocar
+
+    @pytest.mark.asyncio
+    async def test_reservar_post_crash_auto_reconcilia(self, db):
+        """El worker reintenta ejecutar_accion · reservar() encuentra
+        una reserva 'preparing' con cobro huérfano y la auto-promueve
+        a 'pending' SIN re-cobrar."""
+        ac, cr, ex, bi = db
+        await bi.acreditar("5803", 50, "seed")
+        a = await ac.crear_accion(
+            telefono="5803", tipo_accion="generar_plan_semanal",
+            titulo="Reintento",
+        )
+        await _crear_reserva_preparing_huerfana(
+            accion_id=a["id"], telefono="5803", creditos=8,
+        )
+        await _simular_cobro_sin_reserva(
+            accion_id=a["id"], telefono="5803", creditos=8,
+        )
+        assert await bi.obtener_saldo("5803") == 42
+
+        # El worker reintenta · reservar() auto-reconcilia
+        r = await cr.reservar(
+            accion_id=a["id"], telefono="5803", creditos=8,
+            razon="reintento",
+        )
+        assert r["estado"] == "pending"
+        # Saldo NO cambia · sin doble cobro
+        assert await bi.obtener_saldo("5803") == 42
+
+    @pytest.mark.asyncio
+    async def test_reconciliar_emite_audit(self, db):
+        from agent.automation.models import AuditLogAutomatizacion
+        from sqlalchemy import select
+        ac, cr, ex, bi = db
+        await bi.acreditar("5804", 50, "seed")
+        a = await ac.crear_accion(
+            telefono="5804", tipo_accion="generar_plan_semanal",
+            titulo="Audit",
+        )
+        await _crear_reserva_preparing_huerfana(
+            accion_id=a["id"], telefono="5804", creditos=8,
+        )
+        await _simular_cobro_sin_reserva(
+            accion_id=a["id"], telefono="5804", creditos=8,
+        )
+        await cr.reconciliar_accion(a["id"], max_edad_segundos=0)
+
+        async with agent.memory.async_session() as s:
+            res = await s.execute(
+                select(AuditLogAutomatizacion).where(
+                    AuditLogAutomatizacion.evento
+                    == "credits_reservation_reconciled"
+                )
+            )
+            logs = list(res.scalars().all())
+        assert len(logs) == 1
+        assert "promoted_to_pending" in logs[0].payload_summary
+
+    @pytest.mark.asyncio
+    async def test_reconciliar_reservas_batch_promueve_y_falla(self, db):
+        """Barrido batch · mezcla de filas con y sin tx, con distinta
+        edad. Debe contar correctamente."""
+        ac, cr, ex, bi = db
+        await bi.acreditar("5805", 50, "seed_A")
+        await bi.acreditar("5806", 50, "seed_B")
+        await bi.acreditar("5807", 50, "seed_C")
+
+        # A · preparing + cobro huérfano → promoted
+        a1 = await ac.crear_accion(
+            telefono="5805", tipo_accion="generar_plan_semanal",
+            titulo="A",
+        )
+        await _crear_reserva_preparing_huerfana(
+            accion_id=a1["id"], telefono="5805", creditos=8,
+        )
+        await _simular_cobro_sin_reserva(
+            accion_id=a1["id"], telefono="5805", creditos=8,
+        )
+
+        # B · preparing viejo sin cobro → marked_failed
+        a2 = await ac.crear_accion(
+            telefono="5806", tipo_accion="generar_plan_semanal",
+            titulo="B",
+        )
+        await _crear_reserva_preparing_huerfana(
+            accion_id=a2["id"], telefono="5806", creditos=8,
+            edad_segundos=300,
+        )
+
+        # C · preparing joven sin cobro → intacta
+        a3 = await ac.crear_accion(
+            telefono="5807", tipo_accion="generar_plan_semanal",
+            titulo="C",
+        )
+        await _crear_reserva_preparing_huerfana(
+            accion_id=a3["id"], telefono="5807", creditos=8,
+            edad_segundos=5,
+        )
+
+        # Dry-run primero
+        preview = await cr.reconciliar_reservas(
+            max_edad_segundos=120, dry_run=True,
+        )
+        assert preview["dry_run"] is True
+        assert preview["total_preparing"] == 3
+        assert preview["promoted_estimado"] == 1
+        assert preview["marked_failed_estimado"] == 1
+        assert preview["intactas_estimado"] == 1
+
+        # Ejecutar
+        out = await cr.reconciliar_reservas(
+            max_edad_segundos=120, dry_run=False,
+        )
+        assert out["dry_run"] is False
+        assert out["promoted"] == 1
+        assert out["marked_failed"] == 1
+        assert out["intactas"] == 1
+
+        # Estado final · A pending, B failed, C preparing
+        rA = await cr.obtener_reserva(a1["id"])
+        rB = await cr.obtener_reserva(a2["id"])
+        rC = await cr.obtener_reserva(a3["id"])
+        assert rA["estado"] == "pending"
+        assert rB["estado"] == "failed"
+        assert rC["estado"] == "preparing"
+
+
+class TestWriteAheadOrden:
+    """El nuevo flujo de reservar() debe persistir la fila ANTES del
+    cobro · invariante crítico del fix T2.1.D.1."""
+
+    @pytest.mark.asyncio
+    async def test_si_cobro_falla_la_fila_existe_como_failed(self, db):
+        """Si cobrar lanza SaldoInsuficienteError, la fila preparing
+        debió persistir y debe quedar marcada 'failed' (no inexistente)."""
+        ac, cr, ex, bi = db
+        # Sin saldo · cobro fallará
+        a = await ac.crear_accion(
+            telefono="5810", tipo_accion="generar_plan_semanal",
+            titulo="Sin saldo",
+        )
+        with pytest.raises(cr.CreditosInsuficientesError):
+            await cr.reservar(
+                accion_id=a["id"], telefono="5810", creditos=8,
+                razon="test",
+            )
+        # La fila debe existir como failed
+        r = await cr.obtener_reserva(a["id"])
+        assert r is not None
+        assert r["estado"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_reserva_exitosa_link_transaccion_credito_id(self, db):
+        """Cuando reservar() completa OK, la fila pending debe estar
+        linkeada a la TransaccionCredito del cobro."""
+        ac, cr, ex, bi = db
+        await bi.acreditar("5811", 50, "seed")
+        a = await ac.crear_accion(
+            telefono="5811", tipo_accion="generar_plan_semanal",
+            titulo="Link",
+        )
+        r = await cr.reservar(
+            accion_id=a["id"], telefono="5811", creditos=8, razon="test",
+        )
+        assert r["estado"] == "pending"
+        assert r["transaccion_credito_id"] is not None
+        # Y la tx existe con el id correcto
+        from agent.memory import async_session, TransaccionCredito
+        from sqlalchemy import select
+        async with async_session() as s:
+            tx = (await s.execute(
+                select(TransaccionCredito).where(
+                    TransaccionCredito.id == r["transaccion_credito_id"]
+                )
+            )).scalar_one()
+        assert int(tx.delta) == -8
+        assert tx.job_id == a["id"]

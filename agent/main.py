@@ -2871,6 +2871,54 @@ async def admin_automation_prune_execute(
     return out
 
 
+# ── /admin/automation/credits/reconciliar · safety net post-crash (T2.1.D.1)
+
+
+@app.get("/admin/automation/credits/reconciliar/preview")
+async def admin_automation_credits_reconcile_preview(
+    request: Request,
+    token: str = "",
+    max_edad_segundos: int = 120,
+    limit: int = 500,
+):
+    """Preview · cuenta reservas en 'preparing' y predice resultado de
+    reconciliación (promoted / marked_failed / intactas) SIN tocar
+    estado ni emitir audit. Útil para auditar el riesgo residual.
+    """
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.automation.credits import reconciliar_reservas
+    try:
+        return await reconciliar_reservas(
+            max_edad_segundos=max_edad_segundos, limit=limit, dry_run=True,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/admin/automation/credits/reconciliar")
+async def admin_automation_credits_reconcile_execute(
+    request: Request,
+    token: str = "",
+    max_edad_segundos: int = 120,
+    limit: int = 500,
+):
+    """Ejecuta reconciliación · avanza 'preparing'→'pending' si hay
+    TransaccionCredito asociada, o marca 'failed' si la fila es vieja y
+    no hay tx. Emite audit 'credits_reservation_reconciled' por cada
+    fila tocada. No requiere confirm porque NO borra datos.
+    """
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.automation.credits import reconciliar_reservas
+    try:
+        return await reconciliar_reservas(
+            max_edad_segundos=max_edad_segundos, limit=limit, dry_run=False,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ── /internal/automation/* (HMAC bridge) ────────────────────────────────────
 #
 # Llamados por landing/lib/automation-bridge.ts (server-side). El landing
