@@ -56,6 +56,12 @@ from agent.automation.action_center import (
     marcar_completada,
     marcar_fallida,
 )
+from agent.automation.credits import (
+    reservar as reservar_creditos,
+    confirmar as confirmar_creditos,
+    liberar as liberar_creditos,
+    CreditosInsuficientesError,
+)
 from agent.automation.prompts import (
     construir_contexto_perfil,
     SYSTEM_PROMPT_PLAN_SEMANAL,
@@ -629,16 +635,21 @@ EJECUTORES_T21A: dict[str, Callable[..., Awaitable[dict]]] = {
 async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
     """Ejecuta una acción del Action Center.
 
-    Reglas (T2.1.A respetadas en T2.1.C):
+    Reglas (T2.1.A respetadas en T2.1.C/D):
       - Si estado == 'pending' y riesgo == LOW: ejecuta (auto).
       - Si estado == 'approved': ejecuta.
       - Si estado != esos dos: rechaza con error_message claro.
       - Si riesgo == CRITICAL: bloquea SIEMPRE (audit
-        action_blocked_critical).
+        action_blocked_critical · reserva liberada si hubo).
       - Si tipo_accion no tiene ejecutor mapeado (HIGH típicamente):
-        falla con mensaje apuntando a futuro PR.
+        falla con mensaje · reserva liberada.
 
-    El audit log incluye 'modo' (llm|fallback) cuando corresponde.
+    T2.1.D · reservas de créditos:
+      1. Reserva créditos antes de ejecutar (idempotente · no doble cobra).
+      2. Si saldo insuficiente → marca acción failed · audit
+         action_blocked_insufficient_credits · NO ejecuta.
+      3. Tras ejecución exitosa → confirma reserva (descuento queda).
+      4. Tras ejecución fallida → libera reserva (acredita de vuelta).
 
     Returns:
         Dict con 'estado_final' · 'result' · 'error' (si aplica).
@@ -649,6 +660,7 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
     riesgo_str = accion["riesgo"]
     riesgo = NivelRiesgo(riesgo_str)
     telefono = accion["telefono"]
+    costo = int(accion.get("costo_creditos_estimado", 0) or 0)
 
     # Estado válido para ejecutar
     estado_ok = (
@@ -667,11 +679,39 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
         )
         return {"estado_final": "failed", "error": msg}
 
+    # T2.1.D · Reservar créditos ANTES de marcar_running. Si el saldo
+    # es insuficiente, el usuario nunca ve la acción en 'running', y
+    # nunca se intenta el ejecutor (LLM no se invoca).
+    try:
+        await reservar_creditos(
+            accion_id=accion_id,
+            telefono=telefono,
+            creditos=costo,
+            razon=f"{tipo} (riesgo={riesgo_str})",
+        )
+    except CreditosInsuficientesError as e:
+        # Audit ya emitido dentro de reservar() · solo marcamos failed
+        # pasando por running para respetar el lifecycle (pending → running
+        # → failed o needs_approval/approved → running → failed).
+        await marcar_running(accion_id)
+        msg = (
+            f"Créditos insuficientes: necesitas {e.requerido} · "
+            f"tienes {e.saldo}. Compra créditos extra y reintenta."
+        )
+        await marcar_fallida(accion_id, error_message=msg)
+        return {
+            "estado_final": "failed",
+            "error": "insufficient_credits",
+            "saldo": e.saldo,
+            "requerido": e.requerido,
+        }
+
     # Pasamos a 'running'
     await marcar_running(accion_id)
 
-    # Bloqueo crítico (después de running para que la transición a failed
-    # sea válida según el lifecycle)
+    # Bloqueo crítico · liberamos la reserva (no debería pasar normalmente
+    # porque el caller debería filtrar critical antes, pero defensa en
+    # profundidad).
     if esta_bloqueado_t21(riesgo):
         await registrar_evento(
             evento="action_blocked_critical",
@@ -680,6 +720,7 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
             riesgo=riesgo_str,
             payload={"tipo_accion": tipo, "razon": "critical_blocked_t21a"},
         )
+        await liberar_creditos(accion_id, razon="critical_blocked_t21a")
         await marcar_fallida(
             accion_id,
             error_message=(
@@ -692,13 +733,14 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
             "error": "critical_blocked_t21a",
         }
 
-    # Ejecutor mapeado · si es HIGH no mapeado, rechaza
+    # Ejecutor mapeado · si es HIGH no mapeado, rechaza · libera reserva
     ejecutor = EJECUTORES_T21A.get(tipo)
     if ejecutor is None:
         msg = (
             f"Tipo de acción '{tipo}' no tiene ejecutor disponible · "
             f"requiere guardrails reforzados (futuro PR)."
         )
+        await liberar_creditos(accion_id, razon="ejecutor_no_disponible")
         await marcar_fallida(accion_id, error_message=msg)
         return {"estado_final": "failed", "error": msg}
 
@@ -709,10 +751,15 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         msg = f"{type(e).__name__}: error interno durante ejecución"
         logger.exception(f"[EXEC] accion_id={accion_id} tipo={tipo}")
+        await liberar_creditos(accion_id, razon="excepcion_ejecutor")
         await marcar_fallida(accion_id, error_message=msg)
         return {"estado_final": "failed", "error": msg}
 
-    # Audit log de la ejecución (sin output crudo · solo metadata segura)
+    # T2.1.D · Confirmar reserva · el descuento queda firme.
+    await confirmar_creditos(accion_id)
+
+    # Audit log de la ejecución (sin output crudo · solo metadata segura).
+    # Incluye creditos consumidos y tipo_accion para trazabilidad.
     await registrar_evento(
         evento="action_completed",
         telefono=telefono,
@@ -722,6 +769,7 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
             "tipo_accion": tipo,
             "modo": result.get("modo", "fallback"),
             "provider": result.get("provider", "fallback"),
+            "creditos_descontados": costo,
         },
     )
 

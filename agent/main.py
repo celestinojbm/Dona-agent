@@ -2792,6 +2792,85 @@ async def admin_automation_ejecutar(
     }
 
 
+# ── /admin/automation/prune · pruning seguro de datos antiguos (T2.1.D) ────
+
+
+@app.get("/admin/automation/prune/preview")
+async def admin_automation_prune_preview(
+    request: Request,
+    token: str = "",
+    dias_acciones: int = 180,
+    dias_reservas: int = 180,
+    dias_audit: int = 365,
+):
+    """Preview · cuenta cuántas filas serían borradas. NO borra nada.
+    Útil antes de invocar el endpoint POST con confirm=BORRAR."""
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.automation.pruning import (
+        pruning_acciones, pruning_reservas, pruning_audit_log,
+    )
+    try:
+        a = await pruning_acciones(dias=dias_acciones, ejecutar_borrado=False)
+        r = await pruning_reservas(dias=dias_reservas, ejecutar_borrado=False)
+        l = await pruning_audit_log(dias=dias_audit, ejecutar_borrado=False)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"acciones": a, "reservas": r, "audit_log": l}
+
+
+@app.post("/admin/automation/prune")
+async def admin_automation_prune_execute(
+    request: Request,
+    token: str = "",
+    confirm: str = "",
+    tabla: str = "all",
+    dias: int = 180,
+    max_delete: int = 1000,
+):
+    """Ejecuta el pruning · borra filas viejas. Requiere confirm=BORRAR
+    explícito · sin él retorna 400. Sólo borra una tabla por invocación
+    (o 'all' para las 3) · respeta max_delete (default 1000, máx 10000)."""
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    if confirm != "BORRAR":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Falta confirm=BORRAR · usa el endpoint /preview primero "
+                "para revisar candidatas, luego confirm=BORRAR para "
+                "ejecutar."
+            ),
+        )
+    if tabla not in ("all", "acciones", "reservas", "audit_log"):
+        raise HTTPException(
+            status_code=400,
+            detail="tabla debe ser 'all'|'acciones'|'reservas'|'audit_log'",
+        )
+    from agent.automation.pruning import (
+        pruning_acciones, pruning_reservas, pruning_audit_log,
+    )
+    out: dict = {}
+    try:
+        if tabla in ("all", "acciones"):
+            out["acciones"] = await pruning_acciones(
+                dias=dias, max_delete=max_delete, ejecutar_borrado=True,
+            )
+        if tabla in ("all", "reservas"):
+            out["reservas"] = await pruning_reservas(
+                dias=dias, max_delete=max_delete, ejecutar_borrado=True,
+            )
+        if tabla in ("all", "audit_log"):
+            # audit_log usa default 365 si tabla=all (más conservador)
+            dias_audit = max(dias, 90)
+            out["audit_log"] = await pruning_audit_log(
+                dias=dias_audit, max_delete=max_delete, ejecutar_borrado=True,
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return out
+
+
 # ── /internal/automation/* (HMAC bridge) ────────────────────────────────────
 #
 # Llamados por landing/lib/automation-bridge.ts (server-side). El landing

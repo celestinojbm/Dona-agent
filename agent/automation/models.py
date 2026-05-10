@@ -63,6 +63,37 @@ class AccionAutomatizacion(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class ReservaCreditoAutomation(Base):
+    """T2.1.D · Reserva de créditos por acción del Automation Core.
+
+    Patrón "cobrar al crear, reembolsar si falla":
+      pending   · créditos ya descontados (cobrar() ejecutado) ·
+                  esperando que la acción complete o falle.
+      confirmed · acción completada · el descuento queda firme.
+      released  · acción falló/canceled · créditos reembolsados.
+      failed    · no se pudo crear reserva (saldo insuficiente).
+                  Sin descuento. Útil solo para audit.
+
+    Idempotencia: 1:1 con accion_id (UNIQUE). Re-llamar reservar_*()
+    para la misma acción NO crea nueva fila ni vuelve a cobrar.
+    """
+    __tablename__ = "automation_reservas_credito"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    accion_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    creditos: Mapped[int] = mapped_column(Integer)
+    estado: Mapped[str] = mapped_column(
+        String(20), default="pending", index=True,
+    )
+    razon: Mapped[str] = mapped_column(Text, default="")
+    transaccion_credito_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+    )
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class AuditLogAutomatizacion(Base):
     """Trazabilidad del pipeline de automatización.
 
@@ -138,4 +169,21 @@ MIGRACIONES_AUTOMATION = [
     "CREATE INDEX IF NOT EXISTS ix_audit_aut_evento ON audit_log_automatizacion (evento)",
     "CREATE INDEX IF NOT EXISTS ix_audit_aut_accion ON audit_log_automatizacion (accion_id)",
     "CREATE INDEX IF NOT EXISTS ix_audit_aut_creado ON audit_log_automatizacion (created_at)",
+    # T2.1.D — Reservas de créditos para acciones del Automation Core.
+    """
+    CREATE TABLE IF NOT EXISTS automation_reservas_credito (
+        id                       SERIAL PRIMARY KEY,
+        accion_id                INTEGER      NOT NULL UNIQUE,
+        telefono                 VARCHAR(50)  NOT NULL,
+        creditos                 INTEGER      NOT NULL,
+        estado                   VARCHAR(20)  NOT NULL DEFAULT 'pending',
+        razon                    TEXT         NOT NULL DEFAULT '',
+        transaccion_credito_id   INTEGER,
+        creado                   TIMESTAMP    NOT NULL DEFAULT NOW(),
+        actualizado              TIMESTAMP    NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_aut_reserva_accion ON automation_reservas_credito (accion_id)",
+    "CREATE INDEX IF NOT EXISTS ix_aut_reserva_tel ON automation_reservas_credito (telefono)",
+    "CREATE INDEX IF NOT EXISTS ix_aut_reserva_estado ON automation_reservas_credito (estado)",
 ]
