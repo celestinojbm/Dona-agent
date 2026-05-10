@@ -284,26 +284,85 @@ def detectar_oportunidades(perfil: dict, telefono: str) -> list[dict[str, Any]]:
     return todas
 
 
-async def detectar_oportunidades_para_telefono(
-    telefono: str,
-) -> list[dict[str, Any]]:
-    """Lee el perfil_negocio de DB y detecta oportunidades.
+CAMPOS_DIAGNOSTICO_T20E1 = (
+    "oferta_principal", "cliente_ideal", "objetivo_mes",
+    "canales_actuales", "bloqueo_actual", "tareas_delegar",
+)
 
-    Returns lista vacía si el perfil no existe o no tiene nombre_negocio
-    (onboarding incompleto).
+
+def analizar_estado_perfil(perfil_dict: dict | None) -> dict[str, Any]:
+    """Diagnostica si el perfil es suficiente para generar oportunidades.
+
+    Returns:
+        {
+          "estado": "missing" | "incomplete" | "ready",
+          "campos_llenos": int 0-6,
+          "campos_totales": 6,
+          "razon": str (mensaje legible),
+          "siguiente_paso": str (CTA accionable)
+        }
     """
+    if not perfil_dict:
+        return {
+            "estado": "missing",
+            "campos_llenos": 0,
+            "campos_totales": 6,
+            "razon": "Aún no encontramos tu perfil de negocio.",
+            "siguiente_paso": (
+                "Escribe 'empezar diagnóstico' a Dona por WhatsApp para "
+                "configurar tu negocio. Vuelve aquí cuando termines."
+            ),
+        }
+    if not (perfil_dict.get("nombre_negocio") or "").strip():
+        return {
+            "estado": "missing",
+            "campos_llenos": 0,
+            "campos_totales": 6,
+            "razon": "Tu perfil aún no tiene nombre de negocio.",
+            "siguiente_paso": (
+                "Escribe 'empezar diagnóstico' a Dona por WhatsApp."
+            ),
+        }
+    llenos = sum(
+        1 for k in CAMPOS_DIAGNOSTICO_T20E1
+        if (perfil_dict.get(k) or "").strip()
+    )
+    if llenos < 2:
+        return {
+            "estado": "incomplete",
+            "campos_llenos": llenos,
+            "campos_totales": 6,
+            "razon": (
+                f"Tienes {llenos} de 6 campos del diagnóstico llenos. "
+                "Necesitamos al menos 2 para generar acciones útiles."
+            ),
+            "siguiente_paso": (
+                "Continúa el diagnóstico con Dona por WhatsApp · escribe "
+                "'continuar diagnóstico' o responde el último mensaje."
+            ),
+        }
+    return {
+        "estado": "ready",
+        "campos_llenos": llenos,
+        "campos_totales": 6,
+        "razon": "Perfil suficiente para generar oportunidades.",
+        "siguiente_paso": "",
+    }
+
+
+async def cargar_perfil_dict(telefono: str) -> dict | None:
+    """Lee perfil_negocio de DB · retorna dict o None."""
     from agent.memory import async_session
     from agent.business.models import PerfilNegocio
     from sqlalchemy import select
-
     async with async_session() as session:
         result = await session.execute(
             select(PerfilNegocio).where(PerfilNegocio.telefono == telefono)
         )
         perfil = result.scalar_one_or_none()
-    if not perfil or not perfil.nombre_negocio:
-        return []
-    perfil_dict = {
+    if perfil is None:
+        return None
+    return {
         "nombre_negocio": perfil.nombre_negocio,
         "industria": perfil.industria,
         "moneda": perfil.moneda,
@@ -315,4 +374,48 @@ async def detectar_oportunidades_para_telefono(
         "bloqueo_actual": perfil.bloqueo_actual,
         "tareas_delegar": perfil.tareas_delegar,
     }
+
+
+async def detectar_oportunidades_para_telefono(
+    telefono: str,
+) -> list[dict[str, Any]]:
+    """Lee el perfil_negocio de DB y detecta oportunidades.
+
+    Returns lista vacía si el perfil no existe o no tiene nombre_negocio
+    (onboarding incompleto). Para una respuesta enriquecida con estado
+    del perfil, usar detectar_oportunidades_con_estado_para_telefono.
+    """
+    perfil_dict = await cargar_perfil_dict(telefono)
+    if not perfil_dict or not (perfil_dict.get("nombre_negocio") or "").strip():
+        return []
     return detectar_oportunidades(perfil_dict, telefono)
+
+
+async def detectar_oportunidades_con_estado_para_telefono(
+    telefono: str,
+) -> dict[str, Any]:
+    """Versión enriquecida · devuelve estado del perfil + oportunidades.
+
+    Returns:
+        {
+          "perfil_estado": "missing" | "incomplete" | "ready",
+          "perfil_campos_llenos": int,
+          "perfil_campos_totales": 6,
+          "perfil_razon": str,
+          "perfil_siguiente_paso": str,
+          "oportunidades": list,
+        }
+    """
+    perfil_dict = await cargar_perfil_dict(telefono)
+    estado = analizar_estado_perfil(perfil_dict)
+    opps: list[dict[str, Any]] = []
+    if estado["estado"] == "ready" and perfil_dict is not None:
+        opps = detectar_oportunidades(perfil_dict, telefono)
+    return {
+        "perfil_estado": estado["estado"],
+        "perfil_campos_llenos": estado["campos_llenos"],
+        "perfil_campos_totales": estado["campos_totales"],
+        "perfil_razon": estado["razon"],
+        "perfil_siguiente_paso": estado["siguiente_paso"],
+        "oportunidades": opps,
+    }

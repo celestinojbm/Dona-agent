@@ -62,9 +62,24 @@ export interface OportunidadesResponse {
   count: number;
 }
 
-export interface GenerarResponse {
+export type PerfilEstado = "missing" | "incomplete" | "ready";
+
+export interface PerfilEstadoInfo {
+  perfil_estado?: PerfilEstado;
+  perfil_campos_llenos?: number;
+  perfil_campos_totales?: number;
+  perfil_razon?: string;
+  perfil_siguiente_paso?: string;
+}
+
+export interface GenerarResponse extends PerfilEstadoInfo {
   oportunidades_evaluadas: number;
   acciones: AccionAutomatizacion[];
+}
+
+export interface OportunidadesConEstadoResponse extends PerfilEstadoInfo {
+  oportunidades: OportunidadDetectada[];
+  count: number;
 }
 
 export interface EjecutarResponse {

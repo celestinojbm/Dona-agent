@@ -2638,14 +2638,17 @@ def _filtrar_accion_para_dashboard(accion: dict) -> dict:
 async def admin_automation_oportunidades(
     request: Request, telefono: str = "", token: str = "",
 ):
-    """Lista oportunidades detectadas para un telefono."""
+    """Lista oportunidades detectadas para un telefono. Incluye estado
+    del perfil (missing|incomplete|ready) y siguiente_paso si aplica."""
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
     if not telefono:
         raise HTTPException(status_code=400, detail="telefono requerido")
-    from agent.automation.opportunities import detectar_oportunidades_para_telefono
-    opps = await detectar_oportunidades_para_telefono(telefono)
-    return {"oportunidades": opps, "count": len(opps)}
+    from agent.automation.opportunities import (
+        detectar_oportunidades_con_estado_para_telefono,
+    )
+    data = await detectar_oportunidades_con_estado_para_telefono(telefono)
+    return {**data, "count": len(data["oportunidades"])}
 
 
 @app.get("/admin/automation/acciones")
@@ -2685,10 +2688,13 @@ async def admin_automation_acciones_generar(request: Request, token: str = ""):
     telefono = (payload.get("telefono") or "").strip()
     if not telefono:
         raise HTTPException(status_code=400, detail="telefono requerido")
-    from agent.automation.opportunities import detectar_oportunidades_para_telefono
+    from agent.automation.opportunities import (
+        detectar_oportunidades_con_estado_para_telefono,
+    )
     from agent.automation.playbooks import obtener_playbook
     from agent.automation.action_center import crear_accion
-    opps = await detectar_oportunidades_para_telefono(telefono)
+    data = await detectar_oportunidades_con_estado_para_telefono(telefono)
+    opps = data["oportunidades"]
     creadas = []
     for opp in opps:
         try:
@@ -2709,7 +2715,15 @@ async def admin_automation_acciones_generar(request: Request, token: str = ""):
                 playbook_id=opp["playbook_sugerido"],
             )
             creadas.append(_filtrar_accion_para_dashboard(a))
-    return {"oportunidades_evaluadas": len(opps), "acciones": creadas}
+    return {
+        "oportunidades_evaluadas": len(opps),
+        "acciones": creadas,
+        "perfil_estado": data["perfil_estado"],
+        "perfil_campos_llenos": data["perfil_campos_llenos"],
+        "perfil_campos_totales": data["perfil_campos_totales"],
+        "perfil_razon": data["perfil_razon"],
+        "perfil_siguiente_paso": data["perfil_siguiente_paso"],
+    }
 
 
 @app.post("/admin/automation/acciones/{accion_id}/aprobar")
@@ -2804,7 +2818,9 @@ async def _verificar_y_parsear_internal(request: Request) -> dict:
 
 @app.post("/internal/automation/oportunidades")
 async def internal_automation_oportunidades(request: Request):
-    """Lista oportunidades a partir de subscription_id (resuelve telefono)."""
+    """Lista oportunidades a partir de subscription_id (resuelve telefono).
+    Incluye estado del perfil para que el dashboard explique al usuario
+    si necesita completar el diagnóstico antes."""
     payload = await _verificar_y_parsear_internal(request)
     sub_id = (payload.get("subscription_id") or "").strip()
     if not sub_id:
@@ -2812,9 +2828,11 @@ async def internal_automation_oportunidades(request: Request):
     telefono = await _resolver_telefono_desde_subscription(sub_id)
     if not telefono:
         raise HTTPException(status_code=404, detail="subscription_no_persistida")
-    from agent.automation.opportunities import detectar_oportunidades_para_telefono
-    opps = await detectar_oportunidades_para_telefono(telefono)
-    return {"oportunidades": opps, "count": len(opps)}
+    from agent.automation.opportunities import (
+        detectar_oportunidades_con_estado_para_telefono,
+    )
+    data = await detectar_oportunidades_con_estado_para_telefono(telefono)
+    return {**data, "count": len(data["oportunidades"])}
 
 
 @app.post("/internal/automation/acciones")
@@ -2838,7 +2856,9 @@ async def internal_automation_acciones(request: Request):
 
 @app.post("/internal/automation/acciones/generar")
 async def internal_automation_acciones_generar(request: Request):
-    """Genera acciones a partir del Opportunity Engine."""
+    """Genera acciones a partir del Opportunity Engine. Incluye estado
+    del perfil para que el dashboard muestre mensaje claro si el
+    diagnóstico está incompleto."""
     payload = await _verificar_y_parsear_internal(request)
     sub_id = (payload.get("subscription_id") or "").strip()
     if not sub_id:
@@ -2846,10 +2866,13 @@ async def internal_automation_acciones_generar(request: Request):
     telefono = await _resolver_telefono_desde_subscription(sub_id)
     if not telefono:
         raise HTTPException(status_code=404, detail="subscription_no_persistida")
-    from agent.automation.opportunities import detectar_oportunidades_para_telefono
+    from agent.automation.opportunities import (
+        detectar_oportunidades_con_estado_para_telefono,
+    )
     from agent.automation.playbooks import obtener_playbook
     from agent.automation.action_center import crear_accion
-    opps = await detectar_oportunidades_para_telefono(telefono)
+    data = await detectar_oportunidades_con_estado_para_telefono(telefono)
+    opps = data["oportunidades"]
     creadas = []
     for opp in opps:
         try:
@@ -2870,7 +2893,15 @@ async def internal_automation_acciones_generar(request: Request):
                 playbook_id=opp["playbook_sugerido"],
             )
             creadas.append(_filtrar_accion_para_dashboard(a))
-    return {"oportunidades_evaluadas": len(opps), "acciones": creadas}
+    return {
+        "oportunidades_evaluadas": len(opps),
+        "acciones": creadas,
+        "perfil_estado": data["perfil_estado"],
+        "perfil_campos_llenos": data["perfil_campos_llenos"],
+        "perfil_campos_totales": data["perfil_campos_totales"],
+        "perfil_razon": data["perfil_razon"],
+        "perfil_siguiente_paso": data["perfil_siguiente_paso"],
+    }
 
 
 async def _accion_pertenece_a_telefono(accion_id: int, telefono: str) -> bool:
