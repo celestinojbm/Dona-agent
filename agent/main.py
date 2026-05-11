@@ -2871,6 +2871,23 @@ async def admin_automation_prune_execute(
     return out
 
 
+# ── /admin/automation/scheduler · estado del job periódico (T2.1.E) ───────
+
+
+@app.get("/admin/automation/scheduler/status")
+async def admin_automation_scheduler_status(
+    request: Request,
+    token: str = "",
+):
+    """Snapshot del scheduler de mantenimiento de automation: si está
+    habilitado, intervalo configurado, última corrida, conteos
+    acumulados (totales, saltadas por lock, fallidas). Solo lectura."""
+    if not _verificar_admin(request, token):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.automation.scheduler import obtener_estado
+    return obtener_estado()
+
+
 # ── /admin/automation/credits/reconciliar · safety net post-crash (T2.1.D.1)
 
 

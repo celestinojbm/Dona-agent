@@ -469,6 +469,17 @@ def iniciar_scheduler(proveedor):
         id="limpiar_datos_expirados",
         replace_existing=True,
     )
+    # T2.1.E · Reconciliación de reservas de automation (opt-in via
+    # AUTOMATION_SCHEDULER_ENABLED). registrar_automation_jobs es no-op
+    # si la env var no está activa y nunca propaga excepciones, así que
+    # no puede tumbar el startup del resto de jobs.
+    try:
+        from agent.automation.scheduler import registrar_automation_jobs
+        registrar_automation_jobs(scheduler)
+    except Exception as e:
+        logger.error(
+            f"[SCHEDULER] error cargando automation scheduler: {e}"
+        )
     scheduler.start()
     logger.info(
         "Scheduler iniciado — recordatorios cada minuto, Google Calendar cada 5 min, "
