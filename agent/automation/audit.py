@@ -35,6 +35,16 @@ EVENTOS_VALIDOS = {
     "action_failed",
     "action_blocked_critical",
     "playbook_invoked",
+    # T2.1.D · ciclo de reservas de créditos
+    "credits_reserved",
+    "credits_confirmed",
+    "credits_released",
+    "credits_reservation_failed",
+    "action_blocked_insufficient_credits",
+    # T2.1.D.1 · reconciliación post-crash
+    "credits_reservation_reconciled",
+    # T2.1.D · pruning
+    "pruning_executed",
 }
 
 

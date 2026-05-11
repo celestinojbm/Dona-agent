@@ -16,12 +16,18 @@ async def db(tmp_path, monkeypatch):
     import agent.automation.audit as _au
     import agent.automation.action_center as _ac
     import agent.automation.execution as _ex
+    import agent.automation.costos as _co
+    # T2.1.D · Estos tests legacy NO simulan saldo de créditos. Para que
+    # la lógica de reservas no los rompa, forzamos costo=0 a todas las
+    # acciones · reservar(creditos=0) no cobra y crea fila pending OK.
+    monkeypatch.setattr(_co, "estimar_costo_accion", lambda tipo: 0)
     importlib.reload(agent.memory)
     importlib.reload(_bm)
     importlib.reload(_am)
     importlib.reload(_au)
     importlib.reload(_ac)
     importlib.reload(_ex)
+    monkeypatch.setattr(_co, "estimar_costo_accion", lambda tipo: 0)
     await agent.memory.inicializar_db()
     return _ex, _ac
 

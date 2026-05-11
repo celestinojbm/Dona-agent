@@ -43,6 +43,11 @@ async def app(tmp_path, monkeypatch):
     import agent.automation.action_center as _ac
     import agent.automation.execution as _ex
     import agent.automation.opportunities as _op
+    import agent.automation.costos as _co
+    # T2.1.D · forzamos costo=0 para que tests legacy de endpoints sigan
+    # pasando · la lógica de reservas se valida en test_automation_
+    # creditos_reservas.py
+    monkeypatch.setattr(_co, "estimar_costo_accion", lambda tipo: 0)
     importlib.reload(agent.memory)
     importlib.reload(_bm)
     importlib.reload(_am)
@@ -50,6 +55,7 @@ async def app(tmp_path, monkeypatch):
     importlib.reload(_ac)
     importlib.reload(_ex)
     importlib.reload(_op)
+    monkeypatch.setattr(_co, "estimar_costo_accion", lambda tipo: 0)
     import agent.main as _main
     importlib.reload(_main)
     await agent.memory.inicializar_db()
