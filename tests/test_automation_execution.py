@@ -120,13 +120,14 @@ class TestEjecutarMedium:
 class TestEjecutarHighSinEjecutorReal:
     @pytest.mark.asyncio
     async def test_high_aprobado_pero_sin_ejecutor_t21a_falla(self, db):
-        """HIGH como enviar_mensaje_whatsapp NO tiene ejecutor en T2.1.A.
-        Debe fallar con mensaje claro de futuro PR."""
+        """T2.2 conectó ejecutor para enviar_mensaje_whatsapp · el
+        resto de HIGH (publicar_red_social, contactar_lead,
+        enviar_campana_masiva) sigue sin ejecutor y debe fallar."""
         ex, ac = db
         a = await ac.crear_accion(
             telefono="5570",
-            tipo_accion="enviar_mensaje_whatsapp",
-            titulo="Send real",
+            tipo_accion="contactar_lead",
+            titulo="Contact",
         )
         await ac.aprobar_accion(a["id"])
         listed = await ac.listar_acciones("5570")

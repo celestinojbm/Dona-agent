@@ -609,6 +609,12 @@ async def _ejecutor_generar_checklist_ventas(
     return await _ejecutor_checklist_ventas(accion, perfil)
 
 
+# T2.2 · primer ejecutor HIGH real
+from agent.automation.executors.send_message import (
+    ejecutor_enviar_mensaje_whatsapp as _ejecutor_enviar_mensaje_whatsapp,
+)
+
+
 # Mapping tipo_accion → ejecutor
 EJECUTORES_T21A: dict[str, Callable[..., Awaitable[dict]]] = {
     # LOW
@@ -623,9 +629,12 @@ EJECUTORES_T21A: dict[str, Callable[..., Awaitable[dict]]] = {
     "preparar_publicacion_redes": _ejecutor_preparar_publicacion_redes,
     "preparar_email_seguimiento": _ejecutor_preparar_email_seguimiento,
     "borrador_copy_oferta": _ejecutor_borrador_copy_oferta,
-    # HIGH (enviar_*, contactar_lead, publicar_*) NO se mapean en T2.1.C ·
-    # ejecutar_accion los rechaza con mensaje 'futuro PR'. Esto preserva
-    # el guardrail: ningún envío real ocurre desde el Automation Core.
+    # HIGH · T2.2 · enviar mensaje real con guardrails de aprobación,
+    # idempotencia anti doble envío y reserva/liberación de créditos.
+    "enviar_mensaje_whatsapp": _ejecutor_enviar_mensaje_whatsapp,
+    # Los demás HIGH (enviar_campana_masiva, publicar_red_social,
+    # contactar_lead) siguen sin ejecutor · ejecutar_accion los rechaza
+    # liberando la reserva.
 }
 
 
