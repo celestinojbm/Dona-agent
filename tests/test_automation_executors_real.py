@@ -433,14 +433,15 @@ class TestEjecutorBorradorCopyOferta:
 class TestGuardrailsHigh:
     @pytest.mark.asyncio
     async def test_high_aprobado_sigue_sin_ejecutor(self, db, monkeypatch):
-        """enviar_mensaje_whatsapp es HIGH · NO debe tener ejecutor.
-        T2.1.C explícitamente NO conecta envío real."""
+        """T2.2 conectó executor para enviar_mensaje_whatsapp · los
+        otros HIGH (contactar_lead, publicar_red_social,
+        enviar_campana_masiva) siguen sin ejecutor y deben fallar."""
         ex, ac, _ = db
         _patch_llm_returns(monkeypatch, "esto no debería usarse")
         a = await ac.crear_accion(
             telefono="5580",
-            tipo_accion="enviar_mensaje_whatsapp",
-            titulo="Send",
+            tipo_accion="contactar_lead",
+            titulo="Contact",
         )
         await ac.aprobar_accion(a["id"])
         listed = await ac.listar_acciones("5580")

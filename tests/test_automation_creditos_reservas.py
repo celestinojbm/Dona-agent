@@ -323,10 +323,13 @@ class TestEjecucionIntegrada:
     async def test_high_sin_ejecutor_libera_reserva(self, db, monkeypatch):
         ac, cr, ex, bi = db
         await bi.acreditar("5604", 50, "seed")
+        # T2.2 conectó executor para enviar_mensaje_whatsapp · los
+        # demás HIGH (contactar_lead, publicar_red_social,
+        # enviar_campana_masiva) siguen sin ejecutor y deben liberar.
         a = await ac.crear_accion(
             telefono="5604",
-            tipo_accion="enviar_mensaje_whatsapp",  # HIGH · cuesta 6
-            titulo="Send",
+            tipo_accion="contactar_lead",  # HIGH · cuesta 8
+            titulo="Contact",
         )
         await ac.aprobar_accion(a["id"])
         listed = await ac.listar_acciones("5604")
