@@ -260,6 +260,47 @@ class TestAdminEjecutar:
         assert body["ejecucion"]["estado_final"] == "completed"
         assert body["accion"]["estado"] == "completed"
 
+    @pytest.mark.asyncio
+    async def test_ejecutar_high_aprobada_bloqueado_por_endpoint_generico(self, app):
+        """El endpoint genérico del dashboard no debe disparar acciones HIGH.
+
+        T2.2 tiene un ejecutor HIGH real para enviar WhatsApp, pero hasta que
+        exista UX de confirmación dedicada no debe quedar expuesto por el botón
+        genérico /acciones/{id}/ejecutar.
+        """
+        await _seed_perfil_y_sub("5557")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            gen = await c.post(
+                "/admin/automation/acciones/generar",
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+                json={"telefono": "5557"},
+            )
+            high = next(
+                (a for a in gen.json()["acciones"] if a["riesgo"] == "high"),
+                None,
+            )
+            assert high is not None
+            aprobar = await c.post(
+                f"/admin/automation/acciones/{high['id']}/aprobar",
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+            )
+            assert aprobar.status_code == 200
+            assert aprobar.json()["accion"]["estado"] == "approved"
+
+            r = await c.post(
+                f"/admin/automation/acciones/{high['id']}/ejecutar",
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+            )
+            listado = await c.get(
+                "/admin/automation/acciones?telefono=5557",
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+            )
+
+        assert r.status_code == 409
+        assert r.json()["detail"] == "high_requires_dedicated_confirmation"
+        accion = next(a for a in listado.json()["acciones"] if a["id"] == high["id"])
+        assert accion["estado"] == "approved"
+
 
 # ─── /internal/automation/* ──────────────────────────────────────────────────
 
@@ -370,6 +411,70 @@ class TestInternalGenerarAprobar:
             )
             assert r3.status_code == 200
             assert r3.json()["accion"]["estado"] == "approved"
+
+
+class TestInternalEjecutarGuardrails:
+    @pytest.mark.asyncio
+    async def test_internal_ejecutar_high_aprobada_bloqueado_por_endpoint_generico(self, app):
+        """El bridge del dashboard tampoco debe exponer ejecución HIGH real."""
+        await _seed_perfil_y_sub("5571", "sub_high_block")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            body_gen = json.dumps({"subscription_id": "sub_high_block"})
+            gen = await c.post(
+                "/internal/automation/acciones/generar",
+                content=body_gen,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-Signature": _hmac_sig(body_gen),
+                },
+            )
+            assert gen.status_code == 200
+            high = next(
+                (a for a in gen.json()["acciones"] if a["riesgo"] == "high"),
+                None,
+            )
+            assert high is not None
+
+            body_aprobar = json.dumps({
+                "subscription_id": "sub_high_block",
+                "accion_id": high["id"],
+            })
+            aprobar = await c.post(
+                "/internal/automation/acciones/aprobar",
+                content=body_aprobar,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-Signature": _hmac_sig(body_aprobar),
+                },
+            )
+            assert aprobar.status_code == 200
+            assert aprobar.json()["accion"]["estado"] == "approved"
+
+            body_exec = json.dumps({
+                "subscription_id": "sub_high_block",
+                "accion_id": high["id"],
+            })
+            r = await c.post(
+                "/internal/automation/acciones/ejecutar",
+                content=body_exec,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-Signature": _hmac_sig(body_exec),
+                },
+            )
+            listado = await c.post(
+                "/internal/automation/acciones",
+                content=body_gen,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-Signature": _hmac_sig(body_gen),
+                },
+            )
+
+        assert r.status_code == 409
+        assert r.json()["detail"] == "high_requires_dedicated_confirmation"
+        accion = next(a for a in listado.json()["acciones"] if a["id"] == high["id"])
+        assert accion["estado"] == "approved"
 
 
 class TestInternalIDOR:

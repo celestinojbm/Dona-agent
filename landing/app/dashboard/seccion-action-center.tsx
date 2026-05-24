@@ -8,9 +8,10 @@
 // Decisiones de UX:
 //   - LOW se muestran como "Listas para ejecutar" · botón "Ejecutar".
 //   - MEDIUM como "Esperan tu OK" · botones "Aprobar" / "Rechazar".
-//   - HIGH como "Requieren aprobación explícita" · misma UI MEDIUM pero
-//     con aviso adicional: aún tras aprobar, no hay ejecutor real
-//     en T2.1.A/B.
+//   - HIGH como "Requieren aprobación explícita" · se pueden aprobar,
+//     pero el botón genérico "Ejecutar" queda oculto hasta una UX dedicada
+//     de confirmación fuerte. T2.2 ya tiene primer ejecutor real, pero no
+//     queda expuesto desde este control genérico.
 //   - CRITICAL aviso fuerte · "Bloqueada · próximo paso: aprobación
 //     reforzada futura".
 //   - Acciones completed muestran su result_json (renderizado bonito).
@@ -413,7 +414,8 @@ function CardAccion({
   const result = safeParseJson(accion.result_json);
   const showAprobar = e === "needs_approval" && r !== "critical";
   const showEjecutar =
-    e === "approved" || (e === "pending" && r === "low");
+    (e === "approved" && r !== "high" && r !== "critical") ||
+    (e === "pending" && r === "low");
   const showCriticalBlock = e === "needs_approval" && r === "critical";
 
   return (
@@ -470,8 +472,8 @@ function CardAccion({
         <div className="mt-3 p-3 rounded-lg bg-orange-500/[0.06] border border-orange-500/20">
           <p className="text-xs text-orange-300/80 font-light flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            Esta acción es de alto impacto. Está aprobada pero todavía
-            requiere ejecutor con guardrails reforzados (próximo PR).
+            Esta acción es de alto impacto. Está aprobada, pero necesita
+            confirmación dedicada antes de ejecutar un efecto externo real.
           </p>
         </div>
       )}
