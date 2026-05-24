@@ -15,6 +15,29 @@ export type EstadoAccion =
 
 export type NivelRiesgo = "low" | "medium" | "high" | "critical";
 
+/**
+ * Contrato explícito que la API expone para que la UI sepa qué control
+ * debe operar sobre la acción ahora · evita reimplementar la matriz
+ * (estado × riesgo) en cada cliente. Mantiene paridad con
+ * `agent.automation.permissions.NextRequiredAction`.
+ *
+ *   execute_available               · listo para ejecutarse por el control
+ *                                     genérico del Action Center.
+ *   approval_required               · espera aprobación humana simple.
+ *   dedicated_confirmation_required · aprobado pero requiere UX dedicada
+ *                                     con preview/costo/riesgo (HIGH approved).
+ *   reinforced_approval_required    · CRITICAL · bloqueado · necesita
+ *                                     confirmación reforzada (futura).
+ *   none                            · terminal o en ejecución · no ofrecer
+ *                                     siguiente control sobre la acción.
+ */
+export type NextRequiredAction =
+  | "execute_available"
+  | "approval_required"
+  | "dedicated_confirmation_required"
+  | "reinforced_approval_required"
+  | "none";
+
 /** Acción tal como la devuelve el backend (campos sanitizados). */
 export interface AccionAutomatizacion {
   id: number;
@@ -37,6 +60,18 @@ export interface AccionAutomatizacion {
   approved_at: string | null;
   rejected_at: string | null;
   completed_at: string | null;
+  /**
+   * Siguiente control que debe operar la acción · contrato explícito
+   * del backend. Opcional para compat con payloads previos al contrato;
+   * la UI cae a un cálculo local sobre (estado, riesgo) si no llega.
+   */
+  next_required_action?: NextRequiredAction;
+  /**
+   * Motivo corto por el que la acción no es ejecutable por el control
+   * genérico (texto plano en español, ya sanitizado por el backend).
+   * Vacío cuando no aplica.
+   */
+  execution_block_reason?: string;
 }
 
 export interface OportunidadDetectada {

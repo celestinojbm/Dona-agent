@@ -313,6 +313,216 @@ describe("SeccionActionCenter · acciones presentes", () => {
     ).not.toBeInTheDocument();
   });
 
+  it(
+    "HIGH approved con next_required_action del backend usa execution_block_reason del API",
+    async () => {
+      // Contrato T2.1.B (next_required_action API):
+      //   Cuando el backend ya manda next_required_action y
+      //   execution_block_reason, la UI debe respetarlos · debe mostrar
+      //   el motivo literal que viene del backend (no hardcodear texto)
+      //   y debe seguir bloqueando el botón "Ejecutar".
+      const motivoBackend =
+        "MOTIVO_BACKEND_DEDICADO · preview, costo y riesgo antes de efecto externo real.";
+      const accion = {
+        id: 99,
+        opportunity_id: "opp_99",
+        playbook_id: "whatsapp_outbound",
+        tipo_accion: "enviar_mensaje_whatsapp",
+        titulo: "Acción HIGH con contrato API",
+        descripcion: "Verifica que la UI use los campos del backend.",
+        razon_recomendacion: "",
+        estado: "approved",
+        riesgo: "high",
+        costo_creditos_estimado: 5,
+        requires_approval: true,
+        result_json: "{}",
+        error_message: "",
+        created_at: "2026-05-24T00:00:00Z",
+        updated_at: "2026-05-24T00:00:00Z",
+        approved_at: "2026-05-24T00:00:01Z",
+        rejected_at: null,
+        completed_at: null,
+        next_required_action: "dedicated_confirmation_required",
+        execution_block_reason: motivoBackend,
+      };
+      mockFetchOnce(
+        new Response(JSON.stringify({ acciones: [accion], count: 1 }), {
+          status: 200,
+        }),
+      );
+      render(<SeccionActionCenter />);
+      await waitFor(() =>
+        expect(
+          screen.getByText(/Acción HIGH con contrato API/),
+        ).toBeInTheDocument(),
+      );
+      // El texto del bloqueo debe venir literal del backend, no del hardcode
+      // de la UI · si lo cambia el backend, la UI debe reflejarlo sin tocar
+      // código del componente.
+      expect(
+        screen.getByText(/MOTIVO_BACKEND_DEDICADO/i),
+      ).toBeInTheDocument();
+      // Sigue sin ofrecer el botón "Ejecutar" en este control genérico
+      expect(
+        screen.queryByRole("button", { name: /Ejecutar \(dry-run\)/i }),
+      ).not.toBeInTheDocument();
+      // Indicador deshabilitado del próximo paso sigue presente
+      expect(
+        screen.getByText(/Confirmación dedicada · próximamente/i),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it(
+    "HIGH approved legacy (sin next_required_action en payload) cae a fallback local",
+    async () => {
+      // Backwards compat: payloads de versiones previas (sin
+      // next_required_action ni execution_block_reason) deben seguir
+      // funcionando · la UI calcula localmente y muestra su copy
+      // por defecto.
+      const accion = {
+        id: 100,
+        opportunity_id: "opp_100",
+        playbook_id: "whatsapp_outbound",
+        tipo_accion: "enviar_mensaje_whatsapp",
+        titulo: "Acción HIGH legacy",
+        descripcion: "Payload sin campos del contrato nuevo",
+        razon_recomendacion: "",
+        estado: "approved",
+        riesgo: "high",
+        costo_creditos_estimado: 5,
+        requires_approval: true,
+        result_json: "{}",
+        error_message: "",
+        created_at: "2026-05-24T00:00:00Z",
+        updated_at: "2026-05-24T00:00:00Z",
+        approved_at: "2026-05-24T00:00:01Z",
+        rejected_at: null,
+        completed_at: null,
+      };
+      mockFetchOnce(
+        new Response(JSON.stringify({ acciones: [accion], count: 1 }), {
+          status: 200,
+        }),
+      );
+      render(<SeccionActionCenter />);
+      await waitFor(() =>
+        expect(screen.getByText(/Acción HIGH legacy/)).toBeInTheDocument(),
+      );
+      // Copy hardcoded local sigue apareciendo cuando el backend no
+      // manda execution_block_reason
+      expect(
+        screen.getByText(/necesita\s+confirmación dedicada/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /Ejecutar \(dry-run\)/i }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it(
+    "MEDIUM pending legacy (sin contrato API) NO muestra Ejecutar ni Aprobar/Rechazar",
+    async () => {
+      // Defensivo · MEDIUM se crea en needs_approval, así que un payload
+      // con estado=pending y riesgo=medium solo aparece por datos legacy
+      // o un bug. Tampoco se puede aprobar desde pending: la matriz
+      // TRANSICIONES en permissions.py sólo permite pending →
+      // running/cancelled/rejected (nunca pending → approved). Por eso
+      // el fallback local del componente NO debe abrir Ejecutar ni
+      // ofrecer Aprobar/Rechazar · el control genérico simplemente no
+      // tiene una acción válida sobre esta combinación legacy.
+      const accion = {
+        id: 77,
+        opportunity_id: "opp_77",
+        playbook_id: "preparar_msg",
+        tipo_accion: "preparar_mensaje_whatsapp",
+        titulo: "Borrador legacy medium",
+        descripcion: "Payload sin next_required_action del backend",
+        razon_recomendacion: "",
+        estado: "pending",
+        riesgo: "medium",
+        costo_creditos_estimado: 3,
+        requires_approval: true,
+        result_json: "{}",
+        error_message: "",
+        created_at: "2026-05-24T00:00:00Z",
+        updated_at: "2026-05-24T00:00:00Z",
+        approved_at: null,
+        rejected_at: null,
+        completed_at: null,
+      };
+      mockFetchOnce(
+        new Response(JSON.stringify({ acciones: [accion], count: 1 }), {
+          status: 200,
+        }),
+      );
+      render(<SeccionActionCenter />);
+      await waitFor(() =>
+        expect(screen.getByText(/Borrador legacy medium/)).toBeInTheDocument(),
+      );
+      // NO ofrece Ejecutar
+      expect(
+        screen.queryByRole("button", { name: /Ejecutar \(dry-run\)/i }),
+      ).not.toBeInTheDocument();
+      // Tampoco ofrece el flujo de aprobación · pending → approved no es
+      // transición válida en el backend, así que el control genérico no
+      // muestra Aprobar/Rechazar para esta combinación.
+      expect(
+        screen.queryByRole("button", { name: /^Aprobar$/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /Rechazar/i }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it(
+    "CRITICAL con next_required_action del backend usa execution_block_reason del API",
+    async () => {
+      const motivoBackend = "MOTIVO_API_CRITICAL · bloqueo reforzado desde backend.";
+      const accion = {
+        id: 101,
+        opportunity_id: "opp_101",
+        playbook_id: "critical_pb",
+        tipo_accion: "envio_masivo_clientes",
+        titulo: "Acción CRITICAL con contrato API",
+        descripcion: "Verifica que la UI use el motivo critical del backend.",
+        razon_recomendacion: "",
+        estado: "needs_approval",
+        riesgo: "critical",
+        costo_creditos_estimado: 50,
+        requires_approval: true,
+        result_json: "{}",
+        error_message: "",
+        created_at: "2026-05-24T00:00:00Z",
+        updated_at: "2026-05-24T00:00:00Z",
+        approved_at: null,
+        rejected_at: null,
+        completed_at: null,
+        next_required_action: "reinforced_approval_required",
+        execution_block_reason: motivoBackend,
+      };
+      mockFetchOnce(
+        new Response(JSON.stringify({ acciones: [accion], count: 1 }), {
+          status: 200,
+        }),
+      );
+      render(<SeccionActionCenter />);
+      await waitFor(() =>
+        expect(
+          screen.getByText(/Acción CRITICAL con contrato API/),
+        ).toBeInTheDocument(),
+      );
+      expect(screen.getByText(/MOTIVO_API_CRITICAL/i)).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /Ejecutar \(dry-run\)/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /^Aprobar$/i }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   it("renderiza acción CRITICAL needs_approval con aviso de bloqueo", async () => {
     const accion = {
       id: 2,

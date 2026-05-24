@@ -24,6 +24,7 @@ from sqlalchemy import select
 
 from agent.automation.permissions import (
     NivelRiesgo,
+    calcular_next_required_action,
     clasificar_riesgo,
     estado_inicial_para_riesgo,
     requiere_aprobacion,
@@ -255,7 +256,15 @@ async def marcar_fallida(
 
 
 def _a_dict(row) -> dict[str, Any]:
-    """Serializa una fila AccionAutomatizacion · dict seguro de retornar."""
+    """Serializa una fila AccionAutomatizacion · dict seguro de retornar.
+
+    Incluye el contrato explícito de "siguiente acción requerida" para que
+    cualquier cliente (dashboard, admin, bridge) sepa qué control debe
+    operar la acción ahora sin reimplementar la matriz (estado × riesgo).
+    """
+    next_action, block_reason = calcular_next_required_action(
+        row.estado, row.riesgo,
+    )
     return {
         "id": row.id,
         "telefono": row.telefono,
@@ -278,4 +287,6 @@ def _a_dict(row) -> dict[str, Any]:
         "approved_at": row.approved_at.isoformat() if row.approved_at else None,
         "rejected_at": row.rejected_at.isoformat() if row.rejected_at else None,
         "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+        "next_required_action": next_action,
+        "execution_block_reason": block_reason,
     }

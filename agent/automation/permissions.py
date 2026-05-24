@@ -130,6 +130,93 @@ def transicion_valida(actual: str, destino: str) -> bool:
     return destino in TRANSICIONES.get(actual, set())
 
 
+# ── Contrato explícito "siguiente acción requerida" ─────────────────────
+#
+# Valores estables que la API expone para que cualquier cliente (dashboard,
+# admin, bridge interno) sepa qué control debe operar la acción ahora sin
+# tener que reimplementar la matriz (estado × riesgo).
+#
+#   execute_available               · listo para ejecutarse por el control
+#                                     genérico del Action Center
+#   approval_required               · espera aprobación humana simple
+#   dedicated_confirmation_required · aprobado, pero requiere UX dedicada
+#                                     con preview/costo/riesgo antes de
+#                                     efecto externo real (HIGH approved)
+#   reinforced_approval_required    · CRITICAL · bloqueado · necesita
+#                                     confirmación reforzada (futura)
+#   none                            · terminal o en ejecución · no ofrecer
+#                                     siguiente control sobre la acción
+NextRequiredAction = Literal[
+    "execute_available",
+    "approval_required",
+    "dedicated_confirmation_required",
+    "reinforced_approval_required",
+    "none",
+]
+
+
+# Razones cortas de bloqueo · texto plano en español. Se usan tanto para
+# que la API explique el motivo como para que la UI pueda renderizarlas
+# directamente si no quiere construir su propia copia.
+_MOTIVO_HIGH_APROBADA = (
+    "Requiere confirmación dedicada con preview, costo y riesgo antes "
+    "de cualquier efecto externo real."
+)
+_MOTIVO_CRITICAL = (
+    "Acción crítica · bloqueada por defecto · requiere confirmación "
+    "reforzada futura."
+)
+
+
+def calcular_next_required_action(
+    estado: str, riesgo: str,
+) -> tuple[str, str]:
+    """Devuelve (next_required_action, execution_block_reason) para una
+    combinación (estado, riesgo).
+
+    Es función pura · no toca DB ni red. La usa _a_dict para hacer el
+    contrato explícito en cada acción serializada del Action Center.
+    """
+    estado_terminal = {"completed", "rejected", "failed", "cancelled"}
+    if estado in estado_terminal:
+        return "none", ""
+    # running ya está en ejecución · ningún control adicional aplica
+    if estado == "running":
+        return "none", ""
+
+    if riesgo == "critical":
+        # CRITICAL bloqueado por defecto · aun aprobado no se ejecuta por
+        # el control genérico hasta tener UX de confirmación reforzada.
+        return "reinforced_approval_required", _MOTIVO_CRITICAL
+
+    if riesgo == "high":
+        if estado == "approved":
+            return "dedicated_confirmation_required", _MOTIVO_HIGH_APROBADA
+        if estado == "needs_approval":
+            return "approval_required", ""
+        # high/pending legacy o bug: pending → approved no es transición
+        # válida; no ofrecer ningún control genérico.
+        return "none", ""
+
+    # low / medium · cada riesgo abre ejecución solo si su estado lo
+    # justifica. LOW puede auto-ejecutar desde pending. MEDIUM exige
+    # aprobación humana primero · pending/medium aquí solo ocurre por
+    # datos legacy o por un bug, y NO se debe ofrecer ningún control
+    # genérico: TRANSICIONES sólo permite pending → running/cancelled/
+    # rejected, así que aprobar desde pending sería transición inválida
+    # y la UI estaría engañando al usuario.
+    if estado == "needs_approval":
+        return "approval_required", ""
+    if riesgo == "low" and estado in {"pending", "approved"}:
+        return "execute_available", ""
+    if riesgo == "medium" and estado == "approved":
+        return "execute_available", ""
+    # Fallback defensivo · cualquier otra combinación (incluido
+    # medium/pending legacy) se trata como none: ningún botón del control
+    # genérico aplica.
+    return "none", ""
+
+
 EstadoAccion = Literal[
     "pending", "needs_approval", "approved", "running",
     "completed", "rejected", "failed", "cancelled",
