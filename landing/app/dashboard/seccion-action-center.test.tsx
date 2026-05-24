@@ -255,6 +255,64 @@ describe("SeccionActionCenter · acciones presentes", () => {
     ).toBeInTheDocument();
   });
 
+  it("renderiza acción HIGH approved como pendiente de confirmación dedicada", async () => {
+    // Guardrail UX: una HIGH aprobada NO debe verse como "lista para
+    // ejecutar" en este control genérico. Debe reflejar que aún falta
+    // una UX de confirmación dedicada (preview, costo, riesgo,
+    // confirmación fuerte) antes de cualquier efecto externo real, y
+    // NO debe ofrecer el botón "Ejecutar".
+    const accion = {
+      id: 3,
+      opportunity_id: "opp_3",
+      playbook_id: "whatsapp_outbound",
+      tipo_accion: "enviar_mensaje_whatsapp",
+      titulo: "Enviar mensaje WhatsApp",
+      descripcion: "Manda un mensaje aprobado a un cliente",
+      razon_recomendacion: "El cliente quedó en confirmar",
+      estado: "approved",
+      riesgo: "high",
+      costo_creditos_estimado: 5,
+      requires_approval: true,
+      result_json: "{}",
+      error_message: "",
+      created_at: "2026-05-24T00:00:00Z",
+      updated_at: "2026-05-24T00:00:00Z",
+      approved_at: "2026-05-24T00:00:01Z",
+      rejected_at: null,
+      completed_at: null,
+    };
+    mockFetchOnce(
+      new Response(JSON.stringify({ acciones: [accion], count: 1 }), {
+        status: 200,
+      }),
+    );
+    render(<SeccionActionCenter />);
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Enviar mensaje WhatsApp/),
+      ).toBeInTheDocument(),
+    );
+    // Etiqueta de estado refleja el siguiente paso, no "lista para ejecutar"
+    expect(
+      screen.getByText(/Aprobada · requiere confirmación dedicada/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Aprobada · lista para ejecutar/i),
+    ).not.toBeInTheDocument();
+    // Indicador deshabilitado del próximo paso
+    expect(
+      screen.getByText(/Confirmación dedicada · próximamente/i),
+    ).toBeInTheDocument();
+    // El aviso explicativo sigue presente
+    expect(
+      screen.getByText(/necesita\s+confirmación dedicada/i),
+    ).toBeInTheDocument();
+    // NO debe ofrecer el botón "Ejecutar" en este control genérico
+    expect(
+      screen.queryByRole("button", { name: /Ejecutar \(dry-run\)/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renderiza acción CRITICAL needs_approval con aviso de bloqueo", async () => {
     const accion = {
       id: 2,
