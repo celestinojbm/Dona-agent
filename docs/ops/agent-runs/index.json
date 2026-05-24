@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-24",
+  "source": "docs/ops/agent-runs",
+  "note": "Indice estatico inicial para Control Room; no contiene secrets, PII ni datos live.",
+  "runs": [
+    {
+      "run_id": "2026-05-24-pr48-next-required-action",
+      "fecha": "2026-05-24",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Exponer next_required_action y execution_block_reason para que backend y dashboard compartan el siguiente gate requerido.",
+      "branch": "feat/action-center-next-required-action",
+      "pr": 48,
+      "commit": "1733d37",
+      "agentes": [
+        "Hermes",
+        "Claude Code",
+        "Codex",
+        "OpenClaw"
+      ],
+      "archivos_resumen": [
+        "agent/automation/permissions.py",
+        "agent/automation/action_center.py",
+        "agent/main.py",
+        "landing/app/dashboard/seccion-action-center.tsx",
+        "landing/lib/automation-types.ts",
+        "tests/test_automation_next_required_action.py"
+      ],
+      "verificaciones": [
+        "pytest backend relevante: 61 passed",
+        "npm test frontend: 42 passed",
+        "npm run lint: 0 errors, 3 warnings preexistentes"
+      ],
+      "costo_estimado": "medio; multiples revisiones de Hermes/Claude/Codex y tests backend/frontend, sin APIs live",
+      "riesgos_residuales": [
+        "Confirmador dedicado real para HIGH pendiente",
+        "Smoke T2.1.D de reservas/creditos pendiente"
+      ],
+      "proxima_accion": "Construir confirmador dedicado real para HIGH con preview, costo, riesgo y audit log."
+    },
+    {
+      "run_id": "2026-05-24-pr49-control-room-interno",
+      "fecha": "2026-05-24",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Agregar Control Room interno estatico y bitacora inicial de orquestacion para ver progreso, agentes, PRs, guardrails y proximos pasos.",
+      "branch": "feat/control-room-project-progress",
+      "pr": 49,
+      "commit": "2338be6",
+      "agentes": [
+        "Hermes",
+        "Claude Code",
+        "Codex"
+      ],
+      "archivos_resumen": [
+        "docs/ops/AGENT_ORCHESTRATION_LOG.md",
+        "docs/ops/templates/agent-run.md",
+        "landing/app/dashboard/seccion-control-room.tsx",
+        "landing/lib/control-room.ts"
+      ],
+      "verificaciones": [
+        "npm test -- seccion-control-room.test.tsx control-room.test.ts: 9 passed",
+        "npm test: 51 passed",
+        "npm run lint: 0 errors, 3 warnings preexistentes"
+      ],
+      "costo_estimado": "medio; implementacion y revision con agentes, sin APIs live ni cambios productivos manuales",
+      "riesgos_residuales": [
+        "Control Room aun es snapshot estatico",
+        "Gate por email en cliente no es frontera de seguridad real"
+      ],
+      "proxima_accion": "Conectar Control Room a agent-runs versionados antes de integrar APIs vivas."
+    }
+  ]
+}
