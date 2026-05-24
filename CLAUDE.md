@@ -8,18 +8,33 @@
 
 ## 1. Identidad del proyecto
 
-Este repo es **Dona**: un asistente de IA por WhatsApp para **dueños de
-pequeños negocios en Estados Unidos**. Es un producto en producción, ya
-atendiendo a primeros usuarios.
+Este repo es **Dona**. La visión canónica actual está en
+`docs/vision/DONA_CANONICAL_CONTEXT.md` y debe leerse antes de cambios de
+producto, UX, agentes, acciones externas, créditos, permisos o narrativa.
 
+Definición corta: Dona es una **plataforma-agente multimodelo de negocio y
+ejecución controlada**. Convierte situaciones, recursos, objetivos e intención
+en activos, workflows/playbooks, documentos, diseños, campañas,
+automatizaciones, software, acciones externas reales, reportes y medición.
+
+La implementación actual atiende usuarios principalmente por **WhatsApp** y ya
+opera con primeros usuarios, pero WhatsApp es un canal de entrada, no la visión
+completa del producto.
+
+- **NO** es solo chatbot, CRM genérico, growth tool estrecha, galería de tools
+  ni marketplace prematuro.
 - **NO** es un generador/builder de agentes (como lo fue una versión previa
   llamada “AgentKit”). Si ves referencias a AgentKit en comentarios o docs,
   son legado pendiente de limpieza.
-- **NO** es multi-tenant “deploy-tu-propio-agente”: es un único servicio
-  compartido que atiende múltiples usuarios identificados por su teléfono.
+- **NO** es multi-tenant “deploy-tu-propio-agente”: hoy es un servicio
+  compartido que atiende múltiples usuarios identificados por su teléfono,
+  aunque la visión de plataforma es más amplia.
 - El usuario de este repo (el desarrollador) opera desde **EEUU**. Marco
   legal aplicable: **CCPA/CPRA + FTC + TCPA** (y variantes por estado).
   **No aplicar LFPDPPP ni marcos legales mexicanos.**
+
+Regla de oro: Dona prepara, propone y ejecuta acciones reales solo con costo,
+riesgo, permisos, trazabilidad y control humano claros.
 
 ---
 
