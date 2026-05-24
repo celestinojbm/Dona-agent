@@ -20,8 +20,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { UsuarioResumen } from "@/lib/dashboard-types";
+import { puedeVerControlRoomInterno } from "@/lib/control-room";
 import TourDashboard from "./tour";
 import SeccionActionCenter from "./seccion-action-center";
+import SeccionControlRoom from "./seccion-control-room";
 
 interface DashboardProps {
   session: { user?: { email?: string | null } };
@@ -118,6 +120,9 @@ const TOPUP_PAQUETES = [
 
 
 export default function DashboardClient({ session }: DashboardProps) {
+  const mostrarControlRoomInterno = puedeVerControlRoomInterno(
+    session.user?.email,
+  );
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [openingPortal, setOpeningPortal] = useState(false);
   const [comprandoTopup, setComprandoTopup] = useState<string | null>(null);
@@ -295,6 +300,10 @@ export default function DashboardClient({ session }: DashboardProps) {
             {load.data.suscripcion.estado !== "canceled" && (
               <SeccionActionCenter />
             )}
+            {/* Control Room interno · progreso del proyecto y orquestacion
+                de agentes. Datos estaticos curados en este MVP; no llama
+                APIs externas ni reemplaza el Action Center operativo. */}
+            {mostrarControlRoomInterno && <SeccionControlRoom />}
             {/* T2.0.D — Tour de primer login. Solo se muestra si la sub
                 está activa y el usuario aún no marcó "visto" en
                 localStorage. No bloquea ni reemplaza el contenido del
