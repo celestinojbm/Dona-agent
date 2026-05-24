@@ -2604,7 +2604,22 @@ async def _resolver_telefono_desde_subscription(subscription_id: str) -> str | N
 def _filtrar_accion_para_dashboard(accion: dict) -> dict:
     """Sanitiza una acción para enviar al dashboard.
     NO incluye telefono completo, NO incluye payload_json crudo (puede
-    tener PII de clientes), NO incluye idempotency_key (interno)."""
+    tener PII de clientes), NO incluye idempotency_key (interno).
+
+    Propaga next_required_action / execution_block_reason calculados por
+    el serializador interno · son el contrato explícito que el dashboard
+    consume para no confundir HIGH approved con LOW pending. Si por algún
+    motivo el dict de entrada no los trae, se recalculan a partir de
+    (estado, riesgo) para evitar romper clientes nuevos contra rows
+    legacy serializadas sin el contrato.
+    """
+    from agent.automation.permissions import calcular_next_required_action
+    next_action = accion.get("next_required_action")
+    block_reason = accion.get("execution_block_reason")
+    if next_action is None or block_reason is None:
+        next_action, block_reason = calcular_next_required_action(
+            accion.get("estado", ""), accion.get("riesgo", ""),
+        )
     return {
         "id": accion["id"],
         "opportunity_id": accion["opportunity_id"],
@@ -2628,6 +2643,8 @@ def _filtrar_accion_para_dashboard(accion: dict) -> dict:
         "approved_at": accion["approved_at"],
         "rejected_at": accion["rejected_at"],
         "completed_at": accion["completed_at"],
+        "next_required_action": next_action,
+        "execution_block_reason": block_reason,
     }
 
 

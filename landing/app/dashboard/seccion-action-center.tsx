@@ -37,6 +37,7 @@ import {
 import type {
   AccionAutomatizacion,
   EstadoAccion,
+  NextRequiredAction,
   NivelRiesgo,
   PerfilEstado,
 } from "@/lib/automation-types";
@@ -102,6 +103,80 @@ function esTerminal(estado: EstadoAccion): boolean {
 
 function esActiva(estado: EstadoAccion): boolean {
   return !esTerminal(estado);
+}
+
+// Copy local por defecto cuando el backend NO envía
+// execution_block_reason (payloads legacy previos al contrato). Mantiene
+// la UX anterior intacta para clientes que aún no leen el contrato.
+const COPY_HIGH_APROBADA_FALLBACK =
+  "Esta acción es de alto impacto. Está aprobada, pero necesita " +
+  "confirmación dedicada antes de ejecutar un efecto externo real.";
+const COPY_CRITICAL_FALLBACK =
+  "Esta acción es crítica. Requiere confirmación reforzada y aún no " +
+  "puede ejecutarse automáticamente.";
+
+// Fallback local que reimplementa el mismo contrato de
+// `agent.automation.permissions.calcular_next_required_action`. Solo se
+// usa cuando el payload viene sin el contrato (acciones serializadas por
+// versiones previas del backend). Mientras backend mande
+// next_required_action, este helper no se ejecuta.
+function calcularNextRequiredActionLocal(
+  estado: EstadoAccion,
+  riesgo: NivelRiesgo,
+): { next: NextRequiredAction; motivo: string } {
+  if (
+    estado === "completed" ||
+    estado === "rejected" ||
+    estado === "failed" ||
+    estado === "cancelled" ||
+    estado === "running"
+  ) {
+    return { next: "none", motivo: "" };
+  }
+  if (riesgo === "critical") {
+    return { next: "reinforced_approval_required", motivo: COPY_CRITICAL_FALLBACK };
+  }
+  if (riesgo === "high") {
+    if (estado === "approved") {
+      return {
+        next: "dedicated_confirmation_required",
+        motivo: COPY_HIGH_APROBADA_FALLBACK,
+      };
+    }
+    if (estado === "needs_approval") {
+      return { next: "approval_required", motivo: "" };
+    }
+    return { next: "none", motivo: "" };
+  }
+  // low / medium · cada riesgo abre ejecución solo si su estado lo
+  // justifica. LOW puede auto-ejecutar desde pending; MEDIUM exige
+  // aprobación humana primero · pending/medium aquí solo ocurre por
+  // datos legacy o un bug, y NO se debe ofrecer ningún control genérico
+  // (TRANSICIONES backend sólo permite pending → running/cancelled/
+  // rejected, así que aprobar desde pending sería transición inválida).
+  if (estado === "needs_approval") {
+    return { next: "approval_required", motivo: "" };
+  }
+  if (riesgo === "low" && (estado === "pending" || estado === "approved")) {
+    return { next: "execute_available", motivo: "" };
+  }
+  if (riesgo === "medium" && estado === "approved") {
+    return { next: "execute_available", motivo: "" };
+  }
+  return { next: "none", motivo: "" };
+}
+
+function resolverNextRequiredAction(
+  accion: AccionAutomatizacion,
+): { next: NextRequiredAction; motivo: string } {
+  const fromApi = accion.next_required_action;
+  if (fromApi) {
+    return {
+      next: fromApi,
+      motivo: accion.execution_block_reason ?? "",
+    };
+  }
+  return calcularNextRequiredActionLocal(accion.estado, accion.riesgo);
 }
 
 function safeParseJson(s: string): Record<string, unknown> | null {
@@ -416,23 +491,30 @@ function CardAccion({
   const r = accion.riesgo;
   const e = accion.estado;
   const result = safeParseJson(accion.result_json);
+  // Contrato T2.1.B: preferimos el next_required_action que viene del
+  // backend · solo caemos al cálculo local cuando el payload es legacy.
+  // Esto evita que la UI reimplemente la matriz (estado × riesgo) y se
+  // desincronice del backend.
+  const { next: nextRequired, motivo: blockReason } = resolverNextRequiredAction(accion);
   // HIGH aprobada NO está "lista para ejecutar": queda pendiente de una
   // UX de confirmación dedicada (preview, costo, riesgo, confirmación
   // fuerte) antes de cualquier efecto externo real. El label y el color
   // del estado deben reflejarlo para que la tarjeta no se confunda con
   // las LOW pending o MEDIUM aprobadas.
-  const highAprobadaPendienteConfirmacion = e === "approved" && r === "high";
+  const highAprobadaPendienteConfirmacion =
+    nextRequired === "dedicated_confirmation_required";
   const estadoLabelMostrado = highAprobadaPendienteConfirmacion
     ? "Aprobada · requiere confirmación dedicada"
     : ESTADO_LABEL[e];
   const estadoColorMostrado = highAprobadaPendienteConfirmacion
     ? "text-orange-300/90"
     : ESTADO_COLOR[e];
-  const showAprobar = e === "needs_approval" && r !== "critical";
-  const showEjecutar =
-    (e === "approved" && r !== "high" && r !== "critical") ||
-    (e === "pending" && r === "low");
-  const showCriticalBlock = e === "needs_approval" && r === "critical";
+  const showAprobar =
+    nextRequired === "approval_required" && r !== "critical";
+  const showEjecutar = nextRequired === "execute_available";
+  const showCriticalBlock = nextRequired === "reinforced_approval_required";
+  const criticalBlockText = blockReason || COPY_CRITICAL_FALLBACK;
+  const dedicatedBlockText = blockReason || COPY_HIGH_APROBADA_FALLBACK;
 
   return (
     <div className="glass-card rounded-2xl px-6 py-5">
@@ -476,24 +558,26 @@ function CardAccion({
         </div>
       </div>
 
-      {/* Aviso CRITICAL */}
+      {/* Aviso CRITICAL · texto preferentemente del backend
+          (execution_block_reason); fallback a copy local si el payload
+          es legacy. */}
       {showCriticalBlock && (
         <div className="mt-3 p-3 rounded-lg bg-rose-500/[0.06] border border-rose-500/20">
           <p className="text-xs text-rose-300/80 font-light flex items-start gap-2">
             <Lock className="w-4 h-4 mt-0.5 shrink-0" />
-            Esta acción es crítica. Requiere confirmación reforzada y
-            aún no puede ejecutarse automáticamente.
+            {criticalBlockText}
           </p>
         </div>
       )}
 
-      {/* Aviso HIGH aprobado */}
-      {e === "approved" && r === "high" && (
+      {/* Aviso HIGH aprobado · texto preferentemente del backend
+          (execution_block_reason); fallback a copy local si el payload
+          es legacy. */}
+      {highAprobadaPendienteConfirmacion && (
         <div className="mt-3 p-3 rounded-lg bg-orange-500/[0.06] border border-orange-500/20">
           <p className="text-xs text-orange-300/80 font-light flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            Esta acción es de alto impacto. Está aprobada, pero necesita
-            confirmación dedicada antes de ejecutar un efecto externo real.
+            {dedicatedBlockText}
           </p>
         </div>
       )}
