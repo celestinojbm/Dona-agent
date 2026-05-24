@@ -2777,6 +2777,14 @@ async def admin_automation_ejecutar(
     # Convertir a dict como espera execution.ejecutar_accion
     from agent.automation.action_center import _a_dict
     accion_dict = _a_dict(row)
+    # Guardrail T2.2: el ejecutor HIGH real existe, pero el endpoint
+    # genérico del dashboard/admin no debe exponerlo hasta tener UX de
+    # confirmación dedicada (preview/costo/riesgo/confirmación fuerte).
+    if accion_dict.get("riesgo") == "high":
+        raise HTTPException(
+            status_code=409,
+            detail="high_requires_dedicated_confirmation",
+        )
     resultado = await ejecutar_accion(accion_dict)
     # Releer el estado actualizado tras la ejecución (busca por id).
     async with async_session() as session:
@@ -3121,6 +3129,14 @@ async def internal_automation_ejecutar(request: Request):
             )
         )).scalar_one()
     accion_dict = _a_dict(row)
+    # Guardrail T2.2: no exponer ejecutores HIGH reales por el endpoint
+    # genérico del dashboard. Deben pasar por una UX dedicada con preview,
+    # costo, riesgo y confirmación explícita reforzada.
+    if accion_dict.get("riesgo") == "high":
+        raise HTTPException(
+            status_code=409,
+            detail="high_requires_dedicated_confirmation",
+        )
     resultado = await ejecutar_accion(accion_dict)
     async with async_session() as session:
         row2 = (await session.execute(
