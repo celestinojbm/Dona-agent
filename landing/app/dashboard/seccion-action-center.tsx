@@ -9,9 +9,13 @@
 //   - LOW se muestran como "Listas para ejecutar" · botón "Ejecutar".
 //   - MEDIUM como "Esperan tu OK" · botones "Aprobar" / "Rechazar".
 //   - HIGH como "Requieren aprobación explícita" · se pueden aprobar,
-//     pero el botón genérico "Ejecutar" queda oculto hasta una UX dedicada
-//     de confirmación fuerte. T2.2 ya tiene primer ejecutor real, pero no
-//     queda expuesto desde este control genérico.
+//     pero una HIGH aprobada NO se renderiza como "lista para ejecutar":
+//     el estado mostrado es "Aprobada · requiere confirmación dedicada",
+//     el ícono es Lock (no Clock) y en el lugar del botón "Ejecutar"
+//     aparece un indicador deshabilitado "Confirmación dedicada ·
+//     próximamente". T2.2 ya tiene primer ejecutor real, pero no queda
+//     expuesto desde este control genérico hasta cerrar UX con preview,
+//     costo, riesgo y confirmación fuerte.
 //   - CRITICAL aviso fuerte · "Bloqueada · próximo paso: aprobación
 //     reforzada futura".
 //   - Acciones completed muestran su result_json (renderizado bonito).
@@ -412,6 +416,18 @@ function CardAccion({
   const r = accion.riesgo;
   const e = accion.estado;
   const result = safeParseJson(accion.result_json);
+  // HIGH aprobada NO está "lista para ejecutar": queda pendiente de una
+  // UX de confirmación dedicada (preview, costo, riesgo, confirmación
+  // fuerte) antes de cualquier efecto externo real. El label y el color
+  // del estado deben reflejarlo para que la tarjeta no se confunda con
+  // las LOW pending o MEDIUM aprobadas.
+  const highAprobadaPendienteConfirmacion = e === "approved" && r === "high";
+  const estadoLabelMostrado = highAprobadaPendienteConfirmacion
+    ? "Aprobada · requiere confirmación dedicada"
+    : ESTADO_LABEL[e];
+  const estadoColorMostrado = highAprobadaPendienteConfirmacion
+    ? "text-orange-300/90"
+    : ESTADO_COLOR[e];
   const showAprobar = e === "needs_approval" && r !== "critical";
   const showEjecutar =
     (e === "approved" && r !== "high" && r !== "critical") ||
@@ -443,10 +459,14 @@ function CardAccion({
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <span
-            className={`text-xs font-light flex items-center gap-1.5 ${ESTADO_COLOR[e]}`}
+            className={`text-xs font-light flex items-center gap-1.5 ${estadoColorMostrado}`}
           >
-            <IconoEstado estado={e} />
-            {ESTADO_LABEL[e]}
+            {highAprobadaPendienteConfirmacion ? (
+              <Lock className="w-3.5 h-3.5" />
+            ) : (
+              <IconoEstado estado={e} />
+            )}
+            {estadoLabelMostrado}
           </span>
           {accion.costo_creditos_estimado > 0 && (
             <span className="text-xs text-white/30 font-light tabular-nums">
@@ -539,6 +559,16 @@ function CardAccion({
               )}
               Ejecutar (dry-run)
             </button>
+          )}
+          {highAprobadaPendienteConfirmacion && (
+            <span
+              aria-disabled="true"
+              title="La confirmación dedicada con preview, costo y riesgo aún no está disponible desde este control. No habrá efecto externo hasta entonces."
+              className="px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-orange-500/[0.06] border border-orange-500/20 text-orange-300/80 font-light cursor-not-allowed select-none"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              Confirmación dedicada · próximamente
+            </span>
           )}
         </div>
       )}
