@@ -49,6 +49,17 @@ Campos recomendados:
 - `riesgos_residuales`
 - `proxima_accion`
 
+## Validación local
+
+Antes de abrir un PR que modifique `index.json` o carpetas de runs, ejecutar:
+
+```bash
+python scripts/validate_agent_runs.py
+pytest tests/test_validate_agent_runs.py -q
+```
+
+El validador comprueba que el índice sea JSON válido, que cada run tenga campos requeridos, que las carpetas presentes incluyan ledgers mínimos y que no aparezcan patrones obvios de secrets.
+
 ## Reglas de seguridad
 
 - No guardar secrets, tokens, payloads privados ni PII innecesaria.
