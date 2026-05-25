@@ -145,6 +145,84 @@
         "Gate por email/client-side del Control Room no es frontera de seguridad real"
       ],
       "proxima_accion": "Registrar PR #50 y PR #51 en agent-runs y mantener el Control Room alimentado por datos versionados."
+    },
+    {
+      "run_id": "2026-05-25-pr52-agent-runs-pr50-pr51-ledgers",
+      "fecha": "2026-05-25",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Registrar en agent-runs los ledgers retrospectivos de PR #50 y PR #51, y actualizar index.json para que el Control Room muestre esas mejoras de gobernanza.",
+      "branch": "docs/agent-runs-pr50-pr51-ledgers",
+      "pr": 52,
+      "commit": "ea9e928",
+      "agentes": [
+        "Hermes",
+        "Subagente read-only"
+      ],
+      "archivos_resumen": [
+        "docs/ops/agent-runs/index.json",
+        "docs/ops/agent-runs/2026-05-24-pr50-operational-governance/run-ledger.md",
+        "docs/ops/agent-runs/2026-05-24-pr50-operational-governance/cost-ledger.md",
+        "docs/ops/agent-runs/2026-05-24-pr50-operational-governance/tool-ledger.md",
+        "docs/ops/agent-runs/2026-05-25-pr51-control-room-static-agent-runs/run-ledger.md",
+        "docs/ops/agent-runs/2026-05-25-pr51-control-room-static-agent-runs/cost-ledger.md",
+        "docs/ops/agent-runs/2026-05-25-pr51-control-room-static-agent-runs/tool-ledger.md"
+      ],
+      "verificaciones": [
+        "python3 -m json.tool docs/ops/agent-runs/index.json: OK",
+        "git diff --check: OK",
+        "scope check: 7 archivos, 0 extras, 0 faltantes",
+        "secret scan count-only: 0 posibles tokens/secrets",
+        "npm test -- control-room-data.test.ts seccion-control-room.test.tsx: 9 passed",
+        "npm test: 54 passed",
+        "npm run lint: 0 errores, 3 warnings preexistentes",
+        "revision independiente read-only: APROBADO"
+      ],
+      "costo_estimado": "bajo-medio; documentacion versionada acotada, validaciones locales y revision read-only, sin APIs live ni cambios runtime",
+      "riesgos_residuales": [
+        "generated_at se mantuvo estable por compatibilidad semantica pendiente",
+        "La actualizacion del index aun era manual antes de introducir el validador de PR #53"
+      ],
+      "proxima_accion": "Agregar validador local/offline para agent-runs antes de conectar CI o APIs vivas."
+    },
+    {
+      "run_id": "2026-05-25-pr53-agent-runs-validator",
+      "fecha": "2026-05-25",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Agregar un validador local/offline de agent-runs con tests para exigir index.json valido, campos requeridos, carpeta por run, ledgers minimos y scan basico de secrets.",
+      "branch": "docs/validate-agent-runs",
+      "pr": 53,
+      "commit": "fc5f0b3",
+      "agentes": [
+        "Hermes",
+        "Subagentes read-only"
+      ],
+      "archivos_resumen": [
+        "scripts/__init__.py",
+        "scripts/validate_agent_runs.py",
+        "tests/test_validate_agent_runs.py",
+        "docs/ops/agent-runs/README.md",
+        "docs/ops/agent-runs/2026-05-24-pr48-next-required-action/run-ledger.md",
+        "docs/ops/agent-runs/2026-05-24-pr49-control-room-interno/run-ledger.md"
+      ],
+      "verificaciones": [
+        "RED inicial: ModuleNotFoundError antes de implementar scripts.validate_agent_runs",
+        "RED especifico: run en index sin carpeta devolvia ok=True antes del fix",
+        "python scripts/validate_agent_runs.py: agent-runs OK: 4 runs",
+        "pytest tests/test_validate_agent_runs.py -q: 5 passed",
+        "pytest -q: 926 passed, 14 warnings aiosqlite/logging no relacionadas",
+        "scope check: 10 archivos, 0 extras, 0 faltantes",
+        "secret scan count-only: 0 posibles tokens/secrets",
+        "revision independiente read-only final: APROBADO"
+      ],
+      "costo_estimado": "medio; script Python, tests TDD, suite completa y dos revisiones read-only, sin APIs productivas ni proveedores externos reales",
+      "riesgos_residuales": [
+        "El validador aun no esta conectado a CI; depende de ejecucion manual",
+        "El scan de secrets es heuristico y no reemplaza una herramienta dedicada",
+        "No valida automaticamente que el commit corto del index coincida con GitHub"
+      ],
+      "proxima_accion": "Mostrar en Control Room la validacion de agent-runs y evaluar conectar el validador a CI en PR separado autorizado."
     }
   ]
 }
