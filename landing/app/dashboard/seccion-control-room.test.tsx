@@ -4,7 +4,7 @@
 // landing/app/dashboard/seccion-control-room.test.tsx
 //
 // MVP interno del Dona Control Room. Render estático: progreso del
-// proyecto, agentes, hitos recientes y guardrails.
+// proyecto, agentes, agent-runs versionados y guardrails.
 //
 // El componente es server-safe y no hace fetch. Si en el futuro se
 // alimenta con datos vivos, esos tests irán aparte.
@@ -32,10 +32,13 @@ describe("SeccionControlRoom · render base", () => {
     expect(screen.getAllByText(/OpenClaw/).length).toBeGreaterThan(0);
   });
 
-  it("muestra el último hito (PR #48) y el contrato next_required_action", () => {
+  it("muestra agent-runs versionados desde el índice estático", () => {
     render(<SeccionControlRoom />);
+    expect(screen.getAllByText(/Agent-runs versionados/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/PR #48/)).toBeInTheDocument();
+    expect(screen.getByText(/PR #49/)).toBeInTheDocument();
     expect(screen.getAllByText(/next_required_action/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Costo estimado/i).length).toBeGreaterThan(0);
   });
 
   it("incluye al menos un guardrail sobre permisos / acciones reales", () => {
