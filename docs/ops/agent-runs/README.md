@@ -60,6 +60,8 @@ pytest tests/test_validate_agent_runs.py -q
 
 El validador comprueba que el índice sea JSON válido, que cada run tenga campos requeridos, que las carpetas presentes incluyan ledgers mínimos y que no aparezcan patrones obvios de secrets.
 
+Ademas, el workflow `.github/workflows/agent-runs-validation.yml` corre estos mismos comandos en cada pull request y en cada push a `main`, con permisos minimos (`contents: read`) y sin secretos. Si el validador o los tests fallan en local, tambien fallaran en CI.
+
 ## Reglas de seguridad
 
 - No guardar secrets, tokens, payloads privados ni PII innecesaria.

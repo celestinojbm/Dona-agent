@@ -1,0 +1,33 @@
+name: Agent Runs Validation
+
+"on":
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validar agent-runs offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar pytest minimo
+        run: python -m pip install --no-cache-dir pytest
+
+      - name: Validar indice de agent-runs
+        run: python scripts/validate_agent_runs.py
+
+      - name: Ejecutar tests del validador
+        run: python -m pytest tests/test_validate_agent_runs.py -q
