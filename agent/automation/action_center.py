@@ -20,7 +20,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from agent.automation.permissions import (
     NivelRiesgo,
@@ -235,6 +235,55 @@ async def marcar_running(accion_id: int) -> dict[str, Any] | None:
     return await _cambiar_estado(
         accion_id, estado_destino="running", evento="action_started",
     )
+
+
+async def intentar_marcar_running(
+    accion_id: int,
+    *,
+    estados_origen: tuple[str, ...],
+) -> bool:
+    """Claim atómico de ejecución.
+
+    Evita que dos workers/requests que leyeron la misma acción aprobada
+    antes de tiempo pasen ambos a ejecutar efectos externos. Sólo uno logra
+    actualizar estado desde un origen permitido a running; los demás reciben
+    False y deben abortar antes del provider.
+    """
+    from agent.memory import async_session
+    from agent.automation.models import AccionAutomatizacion
+
+    ahora = datetime.utcnow()
+    async with async_session() as session:
+        result = await session.execute(
+            update(AccionAutomatizacion)
+            .where(
+                AccionAutomatizacion.id == accion_id,
+                AccionAutomatizacion.estado.in_(estados_origen),
+            )
+            .values(estado="running", updated_at=ahora)
+        )
+        await session.commit()
+        claimed = int(getattr(result, "rowcount", 0) or 0) == 1
+        if not claimed:
+            return False
+        row = (await session.execute(
+            select(AccionAutomatizacion).where(
+                AccionAutomatizacion.id == accion_id
+            )
+        )).scalar_one_or_none()
+        if row is None:
+            return False
+        telefono = row.telefono
+        riesgo = row.riesgo
+
+    await registrar_evento(
+        evento="action_started",
+        telefono=telefono,
+        accion_id=accion_id,
+        riesgo=riesgo,
+        payload={"estado": "running"},
+    )
+    return True
 
 
 async def marcar_completada(

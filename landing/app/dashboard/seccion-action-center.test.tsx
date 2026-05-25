@@ -12,7 +12,7 @@
 //   - botón generar funciona aún cuando lista inicial está vacía/error
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import SeccionActionCenter from "./seccion-action-center";
 
@@ -299,9 +299,9 @@ describe("SeccionActionCenter · acciones presentes", () => {
     expect(
       screen.queryByText(/Aprobada · lista para ejecutar/i),
     ).not.toBeInTheDocument();
-    // Indicador deshabilitado del próximo paso
+    // Botón dedicado del próximo paso
     expect(
-      screen.getByText(/Confirmación dedicada · próximamente/i),
+      screen.getByRole("button", { name: /Confirmar envío HIGH/i }),
     ).toBeInTheDocument();
     // El aviso explicativo sigue presente
     expect(
@@ -311,6 +311,82 @@ describe("SeccionActionCenter · acciones presentes", () => {
     expect(
       screen.queryByRole("button", { name: /Ejecutar \(dry-run\)/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("confirmación dedicada HIGH muestra preview y exige ENVIAR exacto", async () => {
+    const accion = {
+      id: 55,
+      opportunity_id: "opp_55",
+      playbook_id: "whatsapp_outbound",
+      tipo_accion: "enviar_mensaje_whatsapp",
+      titulo: "Enviar mensaje WhatsApp real",
+      descripcion: "Manda un mensaje aprobado a un cliente",
+      razon_recomendacion: "",
+      estado: "approved",
+      riesgo: "high",
+      costo_creditos_estimado: 5,
+      requires_approval: true,
+      result_json: "{}",
+      error_message: "",
+      created_at: "2026-05-24T00:00:00Z",
+      updated_at: "2026-05-24T00:00:00Z",
+      approved_at: "2026-05-24T00:00:01Z",
+      rejected_at: null,
+      completed_at: null,
+      next_required_action: "dedicated_confirmation_required",
+      execution_block_reason: "Requiere preview y confirmación literal.",
+    };
+    const completada = { ...accion, estado: "completed", result_json: "{}" };
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ acciones: [accion], count: 1 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        accion_id: 55,
+        tipo_accion: "enviar_mensaje_whatsapp",
+        titulo: "Enviar mensaje WhatsApp real",
+        descripcion: "Manda un mensaje aprobado a un cliente",
+        riesgo: "high",
+        estado: "approved",
+        costo_creditos_estimado: 5,
+        destino_short: "+5****4567",
+        numero_destino: "+5215551234567",
+        mensaje_preview: "Hola Ana, confirmo tu pedido.",
+        longitud_mensaje: 29,
+        confirmacion_requerida: "ENVIAR",
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ accion: completada, ejecucion: { estado_final: "completed" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ acciones: [completada], count: 1 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<SeccionActionCenter />);
+    await waitFor(() =>
+      expect(screen.getByText(/Enviar mensaje WhatsApp real/)).toBeInTheDocument(),
+    );
+    screen.getByRole("button", { name: /Confirmar envío HIGH/i }).click();
+    await waitFor(() =>
+      expect(screen.getByText(/Preview de envío HIGH/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/\+5\*\*\*\*4567/)).toBeInTheDocument();
+    expect(screen.getByText(/Hola Ana, confirmo tu pedido/i)).toBeInTheDocument();
+
+    const input = screen.getByLabelText(/Escribe ENVIAR para confirmar/i);
+    fireEvent.change(input, { target: { value: " ENVIAR " } });
+    expect(
+      screen.getByRole("button", { name: /Confirmar y enviar/i }),
+    ).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: "ENVIAR" } });
+    screen.getByRole("button", { name: /Confirmar y enviar/i }).click();
+
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/automation/acciones/55/high-confirmar",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ confirmacion: "ENVIAR" }),
+        }),
+      ),
+    );
   });
 
   it(
@@ -366,9 +442,9 @@ describe("SeccionActionCenter · acciones presentes", () => {
       expect(
         screen.queryByRole("button", { name: /Ejecutar \(dry-run\)/i }),
       ).not.toBeInTheDocument();
-      // Indicador deshabilitado del próximo paso sigue presente
+      // Botón dedicado del próximo paso sigue presente
       expect(
-        screen.getByText(/Confirmación dedicada · próximamente/i),
+        screen.getByRole("button", { name: /Confirmar envío HIGH/i }),
       ).toBeInTheDocument();
     },
   );

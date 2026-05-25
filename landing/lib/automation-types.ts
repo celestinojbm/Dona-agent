@@ -126,6 +126,22 @@ export interface EjecutarResponse {
   };
 }
 
+export interface HighPreviewResponse {
+  ok: boolean;
+  accion_id: number;
+  tipo_accion: "enviar_mensaje_whatsapp";
+  titulo: string;
+  descripcion: string;
+  riesgo: "high";
+  estado: EstadoAccion;
+  costo_creditos_estimado: number;
+  destino_short: string;
+  numero_destino: string;
+  mensaje_preview: string;
+  longitud_mensaje: number;
+  confirmacion_requerida: "ENVIAR";
+}
+
 export interface AccionApiResult<T> {
   ok: boolean;
   status?: number;

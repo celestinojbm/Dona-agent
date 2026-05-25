@@ -477,6 +477,138 @@ class TestInternalEjecutarGuardrails:
         assert accion["estado"] == "approved"
 
 
+class TestInternalConfirmacionDedicadaHigh:
+    @pytest.mark.asyncio
+    async def test_preview_high_dedicado_expone_preview_solo_si_pertenece_y_aprobada(self, app):
+        await _seed_perfil_y_sub("5572", "sub_high_preview")
+        from agent.automation.executors import send_message as sm
+        from agent.automation import action_center as ac
+
+        accion = await sm.preparar_enviar_mensaje_whatsapp(
+            telefono="5572",
+            numero_destino="+5215551234567",
+            mensaje="Hola Ana, confirmo tu pedido.",
+        )
+        await ac.aprobar_accion(accion["id"])
+        body = json.dumps({
+            "subscription_id": "sub_high_preview",
+            "accion_id": accion["id"],
+        })
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.post(
+                "/internal/automation/acciones/high-preview",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-Signature": _hmac_sig(body),
+                },
+            )
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert data["accion_id"] == accion["id"]
+        assert data["riesgo"] == "high"
+        assert data["destino_short"] == "+5****4567"
+        assert data["numero_destino"] == "+5215551234567"
+        assert data["mensaje_preview"] == "Hola Ana, confirmo tu pedido."
+        assert data["confirmacion_requerida"] == "ENVIAR"
+
+    @pytest.mark.asyncio
+    async def test_confirmar_high_dedicado_rechaza_enviar_con_espacios(self, app, monkeypatch):
+        await _seed_perfil_y_sub("5573", "sub_high_spaces")
+        from agent.automation.executors import send_message as sm
+        from agent.automation import action_center as ac
+        from agent import billing as bi
+
+        class FakeProveedor:
+            invocaciones: list[tuple[str, str]] = []
+            async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
+                self.invocaciones.append((telefono, mensaje))
+                return True
+
+        fake = FakeProveedor()
+        monkeypatch.setattr(sm, "_obtener_proveedor", lambda: fake)
+        await bi.acreditar("5573", 50, "seed")
+        accion = await sm.preparar_enviar_mensaje_whatsapp(
+            telefono="5573",
+            numero_destino="+5215551234567",
+            mensaje="hola",
+        )
+        await ac.aprobar_accion(accion["id"])
+        body = json.dumps({
+            "subscription_id": "sub_high_spaces",
+            "accion_id": accion["id"],
+            "confirmacion": " ENVIAR ",
+        })
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.post(
+                "/internal/automation/acciones/high-confirmar",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-Signature": _hmac_sig(body),
+                },
+            )
+
+        assert r.status_code == 400
+        assert r.json()["detail"] == "confirmacion_invalida"
+        assert fake.invocaciones == []
+
+    @pytest.mark.asyncio
+    async def test_confirmar_high_dedicado_no_reenvia_si_segunda_confirmacion(self, app, monkeypatch):
+        await _seed_perfil_y_sub("5574", "sub_high_twice")
+        from agent.automation.executors import send_message as sm
+        from agent.automation import action_center as ac
+        from agent import billing as bi
+
+        class FakeProveedor:
+            def __init__(self):
+                self.invocaciones: list[tuple[str, str]] = []
+            async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
+                self.invocaciones.append((telefono, mensaje))
+                return True
+
+        fake = FakeProveedor()
+        monkeypatch.setattr(sm, "_obtener_proveedor", lambda: fake)
+        await bi.acreditar("5574", 50, "seed")
+        accion = await sm.preparar_enviar_mensaje_whatsapp(
+            telefono="5574",
+            numero_destino="+5215551234567",
+            mensaje="hola",
+        )
+        await ac.aprobar_accion(accion["id"])
+        body = json.dumps({
+            "subscription_id": "sub_high_twice",
+            "accion_id": accion["id"],
+            "confirmacion": "ENVIAR",
+        })
+        headers = {
+            "Content-Type": "application/json",
+            "X-Internal-Signature": _hmac_sig(body),
+        }
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r1 = await c.post(
+                "/internal/automation/acciones/high-confirmar",
+                content=body,
+                headers=headers,
+            )
+            r2 = await c.post(
+                "/internal/automation/acciones/high-confirmar",
+                content=body,
+                headers=headers,
+            )
+
+        assert r1.status_code == 200
+        assert r1.json()["ejecucion"]["estado_final"] == "completed"
+        assert r2.status_code == 409
+        assert r2.json()["detail"] == "accion_no_aprobada"
+        assert len(fake.invocaciones) == 1
+
+
 class TestInternalIDOR:
     @pytest.mark.asyncio
     async def test_aprobar_accion_de_otro_usuario_404(self, app):

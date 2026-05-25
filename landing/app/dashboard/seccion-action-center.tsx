@@ -37,6 +37,7 @@ import {
 import type {
   AccionAutomatizacion,
   EstadoAccion,
+  HighPreviewResponse,
   NextRequiredAction,
   NivelRiesgo,
   PerfilEstado,
@@ -436,14 +437,15 @@ export default function SeccionActionCenter() {
       {activas.length > 0 && (
         <div className="space-y-4">
           {activas.map((a) => (
-            <CardAccion
-              key={a.id}
-              accion={a}
-              enCurso={accionEnCurso === a.id}
-              onAprobar={() => handleAccion(a.id, "aprobar")}
-              onRechazar={() => handleAccion(a.id, "rechazar")}
-              onEjecutar={() => handleAccion(a.id, "ejecutar")}
-            />
+              <CardAccion
+                key={a.id}
+                accion={a}
+                enCurso={accionEnCurso === a.id}
+                onAprobar={() => handleAccion(a.id, "aprobar")}
+                onRechazar={() => handleAccion(a.id, "rechazar")}
+                onEjecutar={() => handleAccion(a.id, "ejecutar")}
+                onConfirmada={fetchAcciones}
+              />
           ))}
         </div>
       )}
@@ -479,6 +481,7 @@ interface CardAccionProps {
   onAprobar: () => void;
   onRechazar: () => void;
   onEjecutar: () => void;
+  onConfirmada?: () => Promise<void> | void;
 }
 
 function CardAccion({
@@ -487,9 +490,13 @@ function CardAccion({
   onAprobar,
   onRechazar,
   onEjecutar,
+  onConfirmada,
 }: CardAccionProps) {
   const r = accion.riesgo;
   const e = accion.estado;
+  const [highPreview, setHighPreview] = useState<HighPreviewResponse | null>(null);
+  const [highConfirmacion, setHighConfirmacion] = useState("");
+  const [highBusy, setHighBusy] = useState(false);
   const result = safeParseJson(accion.result_json);
   // Contrato T2.1.B: preferimos el next_required_action que viene del
   // backend · solo caemos al cálculo local cuando el payload es legacy.
@@ -515,6 +522,49 @@ function CardAccion({
   const showCriticalBlock = nextRequired === "reinforced_approval_required";
   const criticalBlockText = blockReason || COPY_CRITICAL_FALLBACK;
   const dedicatedBlockText = blockReason || COPY_HIGH_APROBADA_FALLBACK;
+
+  async function cargarPreviewHigh() {
+    setHighBusy(true);
+    try {
+      const res = await fetch(`/api/automation/acciones/${accion.id}/high-preview`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        alert("No pudimos cargar el preview HIGH. Intenta de nuevo.");
+        return;
+      }
+      const data = (await res.json()) as HighPreviewResponse;
+      setHighPreview(data);
+      setHighConfirmacion("");
+    } catch {
+      alert("Error de conexión al cargar preview HIGH.");
+    } finally {
+      setHighBusy(false);
+    }
+  }
+
+  async function confirmarHigh() {
+    if (highConfirmacion !== "ENVIAR") return;
+    setHighBusy(true);
+    try {
+      const res = await fetch(`/api/automation/acciones/${accion.id}/high-confirmar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmacion: highConfirmacion }),
+      });
+      if (!res.ok) {
+        alert("No pudimos confirmar esta acción HIGH. Revisa su estado e intenta de nuevo.");
+        return;
+      }
+      setHighPreview(null);
+      setHighConfirmacion("");
+      await onConfirmada?.();
+    } catch {
+      alert("Error de conexión al confirmar acción HIGH.");
+    } finally {
+      setHighBusy(false);
+    }
+  }
 
   return (
     <div className="glass-card rounded-2xl px-6 py-5">
@@ -603,6 +653,61 @@ function CardAccion({
         </div>
       )}
 
+      {/* Preview y confirmación HIGH dedicada */}
+      {highPreview && highAprobadaPendienteConfirmacion && (
+        <div className="mt-3 p-4 rounded-xl bg-orange-500/[0.05] border border-orange-500/20">
+          <p className="text-xs uppercase tracking-widest text-orange-200/80 mb-3 font-light">
+            Preview de envío HIGH
+          </p>
+          <div className="grid gap-2 text-xs text-white/60 font-light">
+            <p>
+              <span className="text-white/35">Destino:</span> {highPreview.destino_short}
+            </p>
+            <p>
+              <span className="text-white/35">Costo estimado:</span>{" "}
+              {highPreview.costo_creditos_estimado} créditos
+            </p>
+            <p>
+              <span className="text-white/35">Riesgo:</span> HIGH
+            </p>
+            <p className="whitespace-pre-wrap break-words">
+              <span className="text-white/35">Mensaje:</span>{" "}
+              {highPreview.mensaje_preview}
+            </p>
+          </div>
+          <label className="block text-xs text-white/45 font-light mt-4 mb-2" htmlFor={`confirm-high-${accion.id}`}>
+            Escribe ENVIAR para confirmar
+          </label>
+          <input
+            id={`confirm-high-${accion.id}`}
+            value={highConfirmacion}
+            onChange={(ev) => setHighConfirmacion(ev.target.value)}
+            className="w-full rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-orange-300/40"
+            autoComplete="off"
+          />
+          <div className="flex items-center justify-end gap-2 mt-3">
+            <button
+              onClick={() => {
+                setHighPreview(null);
+                setHighConfirmacion("");
+              }}
+              disabled={highBusy}
+              className="btn-secondary px-4 py-2 rounded-full text-xs disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={confirmarHigh}
+              disabled={highBusy || highConfirmacion !== "ENVIAR"}
+              className="btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
+            >
+              {highBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              Confirmar y enviar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Botones */}
       {!esTerminal(e) && (
         <div className="flex items-center justify-end gap-2 mt-4">
@@ -645,14 +750,18 @@ function CardAccion({
             </button>
           )}
           {highAprobadaPendienteConfirmacion && (
-            <span
-              aria-disabled="true"
-              title="La confirmación dedicada con preview, costo y riesgo aún no está disponible desde este control. No habrá efecto externo hasta entonces."
-              className="px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-orange-500/[0.06] border border-orange-500/20 text-orange-300/80 font-light cursor-not-allowed select-none"
+            <button
+              onClick={cargarPreviewHigh}
+              disabled={enCurso || highBusy}
+              className="px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-orange-500/[0.08] border border-orange-500/25 text-orange-200 font-light disabled:opacity-50"
             >
-              <Lock className="w-3.5 h-3.5" />
-              Confirmación dedicada · próximamente
-            </span>
+              {highBusy && !highPreview ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Lock className="w-3.5 h-3.5" />
+              )}
+              Confirmar envío HIGH
+            </button>
           )}
         </div>
       )}

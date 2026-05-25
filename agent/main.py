@@ -3168,6 +3168,80 @@ async def internal_automation_ejecutar(request: Request):
     }
 
 
+@app.post("/internal/automation/acciones/high-preview")
+async def internal_automation_high_preview(request: Request):
+    """Preview dedicado para HIGH enviar_mensaje_whatsapp.
+
+    No ejecuta ni aprueba; sólo devuelve datos para confirmación humana.
+    """
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    accion_id = payload.get("accion_id")
+    if not sub_id or not isinstance(accion_id, int):
+        raise HTTPException(status_code=400, detail="parametros_invalidos")
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+    if not await _accion_pertenece_a_telefono(accion_id, telefono):
+        raise HTTPException(status_code=404, detail="accion_no_existe")
+
+    from agent.automation.executors.send_message import (
+        preview_confirmacion_high_whatsapp,
+    )
+    preview = await preview_confirmacion_high_whatsapp(accion_id)
+    if preview.get("ok"):
+        return preview
+    error = preview.get("error") or "high_confirmation_not_available"
+    if error == "accion_no_existe":
+        raise HTTPException(status_code=404, detail="accion_no_existe")
+    raise HTTPException(status_code=409, detail=error)
+
+
+@app.post("/internal/automation/acciones/high-confirmar")
+async def internal_automation_high_confirmar(request: Request):
+    """Confirmación dedicada para materializar HIGH WhatsApp ya aprobada."""
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    accion_id = payload.get("accion_id")
+    confirmacion = payload.get("confirmacion")
+    if not sub_id or not isinstance(accion_id, int) or not isinstance(confirmacion, str):
+        raise HTTPException(status_code=400, detail="parametros_invalidos")
+    if confirmacion != "ENVIAR":
+        raise HTTPException(status_code=400, detail="confirmacion_invalida")
+
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+    if not await _accion_pertenece_a_telefono(accion_id, telefono):
+        raise HTTPException(status_code=404, detail="accion_no_existe")
+
+    from agent.automation.executors.send_message import (
+        confirmar_high_whatsapp_dedicado,
+    )
+    from agent.automation.action_center import _a_dict
+    from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
+    from sqlalchemy import select
+
+    resultado = await confirmar_high_whatsapp_dedicado(accion_id, confirmacion)
+    if resultado.get("estado_final") != "completed":
+        detail = resultado.get("error") or "high_confirmation_not_available"
+        status = 404 if detail == "accion_no_existe" else 409
+        raise HTTPException(status_code=status, detail=detail)
+
+    async with async_session() as session:
+        row = (await session.execute(
+            select(AccionAutomatizacion).where(
+                AccionAutomatizacion.id == accion_id
+            )
+        )).scalar_one()
+    actualizada = _a_dict(row)
+    return {
+        "accion": _filtrar_accion_para_dashboard(actualizada),
+        "ejecucion": resultado,
+    }
+
+
 @app.post("/webhook")
 async def webhook_handler(request: Request):
     """Webhook genérico."""

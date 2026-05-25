@@ -164,6 +164,47 @@ describe("automation-bridge · firma HMAC y respuestas", () => {
       "http://backend.test/internal/automation/acciones/ejecutar",
     );
   });
+
+  it("obtenerPreviewHigh apunta a high-preview e incluye accion_id", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, accion_id: 9 }), { status: 200 }),
+      );
+    const { obtenerPreviewHigh } = await import("./automation-bridge");
+    await obtenerPreviewHigh("sub_x", 9);
+    const url = fetchSpy.mock.calls[0][0] as string;
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string);
+    expect(url).toBe(
+      "http://backend.test/internal/automation/acciones/high-preview",
+    );
+    expect(body).toEqual({ subscription_id: "sub_x", accion_id: 9 });
+  });
+
+  it("confirmarHighDedicado preserva confirmacion exacta sin trim", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ accion: {}, ejecucion: { estado_final: "completed" } }),
+          { status: 200 },
+        ),
+      );
+    const { confirmarHighDedicado } = await import("./automation-bridge");
+    await confirmarHighDedicado("sub_x", 9, " ENVIAR ");
+    const url = fetchSpy.mock.calls[0][0] as string;
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string);
+    expect(url).toBe(
+      "http://backend.test/internal/automation/acciones/high-confirmar",
+    );
+    expect(body).toEqual({
+      subscription_id: "sub_x",
+      accion_id: 9,
+      confirmacion: " ENVIAR ",
+    });
+  });
 });
 
 

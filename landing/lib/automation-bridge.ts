@@ -21,6 +21,7 @@ import type {
   GenerarResponse,
   OportunidadesResponse,
   AccionAutomatizacion,
+  HighPreviewResponse,
 } from "./automation-types";
 
 const BRIDGE_TIMEOUT_MS = 8000;
@@ -185,5 +186,40 @@ export async function ejecutarAccion(
   return callInternal<EjecutarResponse>(
     "/internal/automation/acciones/ejecutar",
     { subscription_id: subscriptionId, accion_id: accionId },
+  );
+}
+
+
+export async function obtenerPreviewHigh(
+  subscriptionId: string,
+  accionId: number,
+): Promise<AccionApiResult<HighPreviewResponse>> {
+  if (!subscriptionId) return { ok: false, error: "missing_subscription_id" };
+  if (!Number.isInteger(accionId)) {
+    return { ok: false, error: "invalid_accion_id" };
+  }
+  return callInternal<HighPreviewResponse>(
+    "/internal/automation/acciones/high-preview",
+    { subscription_id: subscriptionId, accion_id: accionId },
+  );
+}
+
+
+export async function confirmarHighDedicado(
+  subscriptionId: string,
+  accionId: number,
+  confirmacion: string,
+): Promise<AccionApiResult<EjecutarResponse>> {
+  if (!subscriptionId) return { ok: false, error: "missing_subscription_id" };
+  if (!Number.isInteger(accionId)) {
+    return { ok: false, error: "invalid_accion_id" };
+  }
+  return callInternal<EjecutarResponse>(
+    "/internal/automation/acciones/high-confirmar",
+    {
+      subscription_id: subscriptionId,
+      accion_id: accionId,
+      confirmacion,
+    },
   );
 }

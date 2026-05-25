@@ -387,6 +387,101 @@ class TestAuditSinPII:
 # ── 7. confirmar_enviar_mensaje_whatsapp · atajo end-to-end ──────────
 
 
+class TestConfirmacionDedicadaHigh:
+    @pytest.mark.asyncio
+    async def test_preview_dedicado_exige_accion_aprobada_y_expone_destino_mascarado(self, db):
+        ac, cr, ex, bi, sm = db
+        a = await sm.preparar_enviar_mensaje_whatsapp(
+            telefono="5590", numero_destino="+5215551234567",
+            mensaje="Hola Ana, confirmo tu pedido.",
+        )
+
+        bloqueado = await sm.preview_confirmacion_high_whatsapp(a["id"])
+        assert bloqueado["ok"] is False
+        assert bloqueado["error"] == "accion_no_aprobada"
+
+        await ac.aprobar_accion(a["id"])
+        preview = await sm.preview_confirmacion_high_whatsapp(a["id"])
+        assert preview["ok"] is True
+        assert preview["accion_id"] == a["id"]
+        assert preview["tipo_accion"] == "enviar_mensaje_whatsapp"
+        assert preview["riesgo"] == "high"
+        assert preview["destino_short"] == "+5****4567"
+        assert preview["numero_destino"] == "+5215551234567"
+        assert preview["mensaje_preview"] == "Hola Ana, confirmo tu pedido."
+        assert preview["confirmacion_requerida"] == "ENVIAR"
+
+    @pytest.mark.asyncio
+    async def test_confirmacion_dedicada_no_acepta_espacios_enviar(self, db, monkeypatch):
+        ac, cr, ex, bi, sm = db
+        await bi.acreditar("5591", 50, "seed")
+        fake = FakeProveedor(resultado=True)
+        _mock_proveedor(monkeypatch, sm, fake)
+        a = await sm.preparar_enviar_mensaje_whatsapp(
+            telefono="5591", numero_destino="+5215551234567",
+            mensaje="hola",
+        )
+        await ac.aprobar_accion(a["id"])
+
+        r = await sm.confirmar_high_whatsapp_dedicado(a["id"], " ENVIAR ")
+
+        assert r["estado_final"] == "failed"
+        assert r["error"] == "confirmacion_invalida"
+        assert fake.invocaciones == []
+
+    @pytest.mark.asyncio
+    async def test_confirmacion_dedicada_no_reenvia_si_ya_completada(self, db, monkeypatch):
+        ac, cr, ex, bi, sm = db
+        await bi.acreditar("5592", 50, "seed")
+        fake = FakeProveedor(resultado=True)
+        _mock_proveedor(monkeypatch, sm, fake)
+        a = await sm.preparar_enviar_mensaje_whatsapp(
+            telefono="5592", numero_destino="+5215551234567",
+            mensaje="hola",
+        )
+        await ac.aprobar_accion(a["id"])
+        r1 = await sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR")
+        assert r1["estado_final"] == "completed"
+
+        r2 = await sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR")
+
+        assert r2["estado_final"] == "failed"
+        assert r2["error"] == "accion_no_aprobada"
+        assert len(fake.invocaciones) == 1
+
+
+    @pytest.mark.asyncio
+    async def test_confirmacion_dedicada_concurrente_no_duplica_envio(self, db, monkeypatch):
+        ac, cr, ex, bi, sm = db
+        await bi.acreditar("5593", 50, "seed")
+
+        class SlowProveedor(FakeProveedor):
+            async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
+                await asyncio.sleep(0.05)
+                return await super().enviar_mensaje(telefono, mensaje)
+
+        fake = SlowProveedor(resultado=True)
+        _mock_proveedor(monkeypatch, sm, fake)
+        a = await sm.preparar_enviar_mensaje_whatsapp(
+            telefono="5593", numero_destino="+5215551234567",
+            mensaje="hola",
+        )
+        await ac.aprobar_accion(a["id"])
+
+        r1, r2 = await asyncio.gather(
+            sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR"),
+            sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR"),
+        )
+
+        estados = sorted([r1["estado_final"], r2["estado_final"]])
+        assert estados == ["completed", "failed"]
+        assert len(fake.invocaciones) == 1
+        reserva = await cr.obtener_reserva(a["id"])
+        assert reserva is not None
+        assert reserva["estado"] == "confirmed"
+        assert await bi.obtener_saldo("5593") == 44
+
+
 class TestConfirmarShortcut:
     @pytest.mark.asyncio
     async def test_confirmar_aprueba_y_ejecuta(self, db, monkeypatch):
