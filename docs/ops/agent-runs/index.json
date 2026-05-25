@@ -223,6 +223,49 @@
         "No valida automaticamente que el commit corto del index coincida con GitHub"
       ],
       "proxima_accion": "Mostrar en Control Room la validacion de agent-runs y evaluar conectar el validador a CI en PR separado autorizado."
+    },
+    {
+      "run_id": "2026-05-25-pr56-high-dedicated-confirmation",
+      "fecha": "2026-05-25",
+      "riesgo": "HIGH",
+      "estado": "merged",
+      "objetivo": "Agregar confirmacion dedicada para acciones HIGH de envio WhatsApp con preview autenticado, confirmacion exacta ENVIAR, bloqueo del endpoint generico, claim atomico de ejecucion y proteccion contra doble envio/concurrencia de creditos.",
+      "branch": "feat/high-dedicated-confirmation",
+      "pr": 56,
+      "commit": "ffeffd5",
+      "agentes": [
+        "Hermes",
+        "Subagente read-only"
+      ],
+      "archivos_resumen": [
+        "agent/automation/action_center.py",
+        "agent/automation/execution.py",
+        "agent/automation/executors/send_message.py",
+        "agent/main.py",
+        "landing/app/api/automation/acciones/[id]/high-confirmar/route.ts",
+        "landing/app/api/automation/acciones/[id]/high-preview/route.ts",
+        "landing/app/dashboard/seccion-action-center.tsx",
+        "landing/lib/automation-bridge.ts",
+        "tests/test_automation_send_message_high.py",
+        "tests/test_automation_endpoints.py"
+      ],
+      "verificaciones": [
+        "python -m pytest tests/test_automation_send_message_high.py tests/test_automation_endpoints.py tests/test_automation_execution.py tests/test_automation_creditos_reservas.py tests/test_automation_action_center.py -q: 100 passed",
+        "cd landing && npm test: 58 passed",
+        "cd landing && npm run lint: 0 errors, 3 warnings preexistentes",
+        "python -m pytest -q: 933 passed",
+        "revision independiente read-only final: APROBADO",
+        "GitHub checks PR #56: Agent Runs Validation, Vercel y Preview Comments success",
+        "smoke post-merge: validate_agent_runs OK y TestConfirmacionDedicadaHigh 4 passed"
+      ],
+      "costo_estimado": "alto; implementacion HIGH sensible, multiples ciclos TDD, suite backend completa, suite frontend, revision read-only y publicacion/merge via msi; sin proveedores externos reales ni envios reales",
+      "riesgos_residuales": [
+        "La ruta HIGH real existe y debe mantenerse detras de preview, aprobacion y confirmacion exacta",
+        "Preview muestra numero completo y mensaje solo al duenio autenticado; requiere mantener frontera server-side",
+        "Warnings de aiosqlite/event-loop en tests siguen como deuda tecnica no relacionada",
+        "Audit log y Cost Ledger exacto dentro del producto aun pueden fortalecerse en PRs futuros"
+      ],
+      "proxima_accion": "Registrar PR #56 en agent-runs/Control Room y luego fortalecer audit log, cost preview y observabilidad del flujo HIGH."
     }
   ]
 }
