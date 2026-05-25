@@ -70,6 +70,81 @@
         "Gate por email en cliente no es frontera de seguridad real"
       ],
       "proxima_accion": "Conectar Control Room a agent-runs versionados antes de integrar APIs vivas."
+    },
+    {
+      "run_id": "2026-05-24-pr50-operational-governance",
+      "fecha": "2026-05-24",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Formalizar la disciplina operativa de Dona con Run Ledger, Cost Ledger, Tool Ledger, modelo de permisos, politica de riesgo y gates HIGH/CRITICAL documentados.",
+      "branch": "docs/fase-1a-operational-governance",
+      "pr": 50,
+      "commit": "2dc4582",
+      "agentes": [
+        "Hermes",
+        "Subagente read-only"
+      ],
+      "archivos_resumen": [
+        "docs/ops/RUN_LEDGER_POLICY.md",
+        "docs/ops/templates/run-ledger.md",
+        "docs/ops/templates/cost-ledger.md",
+        "docs/ops/templates/tool-ledger.md",
+        "docs/ops/templates/security-checklist.md",
+        "docs/ops/templates/red-team-checklist.md",
+        "docs/ops/templates/deploy-gate.md",
+        "docs/ops/permissions-model.md",
+        "docs/ops/risk-policy.md",
+        "docs/ops/high-critical-gates.md",
+        "docs/ops/agent-runs/README.md",
+        "docs/ops/agent-runs/index.json"
+      ],
+      "verificaciones": [
+        "git diff --check: OK",
+        "python3 -m json.tool docs/ops/agent-runs/index.json: OK",
+        "scope check: 12 archivos autorizados, 0 extras, 0 faltantes",
+        "revision independiente read-only: sin bloqueantes"
+      ],
+      "costo_estimado": "medio; documentacion operativa extensa, validaciones git/json/scope y una revision read-only; sin APIs live ni cambios runtime",
+      "riesgos_residuales": [
+        "Permisos minimos reales aun no implementados tecnicamente",
+        "Run Ledger/Cost Ledger aun no aplicados por CI de forma obligatoria",
+        "Red-team, staging/deploy gates y observabilidad viva siguen pendientes"
+      ],
+      "proxima_accion": "Consumir agent-runs estaticos desde el Control Room antes de conectar APIs vivas."
+    },
+    {
+      "run_id": "2026-05-25-pr51-control-room-static-agent-runs",
+      "fecha": "2026-05-25",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Actualizar el Control Room interno para leer y mostrar agent-runs versionados desde docs/ops/agent-runs/index.json sin usar APIs vivas.",
+      "branch": "feat/control-room-static-agent-runs",
+      "pr": 51,
+      "commit": "874eba1",
+      "agentes": [
+        "Hermes",
+        "Subagentes read-only"
+      ],
+      "archivos_resumen": [
+        "landing/lib/control-room-data.ts",
+        "landing/lib/control-room-data.test.ts",
+        "landing/app/dashboard/seccion-control-room.tsx",
+        "landing/app/dashboard/seccion-control-room.test.tsx"
+      ],
+      "verificaciones": [
+        "npm test -- control-room-data.test.ts seccion-control-room.test.tsx: 9 passed",
+        "npm test: 54 passed",
+        "npm run lint: 0 errors, 3 warnings preexistentes",
+        "git diff --check: OK",
+        "secret scan count-only: 0 posibles tokens/secrets tras limpiar falsos positivos"
+      ],
+      "costo_estimado": "medio; TDD RED/GREEN, suite frontend, lint, secret scan y dos revisiones read-only; sin APIs live ni cambios backend/runtime",
+      "riesgos_residuales": [
+        "Control Room sigue usando indice estatico versionado, no observabilidad viva",
+        "El index no se actualiza automaticamente hasta crear un generador o check de CI",
+        "Gate por email/client-side del Control Room no es frontera de seguridad real"
+      ],
+      "proxima_accion": "Registrar PR #50 y PR #51 en agent-runs y mantener el Control Room alimentado por datos versionados."
     }
   ]
 }
