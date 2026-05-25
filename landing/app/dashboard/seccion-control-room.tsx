@@ -2,18 +2,22 @@ import {
   Activity,
   Bot,
   CheckCircle2,
-  GitPullRequest,
+  FileText,
   Lock,
   ShieldCheck,
   Sparkles,
   Workflow,
 } from "lucide-react";
+import {
+  obtenerControlRoomData,
+  resumirAgentRuns,
+} from "@/lib/control-room-data";
 
 const estadoProyecto = [
   { label: "Contexto canónico", value: "En main", tone: "emerald" },
-  { label: "Guardrails HIGH", value: "Activos", tone: "emerald" },
-  { label: "next_required_action", value: "Contrato en main", tone: "sky" },
-  { label: "msi / VPS", value: "Sincronizados", tone: "violet" },
+  { label: "Run Ledger", value: "Obligatorio", tone: "emerald" },
+  { label: "Agent-runs", value: "Index estático", tone: "sky" },
+  { label: "APIs vivas", value: "Pendientes", tone: "violet" },
 ] as const;
 
 const agentes = [
@@ -36,29 +40,6 @@ const agentes = [
     nombre: "OpenClaw",
     rol: "Auditor de visión y memoria histórica",
     estado: "Referencia estratégica, no fuente canónica de código",
-  },
-] as const;
-
-const hitos = [
-  {
-    pr: "PR #45",
-    titulo: "Contexto canónico distribuido",
-    detalle: "AGENTS.md, CLAUDE.md y visión operativa para agentes.",
-  },
-  {
-    pr: "PR #46",
-    titulo: "HIGH bloqueado en endpoint genérico",
-    detalle: "El Action Center ya no ejecuta HIGH desde controles genéricos.",
-  },
-  {
-    pr: "PR #47",
-    titulo: "Confirmación dedicada visible",
-    detalle: "HIGH approved queda como pendiente de confirmación dedicada.",
-  },
-  {
-    pr: "PR #48",
-    titulo: "Contrato next_required_action",
-    detalle: "Backend y dashboard comparten el siguiente control requerido.",
   },
 ] as const;
 
@@ -86,6 +67,9 @@ function chipTone(tone: "emerald" | "sky" | "violet") {
 }
 
 export default function SeccionControlRoom() {
+  const controlRoomData = obtenerControlRoomData();
+  const resumen = resumirAgentRuns(controlRoomData.runs);
+
   return (
     <section className="space-y-6" aria-labelledby="control-room-title">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -106,7 +90,7 @@ export default function SeccionControlRoom() {
           </p>
         </div>
         <div className="rounded-full border border-emerald-400/20 bg-emerald-400/[0.06] px-4 py-2 text-xs font-light text-emerald-200/80">
-          Snapshot 2026-05-24 · Main limpio · Vercel verde
+          {resumen.total} agent-runs · fuente estática {controlRoomData.generatedAt}
         </div>
       </div>
 
@@ -128,6 +112,48 @@ export default function SeccionControlRoom() {
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="glass-card rounded-3xl p-6">
           <div className="mb-5 flex items-center gap-2 text-sm uppercase tracking-[0.18em] text-white/35">
+            <FileText className="h-4 w-4" />
+            Agent-runs versionados
+          </div>
+          <div className="mb-5 rounded-2xl border border-white/[0.06] bg-white/[0.025] p-4">
+            <p className="text-xs font-mono text-white/30">
+              Fuente: {controlRoomData.source}
+            </p>
+            <p className="mt-1 text-sm font-light text-white/55">
+              {resumen.total} runs · MEDIUM: {resumen.porRiesgo.MEDIUM} · APIs vivas: no conectadas
+            </p>
+          </div>
+          <div className="space-y-4">
+            {controlRoomData.runs.map((run) => (
+              <div key={run.runId} className="relative pl-6">
+                <div className="absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full bg-white/35" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs text-white/35">
+                    {run.pr ? `PR #${run.pr}` : run.runId}
+                  </span>
+                  <span className="rounded-full border border-amber-300/15 bg-amber-300/[0.06] px-2 py-0.5 text-[10px] font-mono text-amber-100/70">
+                    {run.riesgo}
+                  </span>
+                  <span className="text-sm font-normal text-white/80">
+                    {run.estado}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs font-light leading-relaxed text-white/45">
+                  {run.objetivo}
+                </p>
+                <p className="mt-2 text-[11px] font-light leading-relaxed text-white/30">
+                  Costo estimado: {run.costoEstimado}
+                </p>
+                <p className="mt-1 text-[11px] font-light leading-relaxed text-white/30">
+                  Próxima acción: {run.proximaAccion}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="glass-card rounded-3xl p-6">
+          <div className="mb-5 flex items-center gap-2 text-sm uppercase tracking-[0.18em] text-white/35">
             <Bot className="h-4 w-4" />
             Agentes y roles
           </div>
@@ -147,31 +173,6 @@ export default function SeccionControlRoom() {
                 </div>
                 <p className="mt-2 text-xs font-light leading-relaxed text-white/45">
                   {agente.estado}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="glass-card rounded-3xl p-6">
-          <div className="mb-5 flex items-center gap-2 text-sm uppercase tracking-[0.18em] text-white/35">
-            <GitPullRequest className="h-4 w-4" />
-            Hitos recientes
-          </div>
-          <div className="space-y-4">
-            {hitos.map((hito) => (
-              <div key={hito.pr} className="relative pl-6">
-                <div className="absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full bg-white/35" />
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-white/35">
-                    {hito.pr}
-                  </span>
-                  <span className="text-sm font-normal text-white/80">
-                    {hito.titulo}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs font-light leading-relaxed text-white/40">
-                  {hito.detalle}
                 </p>
               </div>
             ))}
