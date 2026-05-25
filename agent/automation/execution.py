@@ -52,7 +52,7 @@ from agent.automation.permissions import (
 )
 from agent.automation.audit import registrar_evento
 from agent.automation.action_center import (
-    marcar_running,
+    intentar_marcar_running,
     marcar_completada,
     marcar_fallida,
 )
@@ -688,9 +688,32 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
         )
         return {"estado_final": "failed", "error": msg}
 
-    # T2.1.D · Reservar créditos ANTES de marcar_running. Si el saldo
-    # es insuficiente, el usuario nunca ve la acción en 'running', y
-    # nunca se intenta el ejecutor (LLM no se invoca).
+    # Claim atómico de ejecución ANTES de reservar/cobrar créditos.
+    # Dos confirmaciones HIGH concurrentes pueden llegar aquí con el mismo
+    # snapshot approved. Sólo una debe poder mover la acción desde su estado
+    # origen a running; las demás abortan antes de tocar provider o reserva.
+    # Esto evita que el perdedor libere/ensucie la reserva del ganador.
+    estados_origen = ("pending",) if estado == "pending" else ("approved",)
+    claimed_running = await intentar_marcar_running(
+        accion_id,
+        estados_origen=estados_origen,
+    )
+    if not claimed_running:
+        await registrar_evento(
+            evento="action_failed",
+            telefono=telefono,
+            accion_id=accion_id,
+            riesgo=riesgo_str,
+            payload={"tipo_accion": tipo, "razon": "running_claim_lost"},
+        )
+        return {
+            "estado_final": "failed",
+            "error": "accion_ya_en_ejecucion_o_no_aprobada",
+        }
+
+    # T2.1.D · reservar créditos después del claim. Si el saldo es
+    # insuficiente, la acción ya está en running por lifecycle y pasa a
+    # failed sin tocar proveedor externo.
     try:
         await reservar_creditos(
             accion_id=accion_id,
@@ -699,10 +722,6 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
             razon=f"{tipo} (riesgo={riesgo_str})",
         )
     except CreditosInsuficientesError as e:
-        # Audit ya emitido dentro de reservar() · solo marcamos failed
-        # pasando por running para respetar el lifecycle (pending → running
-        # → failed o needs_approval/approved → running → failed).
-        await marcar_running(accion_id)
         msg = (
             f"Créditos insuficientes: necesitas {e.requerido} · "
             f"tienes {e.saldo}. Compra créditos extra y reintenta."
@@ -714,9 +733,6 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
             "saldo": e.saldo,
             "requerido": e.requerido,
         }
-
-    # Pasamos a 'running'
-    await marcar_running(accion_id)
 
     # Bloqueo crítico · liberamos la reserva (no debería pasar normalmente
     # porque el caller debería filtrar critical antes, pero defensa en

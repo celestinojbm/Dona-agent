@@ -105,6 +105,112 @@ async def preparar_enviar_mensaje_whatsapp(
     return accion
 
 
+async def preview_confirmacion_high_whatsapp(
+    accion_id: int,
+) -> dict[str, Any]:
+    """Preview dedicado para una acción HIGH de envío WhatsApp.
+
+    No ejecuta, no aprueba, no toca proveedores externos. Sólo devuelve
+    datos necesarios para que el dueño vea destino, mensaje, costo y riesgo
+    antes de escribir la confirmación literal.
+    """
+    accion = await _leer_accion_fresca(accion_id)
+    if accion is None:
+        return {"ok": False, "error": "accion_no_existe", "accion_id": accion_id}
+    if accion.get("tipo_accion") != "enviar_mensaje_whatsapp":
+        return {
+            "ok": False,
+            "error": "tipo_accion_no_soportado",
+            "accion_id": accion_id,
+        }
+    if accion.get("riesgo") != "high":
+        return {"ok": False, "error": "riesgo_no_high", "accion_id": accion_id}
+    if accion.get("estado") != "approved":
+        return {
+            "ok": False,
+            "error": "accion_no_aprobada",
+            "estado": accion.get("estado"),
+            "accion_id": accion_id,
+        }
+
+    payload = _parse_json(accion.get("payload_json")) or {}
+    numero_destino = str(payload.get("numero_destino") or "")
+    mensaje = str(payload.get("mensaje") or "")
+    if not numero_destino.strip() or not mensaje.strip():
+        return {
+            "ok": False,
+            "error": "payload_invalido",
+            "accion_id": accion_id,
+        }
+
+    return {
+        "ok": True,
+        "accion_id": accion_id,
+        "tipo_accion": "enviar_mensaje_whatsapp",
+        "titulo": accion.get("titulo", ""),
+        "descripcion": accion.get("descripcion", ""),
+        "riesgo": "high",
+        "estado": accion.get("estado"),
+        "costo_creditos_estimado": accion.get("costo_creditos_estimado", 0),
+        "destino_short": _short_num(numero_destino),
+        # El número completo y mensaje sólo se exponen al dueño autenticado
+        # vía endpoint dedicado; nunca se logean en este helper.
+        "numero_destino": numero_destino,
+        "mensaje_preview": mensaje,
+        "longitud_mensaje": len(mensaje),
+        "confirmacion_requerida": "ENVIAR",
+    }
+
+
+async def confirmar_high_whatsapp_dedicado(
+    accion_id: int,
+    confirmacion: str,
+) -> dict[str, Any]:
+    """Materializa una acción HIGH ya aprobada desde UX dedicada.
+
+    A diferencia del atajo histórico confirmar_enviar_mensaje_whatsapp(),
+    este camino NO auto-aprueba. Exige estado exactamente 'approved' y
+    confirmación exactamente 'ENVIAR' sin normalizar/strip, para que
+    ' ENVIAR ' o variantes no pasen por accidente.
+    """
+    if confirmacion != "ENVIAR":
+        return {
+            "estado_final": "failed",
+            "error": "confirmacion_invalida",
+            "accion_id": accion_id,
+        }
+
+    accion = await _leer_accion_fresca(accion_id)
+    if accion is None:
+        return {
+            "estado_final": "failed",
+            "error": "accion_no_existe",
+            "accion_id": accion_id,
+        }
+    if accion.get("tipo_accion") != "enviar_mensaje_whatsapp":
+        return {
+            "estado_final": "failed",
+            "error": "tipo_accion_no_soportado",
+            "accion_id": accion_id,
+        }
+    if accion.get("riesgo") != "high":
+        return {
+            "estado_final": "failed",
+            "error": "riesgo_no_high",
+            "accion_id": accion_id,
+        }
+    if accion.get("estado") != "approved":
+        return {
+            "estado_final": "failed",
+            "error": "accion_no_aprobada",
+            "estado": accion.get("estado"),
+            "accion_id": accion_id,
+        }
+
+    from agent.automation.execution import ejecutar_accion
+    return await ejecutar_accion(accion)
+
+
 async def confirmar_enviar_mensaje_whatsapp(
     accion_id: int,
 ) -> dict[str, Any]:
