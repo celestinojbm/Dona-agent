@@ -107,16 +107,39 @@ async def preparar_enviar_mensaje_whatsapp(
 
 async def preview_confirmacion_high_whatsapp(
     accion_id: int,
+    telefono_actor: str,
 ) -> dict[str, Any]:
     """Preview dedicado para una acción HIGH de envío WhatsApp.
 
     No ejecuta, no aprueba, no toca proveedores externos. Sólo devuelve
     datos necesarios para que el dueño vea destino, mensaje, costo y riesgo
     antes de escribir la confirmación literal.
+
+    Cada llamada deja huella en audit log (`high_preview_requested` siempre;
+    `high_preview_rendered` cuando el preview es servible). El payload
+    auditado nunca contiene número ni cuerpo crudos.
     """
-    accion = await _leer_accion_fresca(accion_id)
+    from agent.automation.audit import registrar_evento as _audit
+
+    accion = await _leer_accion_fresca_para_actor(accion_id, telefono_actor)
     if accion is None:
         return {"ok": False, "error": "accion_no_existe", "accion_id": accion_id}
+    telefono_owner = accion.get("telefono", "") or ""
+    riesgo_owner = accion.get("riesgo", "") or ""
+    tipo_accion = accion.get("tipo_accion", "")
+    estado_actual = accion.get("estado", "")
+
+    await _audit(
+        evento="high_preview_requested",
+        telefono=telefono_owner,
+        accion_id=accion_id,
+        riesgo=riesgo_owner,
+        payload={
+            "tipo_accion": tipo_accion,
+            "estado_actual": estado_actual,
+        },
+    )
+
     if accion.get("tipo_accion") != "enviar_mensaje_whatsapp":
         return {
             "ok": False,
@@ -143,6 +166,21 @@ async def preview_confirmacion_high_whatsapp(
             "accion_id": accion_id,
         }
 
+    await _audit(
+        evento="high_preview_rendered",
+        telefono=telefono_owner,
+        accion_id=accion_id,
+        riesgo=riesgo_owner,
+        payload={
+            "tipo_accion": tipo_accion,
+            "destino_short": _short_num(numero_destino),
+            "longitud_mensaje": len(mensaje),
+            "costo_creditos_estimado": int(
+                accion.get("costo_creditos_estimado", 0) or 0
+            ),
+        },
+    )
+
     return {
         "ok": True,
         "accion_id": accion_id,
@@ -165,6 +203,7 @@ async def preview_confirmacion_high_whatsapp(
 async def confirmar_high_whatsapp_dedicado(
     accion_id: int,
     confirmacion: str,
+    telefono_actor: str,
 ) -> dict[str, Any]:
     """Materializa una acción HIGH ya aprobada desde UX dedicada.
 
@@ -172,43 +211,189 @@ async def confirmar_high_whatsapp_dedicado(
     este camino NO auto-aprueba. Exige estado exactamente 'approved' y
     confirmación exactamente 'ENVIAR' sin normalizar/strip, para que
     ' ENVIAR ' o variantes no pasen por accidente.
-    """
-    if confirmacion != "ENVIAR":
-        return {
-            "estado_final": "failed",
-            "error": "confirmacion_invalida",
-            "accion_id": accion_id,
-        }
 
-    accion = await _leer_accion_fresca(accion_id)
+    Cada paso deja huella en audit log:
+      * `high_confirmation_submitted` cuando el actor autenticado es dueño
+        de la acción y el endpoint recibe una confirmación.
+      * `high_confirmation_rejected` si el string es inválido o el estado
+        bloquea por causa no-duplicada. Los intentos contra acciones ajenas
+        se responden como no existentes y no auditan metadata del owner.
+      * `high_execution_duplicate_blocked` cuando un segundo intento llega
+        sobre una acción ya completada/en curso/fallida, o cuando pierde el
+        claim atómico contra otro caller concurrente.
+      * `high_execution_claimed` antes de soltar el control al ejecutor.
+      * `high_execution_succeeded` / `high_execution_failed` con metadata
+        sanitizada del resultado (nunca destino/cuerpo crudos).
+    """
+    from agent.automation.audit import registrar_evento as _audit
+
+    # Sólo tipo del input para auditoría (str/no-str); el contenido literal
+    # nunca se guarda — un string distinto a 'ENVIAR' puede contener PII.
+    confirmacion_es_str = isinstance(confirmacion, str)
+    confirmacion_valida = confirmacion_es_str and confirmacion == "ENVIAR"
+
+    accion = await _leer_accion_fresca_para_actor(accion_id, telefono_actor)
     if accion is None:
         return {
             "estado_final": "failed",
             "error": "accion_no_existe",
             "accion_id": accion_id,
         }
+
+    telefono_owner = accion.get("telefono", "") or ""
+    riesgo_owner = accion.get("riesgo", "") or ""
+    tipo_accion = accion.get("tipo_accion", "")
+    estado_actual = accion.get("estado", "")
+
+    await _audit(
+        evento="high_confirmation_submitted",
+        telefono=telefono_owner,
+        accion_id=accion_id,
+        riesgo=riesgo_owner,
+        payload={
+            "tipo_accion": tipo_accion,
+            "estado_actual": estado_actual,
+            "confirmacion_es_str": confirmacion_es_str,
+            "confirmacion_valida": confirmacion_valida,
+        },
+    )
+
+    if not confirmacion_valida:
+        await _audit(
+            evento="high_confirmation_rejected",
+            telefono=telefono_owner,
+            accion_id=accion_id,
+            riesgo=riesgo_owner,
+            payload={
+                "razon": "confirmacion_invalida",
+                "confirmacion_es_str": confirmacion_es_str,
+            },
+        )
+        return {
+            "estado_final": "failed",
+            "error": "confirmacion_invalida",
+            "accion_id": accion_id,
+        }
+
     if accion.get("tipo_accion") != "enviar_mensaje_whatsapp":
+        await _audit(
+            evento="high_confirmation_rejected",
+            telefono=telefono_owner,
+            accion_id=accion_id,
+            riesgo=riesgo_owner,
+            payload={
+                "razon": "tipo_accion_no_soportado",
+                "tipo_accion": tipo_accion,
+            },
+        )
         return {
             "estado_final": "failed",
             "error": "tipo_accion_no_soportado",
             "accion_id": accion_id,
         }
     if accion.get("riesgo") != "high":
+        await _audit(
+            evento="high_confirmation_rejected",
+            telefono=telefono_owner,
+            accion_id=accion_id,
+            riesgo=riesgo_owner,
+            payload={"razon": "riesgo_no_high"},
+        )
         return {
             "estado_final": "failed",
             "error": "riesgo_no_high",
             "accion_id": accion_id,
         }
     if accion.get("estado") != "approved":
+        estado_actual = accion.get("estado", "")
+        # Estados terminales/intermedios típicos de un segundo intento sobre
+        # una acción ya en curso o ya enviada. Los marcamos como duplicate
+        # para distinguirlos de rechazos genuinos del usuario/sistema.
+        if estado_actual in {"completed", "running", "failed"}:
+            await _audit(
+                evento="high_execution_duplicate_blocked",
+                telefono=telefono_owner,
+                accion_id=accion_id,
+                riesgo=riesgo_owner,
+                payload={
+                    "razon": "estado_no_aprobado_post_intento",
+                    "estado": estado_actual,
+                },
+            )
+        else:
+            await _audit(
+                evento="high_confirmation_rejected",
+                telefono=telefono_owner,
+                accion_id=accion_id,
+                riesgo=riesgo_owner,
+                payload={
+                    "razon": "accion_no_aprobada",
+                    "estado": estado_actual,
+                },
+            )
         return {
             "estado_final": "failed",
             "error": "accion_no_aprobada",
-            "estado": accion.get("estado"),
+            "estado": estado_actual,
             "accion_id": accion_id,
         }
 
+    payload_accion = _parse_json(accion.get("payload_json")) or {}
+    destino_short_seguro = _short_num(str(payload_accion.get("numero_destino") or ""))
+
     from agent.automation.execution import ejecutar_accion
-    return await ejecutar_accion(accion)
+    resultado = await ejecutar_accion(accion, audit_high_dedicado=True)
+    estado_final = resultado.get("estado_final", "")
+    error_resultado = str(resultado.get("error") or "")
+    result_payload = resultado.get("result") or {}
+    idempotente = bool(
+        isinstance(result_payload, dict) and result_payload.get("idempotent")
+    )
+
+    if estado_final == "completed":
+        await _audit(
+            evento="high_execution_succeeded",
+            telefono=telefono_owner,
+            accion_id=accion_id,
+            riesgo=riesgo_owner,
+            payload={
+                "tipo_accion": tipo_accion,
+                "modo": str(result_payload.get("modo", ""))[:32]
+                    if isinstance(result_payload, dict) else "",
+                "provider": str(result_payload.get("provider", ""))[:64]
+                    if isinstance(result_payload, dict) else "",
+                "destino_short": destino_short_seguro,
+                "longitud_mensaje": int(result_payload.get("longitud_mensaje", 0) or 0)
+                    if isinstance(result_payload, dict) else 0,
+                "idempotent": idempotente,
+            },
+        )
+    elif (
+        "ya_en_ejecucion" in error_resultado
+        or "claim_lost" in error_resultado
+        or "running_claim_lost" in error_resultado
+    ):
+        await _audit(
+            evento="high_execution_duplicate_blocked",
+            telefono=telefono_owner,
+            accion_id=accion_id,
+            riesgo=riesgo_owner,
+            payload={"razon": "claim_lost"},
+        )
+    else:
+        await _audit(
+            evento="high_execution_failed",
+            telefono=telefono_owner,
+            accion_id=accion_id,
+            riesgo=riesgo_owner,
+            payload={
+                "tipo_accion": tipo_accion,
+                # Código cerrado; nunca texto crudo de provider/exception.
+                "error_tipo": _audit_error_code(error_resultado),
+            },
+        )
+
+    return resultado
 
 
 async def confirmar_enviar_mensaje_whatsapp(
@@ -391,6 +576,27 @@ def _short_num(num: str) -> str:
     return f"{s[:2]}****{s[-4:]}"
 
 
+def _audit_error_code(error: str) -> str:
+    """Clasifica errores para audit log sin persistir texto upstream.
+
+    El texto de error puede contener PII/secrets si proviene de proveedores o
+    excepciones. Por eso se transforma a códigos cerrados y seguros.
+    """
+    error = str(error or "")
+    codigos = {
+        "insufficient_credits": "insufficient_credits",
+        "critical_blocked_t21a": "critical_blocked_t21a",
+        "accion_ya_en_ejecucion_o_no_aprobada": "claim_lost",
+        "ejecutor_no_disponible": "executor_unavailable",
+    }
+    for needle, code in codigos.items():
+        if needle in error:
+            return code
+    if "RuntimeError" in error or "error interno durante ejecución" in error:
+        return "executor_exception"
+    return "execution_failed"
+
+
 def _generar_mensaje_id(accion_id: int) -> str:
     """ID local que sirve como huella de idempotencia · NO es un id
     devuelto por el proveedor (Whapi no devuelve uno de forma
@@ -424,6 +630,30 @@ async def _leer_accion_fresca(accion_id: int) -> dict[str, Any] | None:
         row = (await s.execute(
             select(AccionAutomatizacion).where(
                 AccionAutomatizacion.id == accion_id
+            )
+        )).scalar_one_or_none()
+    return _a_dict(row) if row else None
+
+
+async def _leer_accion_fresca_para_actor(
+    accion_id: int,
+    telefono_actor: str,
+) -> dict[str, Any] | None:
+    """Lee una acción sólo si pertenece al actor autenticado.
+
+    La condición de ownership vive en el SELECT (`id` + `telefono`) para no
+    hidratar payloads HIGH ajenos antes de la barrera de pertenencia.
+    """
+    from agent.memory import async_session
+    from agent.automation.models import AccionAutomatizacion
+    from agent.automation.action_center import _a_dict
+    from sqlalchemy import select
+
+    async with async_session() as s:
+        row = (await s.execute(
+            select(AccionAutomatizacion).where(
+                AccionAutomatizacion.id == accion_id,
+                AccionAutomatizacion.telefono == telefono_actor,
             )
         )).scalar_one_or_none()
     return _a_dict(row) if row else None

@@ -641,7 +641,11 @@ EJECUTORES_T21A: dict[str, Callable[..., Awaitable[dict]]] = {
 # ── API pública ─────────────────────────────────────────────────────────────
 
 
-async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
+async def ejecutar_accion(
+    accion: dict[str, Any],
+    *,
+    audit_high_dedicado: bool = False,
+) -> dict[str, Any]:
     """Ejecuta una acción del Action Center.
 
     Reglas (T2.1.A respetadas en T2.1.C/D):
@@ -710,6 +714,15 @@ async def ejecutar_accion(accion: dict[str, Any]) -> dict[str, Any]:
             "estado_final": "failed",
             "error": "accion_ya_en_ejecucion_o_no_aprobada",
         }
+
+    if audit_high_dedicado and riesgo == NivelRiesgo.HIGH and tipo == "enviar_mensaje_whatsapp":
+        await registrar_evento(
+            evento="high_execution_claimed",
+            telefono=telefono,
+            accion_id=accion_id,
+            riesgo=riesgo_str,
+            payload={"tipo_accion": tipo, "claim_state": "running"},
+        )
 
     # T2.1.D · reservar créditos después del claim. Si el saldo es
     # insuficiente, la acción ya está en running por lifecycle y pasa a

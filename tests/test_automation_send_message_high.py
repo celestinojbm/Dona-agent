@@ -396,12 +396,12 @@ class TestConfirmacionDedicadaHigh:
             mensaje="Hola Ana, confirmo tu pedido.",
         )
 
-        bloqueado = await sm.preview_confirmacion_high_whatsapp(a["id"])
+        bloqueado = await sm.preview_confirmacion_high_whatsapp(a["id"], "5590")
         assert bloqueado["ok"] is False
         assert bloqueado["error"] == "accion_no_aprobada"
 
         await ac.aprobar_accion(a["id"])
-        preview = await sm.preview_confirmacion_high_whatsapp(a["id"])
+        preview = await sm.preview_confirmacion_high_whatsapp(a["id"], "5590")
         assert preview["ok"] is True
         assert preview["accion_id"] == a["id"]
         assert preview["tipo_accion"] == "enviar_mensaje_whatsapp"
@@ -423,7 +423,7 @@ class TestConfirmacionDedicadaHigh:
         )
         await ac.aprobar_accion(a["id"])
 
-        r = await sm.confirmar_high_whatsapp_dedicado(a["id"], " ENVIAR ")
+        r = await sm.confirmar_high_whatsapp_dedicado(a["id"], " ENVIAR ", "5591")
 
         assert r["estado_final"] == "failed"
         assert r["error"] == "confirmacion_invalida"
@@ -440,10 +440,10 @@ class TestConfirmacionDedicadaHigh:
             mensaje="hola",
         )
         await ac.aprobar_accion(a["id"])
-        r1 = await sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR")
+        r1 = await sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR", "5592")
         assert r1["estado_final"] == "completed"
 
-        r2 = await sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR")
+        r2 = await sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR", "5592")
 
         assert r2["estado_final"] == "failed"
         assert r2["error"] == "accion_no_aprobada"
@@ -469,8 +469,8 @@ class TestConfirmacionDedicadaHigh:
         await ac.aprobar_accion(a["id"])
 
         r1, r2 = await asyncio.gather(
-            sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR"),
-            sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR"),
+            sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR", "5593"),
+            sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR", "5593"),
         )
 
         estados = sorted([r1["estado_final"], r2["estado_final"]])

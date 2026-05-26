@@ -3188,7 +3188,7 @@ async def internal_automation_high_preview(request: Request):
     from agent.automation.executors.send_message import (
         preview_confirmacion_high_whatsapp,
     )
-    preview = await preview_confirmacion_high_whatsapp(accion_id)
+    preview = await preview_confirmacion_high_whatsapp(accion_id, telefono)
     if preview.get("ok"):
         return preview
     error = preview.get("error") or "high_confirmation_not_available"
@@ -3223,7 +3223,7 @@ async def internal_automation_high_confirmar(request: Request):
     from agent.memory import async_session
     from sqlalchemy import select
 
-    resultado = await confirmar_high_whatsapp_dedicado(accion_id, confirmacion)
+    resultado = await confirmar_high_whatsapp_dedicado(accion_id, confirmacion, telefono)
     if resultado.get("estado_final") != "completed":
         detail = resultado.get("error") or "high_confirmation_not_available"
         status = 404 if detail == "accion_no_existe" else 409
