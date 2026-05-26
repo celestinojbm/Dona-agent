@@ -45,6 +45,18 @@ EVENTOS_VALIDOS = {
     "credits_reservation_reconciled",
     # T2.1.D · pruning
     "pruning_executed",
+    # HIGH dedicado · trazabilidad del flujo preview → confirmación →
+    # ejecución para acciones HIGH (T2.2 + audit log dedicado). Registra
+    # cada decisión humana y cada intento de materialización con
+    # metadata mínima sanitizada · destino/mensaje nunca crudos.
+    "high_preview_requested",
+    "high_preview_rendered",
+    "high_confirmation_submitted",
+    "high_confirmation_rejected",
+    "high_execution_claimed",
+    "high_execution_succeeded",
+    "high_execution_failed",
+    "high_execution_duplicate_blocked",
 }
 
 
@@ -67,6 +79,13 @@ _CLAVES_PROHIBIDAS = {
     "stripe_session_id",
     "raw_message",              # cuerpo de mensajes WhatsApp del usuario
     "raw_response",
+    # HIGH WhatsApp · destino/cuerpo sólo viven en payload_json owner
+    # -scoped de la acción; jamás deben filtrarse en audit logs.
+    "numero_destino",
+    "mensaje",
+    "mensaje_preview",
+    "destino",
+    "destino_completo",
     # Campos de texto libre del onboarding extendido (T2.0.E.1) ·
     # pueden contener PII de clientes del usuario
     "oferta_principal",
