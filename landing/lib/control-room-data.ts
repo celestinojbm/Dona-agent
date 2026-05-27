@@ -1,4 +1,4 @@
-import agentRunsIndex from "../../docs/ops/agent-runs/index.json";
+import agentRunsIndex from "../data/agent-runs-index.json";
 
 export type RiesgoRun = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type EstadoRun = "merged" | "open" | "completed" | "partial" | "blocked";

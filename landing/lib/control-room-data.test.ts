@@ -1,10 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   obtenerControlRoomData,
   resumirAgentRuns,
 } from "./control-room-data";
 
 describe("control-room-data · agent-runs estáticos", () => {
+  it("usa un import JSON local a landing compatible con build Next/Turbopack", () => {
+    const source = readFileSync(join(process.cwd(), "lib/control-room-data.ts"), "utf-8");
+    const docsIndex = readFileSync(join(process.cwd(), "..", "docs/ops/agent-runs/index.json"), "utf-8");
+    const landingIndex = readFileSync(join(process.cwd(), "data/agent-runs-index.json"), "utf-8");
+
+    expect(source).not.toContain("../../docs/ops/agent-runs/index.json");
+    expect(source).toContain("../data/agent-runs-index.json");
+    expect(JSON.parse(landingIndex)).toEqual(JSON.parse(docsIndex));
+  });
+
   it("lee metadata versionada del índice docs/ops/agent-runs", () => {
     const data = obtenerControlRoomData();
 
