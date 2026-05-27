@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-24",
+  "source": "docs/ops/agent-runs",
+  "note": "Indice estatico inicial para Control Room; no contiene secrets, PII ni datos live.",
+  "runs": [
+    {
+      "run_id": "2026-05-24-pr48-next-required-action",
+      "fecha": "2026-05-24",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Exponer next_required_action y execution_block_reason para que backend y dashboard compartan el siguiente gate requerido.",
+      "branch": "feat/action-center-next-required-action",
+      "pr": 48,
+      "commit": "1733d37",
+      "agentes": [
+        "Hermes",
+        "Claude Code",
+        "Codex",
+        "OpenClaw"
+      ],
+      "archivos_resumen": [
+        "agent/automation/permissions.py",
+        "agent/automation/action_center.py",
+        "agent/main.py",
+        "landing/app/dashboard/seccion-action-center.tsx",
+        "landing/lib/automation-types.ts",
+        "tests/test_automation_next_required_action.py"
+      ],
+      "verificaciones": [
+        "pytest backend relevante: 61 passed",
+        "npm test frontend: 42 passed",
+        "npm run lint: 0 errors, 3 warnings preexistentes"
+      ],
+      "costo_estimado": "medio; multiples revisiones de Hermes/Claude/Codex y tests backend/frontend, sin APIs live",
+      "riesgos_residuales": [
+        "Confirmador dedicado real para HIGH pendiente",
+        "Smoke T2.1.D de reservas/creditos pendiente"
+      ],
+      "proxima_accion": "Construir confirmador dedicado real para HIGH con preview, costo, riesgo y audit log."
+    },
+    {
+      "run_id": "2026-05-24-pr49-control-room-interno",
+      "fecha": "2026-05-24",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Agregar Control Room interno estatico y bitacora inicial de orquestacion para ver progreso, agentes, PRs, guardrails y proximos pasos.",
+      "branch": "feat/control-room-project-progress",
+      "pr": 49,
+      "commit": "2338be6",
+      "agentes": [
+        "Hermes",
+        "Claude Code",
+        "Codex"
+      ],
+      "archivos_resumen": [
+        "docs/ops/AGENT_ORCHESTRATION_LOG.md",
+        "docs/ops/templates/agent-run.md",
+        "landing/app/dashboard/seccion-control-room.tsx",
+        "landing/lib/control-room.ts"
+      ],
+      "verificaciones": [
+        "npm test -- seccion-control-room.test.tsx control-room.test.ts: 9 passed",
+        "npm test: 51 passed",
+        "npm run lint: 0 errors, 3 warnings preexistentes"
+      ],
+      "costo_estimado": "medio; implementacion y revision con agentes, sin APIs live ni cambios productivos manuales",
+      "riesgos_residuales": [
+        "Control Room aun es snapshot estatico",
+        "Gate por email en cliente no es frontera de seguridad real"
+      ],
+      "proxima_accion": "Conectar Control Room a agent-runs versionados antes de integrar APIs vivas."
+    },
+    {
+      "run_id": "2026-05-24-pr50-operational-governance",
+      "fecha": "2026-05-24",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Formalizar la disciplina operativa de Dona con Run Ledger, Cost Ledger, Tool Ledger, modelo de permisos, politica de riesgo y gates HIGH/CRITICAL documentados.",
+      "branch": "docs/fase-1a-operational-governance",
+      "pr": 50,
+      "commit": "2dc4582",
+      "agentes": [
+        "Hermes",
+        "Subagente read-only"
+      ],
+      "archivos_resumen": [
+        "docs/ops/RUN_LEDGER_POLICY.md",
+        "docs/ops/templates/run-ledger.md",
+        "docs/ops/templates/cost-ledger.md",
+        "docs/ops/templates/tool-ledger.md",
+        "docs/ops/templates/security-checklist.md",
+        "docs/ops/templates/red-team-checklist.md",
+        "docs/ops/templates/deploy-gate.md",
+        "docs/ops/permissions-model.md",
+        "docs/ops/risk-policy.md",
+        "docs/ops/high-critical-gates.md",
+        "docs/ops/agent-runs/README.md",
+        "docs/ops/agent-runs/index.json"
+      ],
+      "verificaciones": [
+        "git diff --check: OK",
+        "python3 -m json.tool docs/ops/agent-runs/index.json: OK",
+        "scope check: 12 archivos autorizados, 0 extras, 0 faltantes",
+        "revision independiente read-only: sin bloqueantes"
+      ],
+      "costo_estimado": "medio; documentacion operativa extensa, validaciones git/json/scope y una revision read-only; sin APIs live ni cambios runtime",
+      "riesgos_residuales": [
+        "Permisos minimos reales aun no implementados tecnicamente",
+        "Run Ledger/Cost Ledger aun no aplicados por CI de forma obligatoria",
+        "Red-team, staging/deploy gates y observabilidad viva siguen pendientes"
+      ],
+      "proxima_accion": "Consumir agent-runs estaticos desde el Control Room antes de conectar APIs vivas."
+    },
+    {
+      "run_id": "2026-05-25-pr51-control-room-static-agent-runs",
+      "fecha": "2026-05-25",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Actualizar el Control Room interno para leer y mostrar agent-runs versionados desde docs/ops/agent-runs/index.json sin usar APIs vivas.",
+      "branch": "feat/control-room-static-agent-runs",
+      "pr": 51,
+      "commit": "874eba1",
+      "agentes": [
+        "Hermes",
+        "Subagentes read-only"
+      ],
+      "archivos_resumen": [
+        "landing/lib/control-room-data.ts",
+        "landing/lib/control-room-data.test.ts",
+        "landing/app/dashboard/seccion-control-room.tsx",
+        "landing/app/dashboard/seccion-control-room.test.tsx"
+      ],
+      "verificaciones": [
+        "npm test -- control-room-data.test.ts seccion-control-room.test.tsx: 9 passed",
+        "npm test: 54 passed",
+        "npm run lint: 0 errors, 3 warnings preexistentes",
+        "git diff --check: OK",
+        "secret scan count-only: 0 posibles tokens/secrets tras limpiar falsos positivos"
+      ],
+      "costo_estimado": "medio; TDD RED/GREEN, suite frontend, lint, secret scan y dos revisiones read-only; sin APIs live ni cambios backend/runtime",
+      "riesgos_residuales": [
+        "Control Room sigue usando indice estatico versionado, no observabilidad viva",
+        "El index no se actualiza automaticamente hasta crear un generador o check de CI",
+        "Gate por email/client-side del Control Room no es frontera de seguridad real"
+      ],
+      "proxima_accion": "Registrar PR #50 y PR #51 en agent-runs y mantener el Control Room alimentado por datos versionados."
+    },
+    {
+      "run_id": "2026-05-25-pr52-agent-runs-pr50-pr51-ledgers",
+      "fecha": "2026-05-25",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Registrar en agent-runs los ledgers retrospectivos de PR #50 y PR #51, y actualizar index.json para que el Control Room muestre esas mejoras de gobernanza.",
+      "branch": "docs/agent-runs-pr50-pr51-ledgers",
+      "pr": 52,
+      "commit": "ea9e928",
+      "agentes": [
+        "Hermes",
+        "Subagente read-only"
+      ],
+      "archivos_resumen": [
+        "docs/ops/agent-runs/index.json",
+        "docs/ops/agent-runs/2026-05-24-pr50-operational-governance/run-ledger.md",
+        "docs/ops/agent-runs/2026-05-24-pr50-operational-governance/cost-ledger.md",
+        "docs/ops/agent-runs/2026-05-24-pr50-operational-governance/tool-ledger.md",
+        "docs/ops/agent-runs/2026-05-25-pr51-control-room-static-agent-runs/run-ledger.md",
+        "docs/ops/agent-runs/2026-05-25-pr51-control-room-static-agent-runs/cost-ledger.md",
+        "docs/ops/agent-runs/2026-05-25-pr51-control-room-static-agent-runs/tool-ledger.md"
+      ],
+      "verificaciones": [
+        "python3 -m json.tool docs/ops/agent-runs/index.json: OK",
+        "git diff --check: OK",
+        "scope check: 7 archivos, 0 extras, 0 faltantes",
+        "secret scan count-only: 0 posibles tokens/secrets",
+        "npm test -- control-room-data.test.ts seccion-control-room.test.tsx: 9 passed",
+        "npm test: 54 passed",
+        "npm run lint: 0 errores, 3 warnings preexistentes",
+        "revision independiente read-only: APROBADO"
+      ],
+      "costo_estimado": "bajo-medio; documentacion versionada acotada, validaciones locales y revision read-only, sin APIs live ni cambios runtime",
+      "riesgos_residuales": [
+        "generated_at se mantuvo estable por compatibilidad semantica pendiente",
+        "La actualizacion del index aun era manual antes de introducir el validador de PR #53"
+      ],
+      "proxima_accion": "Agregar validador local/offline para agent-runs antes de conectar CI o APIs vivas."
+    },
+    {
+      "run_id": "2026-05-25-pr53-agent-runs-validator",
+      "fecha": "2026-05-25",
+      "riesgo": "MEDIUM",
+      "estado": "merged",
+      "objetivo": "Agregar un validador local/offline de agent-runs con tests para exigir index.json valido, campos requeridos, carpeta por run, ledgers minimos y scan basico de secrets.",
+      "branch": "docs/validate-agent-runs",
+      "pr": 53,
+      "commit": "fc5f0b3",
+      "agentes": [
+        "Hermes",
+        "Subagentes read-only"
+      ],
+      "archivos_resumen": [
+        "scripts/__init__.py",
+        "scripts/validate_agent_runs.py",
+        "tests/test_validate_agent_runs.py",
+        "docs/ops/agent-runs/README.md",
+        "docs/ops/agent-runs/2026-05-24-pr48-next-required-action/run-ledger.md",
+        "docs/ops/agent-runs/2026-05-24-pr49-control-room-interno/run-ledger.md"
+      ],
+      "verificaciones": [
+        "RED inicial: ModuleNotFoundError antes de implementar scripts.validate_agent_runs",
+        "RED especifico: run en index sin carpeta devolvia ok=True antes del fix",
+        "python scripts/validate_agent_runs.py: agent-runs OK: 4 runs",
+        "pytest tests/test_validate_agent_runs.py -q: 5 passed",
+        "pytest -q: 926 passed, 14 warnings aiosqlite/logging no relacionadas",
+        "scope check: 10 archivos, 0 extras, 0 faltantes",
+        "secret scan count-only: 0 posibles tokens/secrets",
+        "revision independiente read-only final: APROBADO"
+      ],
+      "costo_estimado": "medio; script Python, tests TDD, suite completa y dos revisiones read-only, sin APIs productivas ni proveedores externos reales",
+      "riesgos_residuales": [
+        "El validador aun no esta conectado a CI; depende de ejecucion manual",
+        "El scan de secrets es heuristico y no reemplaza una herramienta dedicada",
+        "No valida automaticamente que el commit corto del index coincida con GitHub"
+      ],
+      "proxima_accion": "Mostrar en Control Room la validacion de agent-runs y evaluar conectar el validador a CI en PR separado autorizado."
+    },
+    {
+      "run_id": "2026-05-25-pr56-high-dedicated-confirmation",
+      "fecha": "2026-05-25",
+      "riesgo": "HIGH",
+      "estado": "merged",
+      "objetivo": "Agregar confirmacion dedicada para acciones HIGH de envio WhatsApp con preview autenticado, confirmacion exacta ENVIAR, bloqueo del endpoint generico, claim atomico de ejecucion y proteccion contra doble envio/concurrencia de creditos.",
+      "branch": "feat/high-dedicated-confirmation",
+      "pr": 56,
+      "commit": "ffeffd5",
+      "agentes": [
+        "Hermes",
+        "Subagente read-only"
+      ],
+      "archivos_resumen": [
+        "agent/automation/action_center.py",
+        "agent/automation/execution.py",
+        "agent/automation/executors/send_message.py",
+        "agent/main.py",
+        "landing/app/api/automation/acciones/[id]/high-confirmar/route.ts",
+        "landing/app/api/automation/acciones/[id]/high-preview/route.ts",
+        "landing/app/dashboard/seccion-action-center.tsx",
+        "landing/lib/automation-bridge.ts",
+        "tests/test_automation_send_message_high.py",
+        "tests/test_automation_endpoints.py"
+      ],
+      "verificaciones": [
+        "python -m pytest tests/test_automation_send_message_high.py tests/test_automation_endpoints.py tests/test_automation_execution.py tests/test_automation_creditos_reservas.py tests/test_automation_action_center.py -q: 100 passed",
+        "cd landing && npm test: 58 passed",
+        "cd landing && npm run lint: 0 errors, 3 warnings preexistentes",
+        "python -m pytest -q: 933 passed",
+        "revision independiente read-only final: APROBADO",
+        "GitHub checks PR #56: Agent Runs Validation, Vercel y Preview Comments success",
+        "smoke post-merge: validate_agent_runs OK y TestConfirmacionDedicadaHigh 4 passed"
+      ],
+      "costo_estimado": "alto; implementacion HIGH sensible, multiples ciclos TDD, suite backend completa, suite frontend, revision read-only y publicacion/merge via msi; sin proveedores externos reales ni envios reales",
+      "riesgos_residuales": [
+        "La ruta HIGH real existe y debe mantenerse detras de preview, aprobacion y confirmacion exacta",
+        "Preview muestra numero completo y mensaje solo al duenio autenticado; requiere mantener frontera server-side",
+        "Warnings de aiosqlite/event-loop en tests siguen como deuda tecnica no relacionada",
+        "Audit log y Cost Ledger exacto dentro del producto aun pueden fortalecerse en PRs futuros"
+      ],
+      "proxima_accion": "Registrar PR #56 en agent-runs/Control Room y luego fortalecer audit log, cost preview y observabilidad del flujo HIGH."
+    }
+  ]
+}
