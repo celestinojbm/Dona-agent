@@ -2,7 +2,7 @@
 
 Run ID: RUN-2026-05-27-computer-use-operating-policy
 Fecha: 2026-05-27
-Estado: ready_for_pr
+Estado: open_pr
 Riesgo: MEDIUM
 Branch: docs/computer-use-operating-policy
 Tipo: docs-only
@@ -80,6 +80,8 @@ Revertir el PR documental. No hay cambios runtime ni migraciones.
 - `pytest tests/test_validate_agent_runs.py -q`: OK, 5 passed.
 - Secret scan local sobre archivos modificados: OK, sin patrones obvios.
 - Revision read-only independiente: APROBADO, sin hallazgos bloqueantes.
+- Publicacion via msi autenticado: PR #59 abierto.
+- Checks PR #59: `Validar agent-runs offline`, `Vercel`, `Vercel Preview Comments` en pass.
 
 ## Archivos modificados
 
@@ -97,4 +99,4 @@ Revertir el PR documental. No hay cambios runtime ni migraciones.
 
 ## Proxima accion
 
-Abrir PR docs-only para revision y merge manual.
+Esperar revision/merge manual de PR #59. Despues del merge, sincronizar workspaces y, si se desea que aparezca en Control Room, registrar el run en `docs/ops/agent-runs/index.json` en un PR separado.

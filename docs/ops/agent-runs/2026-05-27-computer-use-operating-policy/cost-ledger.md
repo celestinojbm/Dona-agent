@@ -2,7 +2,7 @@
 
 Run ID: RUN-2026-05-27-computer-use-operating-policy
 Fecha: 2026-05-27
-Estado: ready_for_pr
+Estado: open_pr
 
 ## Costos directos externos
 

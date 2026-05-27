@@ -2,7 +2,7 @@
 
 Run ID: RUN-2026-05-27-computer-use-operating-policy
 Fecha: 2026-05-27
-Estado: ready_for_pr
+Estado: open_pr
 
 ## Herramientas usadas
 
@@ -26,10 +26,14 @@ Uso:
 - Verificar branch, commit y estado git.
 - Crear branch docs-only.
 - Ejecutar validaciones locales.
+- Generar patch/bundle de handoff.
+- Transferir patch a msi y publicar PR mediante el workspace autenticado.
+- Verificar checks de PR.
 
 Impacto:
 
-- Escritura esperada solo en git metadata al crear branch.
+- Escritura esperada en git metadata al crear branch y commits.
+- Publicacion de branch/PR en GitHub via msi.
 - Sin secretos ni produccion.
 
 ### read_file
@@ -44,6 +48,17 @@ Uso:
 Impacto:
 
 - Solo lectura.
+
+### delegate_task
+
+Uso:
+
+- Revision read-only independiente del diff docs-only.
+
+Impacto:
+
+- Solo lectura y validaciones locales.
+- Veredicto: APROBADO, sin hallazgos bloqueantes.
 
 ### write_file
 
