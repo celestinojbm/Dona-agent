@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
-import { motion, AnimatePresence, useInView } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain,
   Sparkles,
@@ -13,7 +13,6 @@ import {
   ArrowRight,
   Shield,
   Globe,
-  Send,
   Menu,
   X,
   Mic,
@@ -38,11 +37,11 @@ const i18n = {
       start: "Comenzar",
     },
     hero: {
-      line1: "Te ayuda con",
-      line3: "desde WhatsApp.",
+      line1: "Tu agente operativo",
+      line3: "en WhatsApp.",
       subtitle:
-        "Un solo chat para correo, calendario, tareas, memoria y decisiones de negocio. Sin apps extra. Sin friccion.",
-      cta: "Unete a Dona",
+        "Gestiona correo, calendario, tareas y memoria de negocio desde un solo chat. Dona prepara, confirma y ejecuta contigo, sin apps extra ni friccion.",
+      cta: "Empezar en WhatsApp",
       secondary: "Ver capacidades",
       stats: [
         { value: "+100", label: "capacidades de alta conversion integradas" },
@@ -51,11 +50,11 @@ const i18n = {
       ],
     },
     rotating: [
-      "tu correo",
-      "tu calendario",
-      "tus tareas",
-      "tu memoria",
-      "tus decisiones",
+      "para correo",
+      "para calendario",
+      "para tareas",
+      "con memoria",
+      "para decisiones",
     ],
     painLabel: "El problema que Dona resuelve",
     painStats: [
@@ -153,11 +152,11 @@ const i18n = {
       start: "Get started",
     },
     hero: {
-      line1: "Helps you with",
-      line3: "from WhatsApp.",
+      line1: "Your operating agent",
+      line3: "in WhatsApp.",
       subtitle:
-        "One chat for email, calendar, tasks, memory and business decisions. No extra apps. No friction.",
-      cta: "Join Dona",
+        "Manage email, calendar, tasks and business memory from one chat. Dona prepares, confirms and executes with you, no extra apps and no friction.",
+      cta: "Start in WhatsApp",
       secondary: "See features",
       stats: [
         { value: "+100", label: "high-conversion features built in" },
@@ -166,11 +165,11 @@ const i18n = {
       ],
     },
     rotating: [
-      "your email",
-      "your calendar",
-      "your tasks",
-      "your memory",
-      "your decisions",
+      "for email",
+      "for calendar",
+      "for tasks",
+      "with memory",
+      "for decisions",
     ],
     painLabel: "The problem Dona solves",
     painStats: [
@@ -280,22 +279,8 @@ const iconMap = { Brain, Sparkles, Mail, Calendar, Mic, MessageSquare, Image, Do
    ════════════════════════════════════════════════════════════ */
 
 function Counter({ target, suffix = "", prefix = "" }: { target: number; suffix?: string; prefix?: string }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-100px" });
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!isInView) return;
-    let start = 0;
-    const duration = 2000;
-    const step = target / (duration / 16);
-    const timer = setInterval(() => {
-      start += step;
-      if (start >= target) { setCount(target); clearInterval(timer); }
-      else setCount(Math.floor(start));
-    }, 16);
-    return () => clearInterval(timer);
-  }, [isInView, target]);
-  return <span ref={ref} className="tabular-nums font-mono">{prefix}{count}{suffix}</span>;
+  const [count] = useState(target);
+  return <span className="tabular-nums font-mono">{prefix}{count}{suffix}</span>;
 }
 
 function FadeIn({ children, delay = 0, direction = "up", className = "" }: { children: React.ReactNode; delay?: number; direction?: "up" | "down" | "left" | "right"; className?: string }) {
@@ -487,12 +472,12 @@ export default function Home() {
               <br />
               <RotatingText words={t.rotating} />
               <br />
-              <span className="text-white/25 font-extralight">{t.hero.line3}</span>
+              <span className="text-white/70 font-extralight">{t.hero.line3}</span>
             </h1>
           </FadeIn>
 
           <FadeIn delay={0.2}>
-            <p className="text-lg md:text-xl text-white/35 max-w-lg mx-auto mb-10 leading-relaxed font-light">
+            <p className="text-lg md:text-xl text-white/50 max-w-xl mx-auto mb-10 leading-relaxed font-light">
               {t.hero.subtitle}
             </p>
           </FadeIn>
@@ -514,7 +499,7 @@ export default function Home() {
               {t.hero.stats.map((stat, i) => (
                 <div key={i}>
                   <div className="text-2xl font-normal text-white/80">{stat.value}</div>
-                  <div className="text-[11px] text-white/25 mt-1 uppercase tracking-wider font-light">{stat.label}</div>
+                  <div className="text-[11px] text-white/45 mt-1 uppercase tracking-wider font-light">{stat.label}</div>
                 </div>
               ))}
             </div>
