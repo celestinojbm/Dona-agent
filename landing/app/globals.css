@@ -170,7 +170,9 @@ body {
 
 /* -- Fade-in reveal (CSS-driven, bfcache-safe) -- */
 [data-fade="pending"] {
-  opacity: 0;
+  /* Progressive enhancement: content remains visible even if JS, IntersectionObserver,
+     or browser automation does not complete the reveal cycle. */
+  opacity: 1;
 }
 [data-fade="pending"][style*="--fade-dir:up"]    { transform: translateY(40px); }
 [data-fade="pending"][style*="--fade-dir:down"]  { transform: translateY(-40px); }
