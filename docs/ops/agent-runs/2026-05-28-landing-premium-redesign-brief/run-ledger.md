@@ -100,7 +100,8 @@ Cerrar PR sin merge o revertir el commit docs-only. No hay cambios runtime ni de
 
 ## Cierre
 
-Estado: completado para commit local; PR pendiente de publicación.
+Estado: completado; PR publicado.
+PR: https://github.com/celestinojbm/Dona-agent/pull/63
 
 Archivos creados:
 
@@ -122,7 +123,7 @@ Verificaciones ejecutadas:
 Riesgos encontrados:
 
 - El brief no implementa cambios visuales; requiere fase posterior de prototipo/implementación.
-- La publicación del PR requiere ruta autenticada porque el VPS no tiene `gh` ni credenciales GitHub para el repo privado.
+- La publicación del PR se realizó por ruta autenticada desde msi porque el VPS no tiene `gh` ni credenciales GitHub para el repo privado.
 
 Desvíos respecto al plan:
 
