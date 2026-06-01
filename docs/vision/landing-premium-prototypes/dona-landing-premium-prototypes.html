@@ -1,0 +1,1056 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Dona — Prototipos premium de landing (3 direcciones)</title>
+<meta name="description" content="Prototipo comparativo de 3 direcciones visuales premium para la landing de Dona. No es la landing productiva.">
+<style>
+/* ============================================================
+   SHELL COMPARTIDO — tokens, layout base, navegacion, panel de
+   comparacion, footer, sistema de reveal y comportamiento de tabs.
+   Cada direccion (A/B/C) trae su propio <style> scoped bajo #dir-x.
+   ============================================================ */
+:root{
+  --bg:#08090d;
+  --bg-elev:#0e1016;
+  --bg-elev-2:#13161f;
+  --surface:rgba(255,255,255,.03);
+  --line:rgba(255,255,255,.09);
+  --line-soft:rgba(255,255,255,.05);
+  --text:#f4f6fb;
+  --text-dim:#aab1c2;
+  --text-mut:#6b7286;
+  --font-sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji",sans-serif;
+  --font-mono:ui-monospace,"SF Mono","Cascadia Code","Segoe UI Mono",Menlo,Consolas,monospace;
+  --maxw:1200px;
+  --radius:14px;
+  --radius-lg:22px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{
+  margin:0;
+  font-family:var(--font-sans);
+  color:var(--text);
+  background:var(--bg);
+  background-image:
+    radial-gradient(900px 600px at 82% -8%, rgba(120,140,255,.10), transparent 60%),
+    radial-gradient(800px 500px at 0% 8%, rgba(120,220,200,.06), transparent 55%);
+  background-attachment:fixed;
+  -webkit-font-smoothing:antialiased;
+  line-height:1.55;
+  overflow-x:hidden;
+}
+img,svg{max-width:100%;display:block}
+a{color:inherit}
+button{font-family:inherit}
+h1,h2,h3,h4{line-height:1.08;margin:0;text-wrap:balance}
+p{margin:0}
+.wrap{width:100%;max-width:var(--maxw);margin-inline:auto;padding-inline:clamp(18px,5vw,40px)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.skip{position:absolute;left:12px;top:-60px;z-index:200;background:var(--text);color:#000;padding:10px 16px;border-radius:10px;font-weight:600;transition:top .2s}
+.skip:focus{top:12px}
+
+/* ---------- micro componentes compartidos ---------- */
+.eyebrow{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-mut)}
+.proto-tag{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-dim);border:1px solid var(--line);border-radius:999px;padding:5px 11px;background:var(--surface)}
+.proto-tag::before{content:"";width:6px;height:6px;border-radius:50%;background:#ffce6b;box-shadow:0 0 10px 1px rgba(255,206,107,.6)}
+.btn{display:inline-flex;align-items:center;gap:9px;border-radius:11px;padding:13px 22px;font-size:14.5px;font-weight:600;text-decoration:none;border:1px solid transparent;cursor:pointer;transition:transform .18s ease,background .2s ease,border-color .2s ease}
+.btn:active{transform:translateY(1px)}
+.btn--primary{background:var(--text);color:#06070a}
+.btn--primary:hover{background:#fff}
+.btn--ghost{background:transparent;color:var(--text);border-color:var(--line)}
+.btn--ghost:hover{border-color:rgba(255,255,255,.28);background:var(--surface)}
+
+/* ---------- header / switcher ---------- */
+.site-header{position:sticky;top:0;z-index:100;backdrop-filter:blur(14px);background:rgba(8,9,13,.72);border-bottom:1px solid var(--line-soft)}
+.site-header__row{display:flex;align-items:center;gap:18px;min-height:64px;flex-wrap:wrap;padding-block:10px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:650;letter-spacing:-.01em;margin-right:auto}
+.brand__mark{width:30px;height:30px;border-radius:9px;background:conic-gradient(from 210deg,#8aa2ff,#7af0c4,#ffb27a,#a98bff,#8aa2ff);box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+.brand__name{font-size:15px}
+.brand__name b{font-weight:750}
+.brand__sub{font-family:var(--font-mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-mut);display:block;margin-top:1px}
+.switcher{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.nav__tab{appearance:none;display:inline-flex;flex-direction:column;gap:1px;text-decoration:none;color:var(--text-dim);background:transparent;border:1px solid transparent;border-radius:10px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer;transition:color .2s,background .2s,border-color .2s}
+.nav__tab small{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--text-mut);font-weight:500}
+.nav__tab:hover{color:var(--text);background:var(--surface)}
+.nav__tab[aria-selected="true"]{color:var(--text);background:var(--bg-elev-2);border-color:var(--line)}
+.nav__tab[aria-selected="true"] small{color:var(--text-dim)}
+.nav__tab--plain{flex-direction:row;align-items:center;gap:7px}
+
+/* ---------- panel de comparacion / resumen ---------- */
+.resumen{padding-block:clamp(46px,8vw,86px) clamp(30px,5vw,52px);position:relative}
+.resumen__head{max-width:880px}
+.resumen h1{font-size:clamp(30px,5.4vw,56px);font-weight:720;letter-spacing:-.02em;margin-top:18px}
+.resumen h1 i{font-style:normal;background:linear-gradient(100deg,#cbd6f2,#8aa2ff 40%,#7af0c4 72%,#ffb27a);-webkit-background-clip:text;background-clip:text;color:transparent}
+.resumen__lead{font-size:clamp(15.5px,2vw,18.5px);color:var(--text-dim);margin-top:18px;max-width:720px}
+.resumen__lead b{color:var(--text);font-weight:600}
+.decision-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px;padding:10px;border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.018))}
+.decision-strip div{padding:13px 14px;border:1px solid var(--line-soft);border-radius:12px;background:rgba(0,0,0,.16)}
+.decision-strip b{display:block;font-size:13px;letter-spacing:-.01em;color:var(--text);margin-bottom:5px}
+.decision-strip span{display:block;font-size:12.5px;color:var(--text-dim);line-height:1.35}
+.cmp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:40px}
+.cmp-card{position:relative;border:1px solid var(--line);border-radius:var(--radius-lg);padding:22px 20px 20px;background:linear-gradient(180deg,var(--bg-elev),rgba(14,16,22,.4));overflow:hidden;display:flex;flex-direction:column;gap:13px;min-height:100%}
+.cmp-card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--cmp-accent,#8aa2ff)}
+.cmp-card__tag{font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--cmp-accent,#8aa2ff)}
+.cmp-card h2{font-size:21px;font-weight:680;letter-spacing:-.01em}
+.cmp-card__insp{font-family:var(--font-mono);font-size:11.5px;color:var(--text-mut);line-height:1.5}
+.cmp-card__rows{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:9px}
+.cmp-card__rows li{font-size:13.5px;color:var(--text-dim);display:flex;gap:9px;align-items:flex-start}
+.cmp-card__rows b{color:var(--text);font-weight:600}
+.cmp-card__rows li::before{content:"";flex:none;width:6px;height:6px;border-radius:2px;margin-top:7px;background:var(--cmp-accent,#8aa2ff)}
+.cmp-card .btn{margin-top:auto;width:100%;justify-content:center;font-size:13.5px;padding:11px 16px}
+.cmp-card--a{--cmp-accent:#8aa2ff}
+.cmp-card--b{--cmp-accent:#ffb27a}
+.cmp-card--c{--cmp-accent:#5fe3b0}
+
+.pact{margin-top:34px;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface);padding:clamp(20px,3vw,30px);display:grid;grid-template-columns:1.1fr 1fr;gap:30px}
+.pact h3{font-size:17px;font-weight:660;margin-bottom:14px}
+.pact h3 .eyebrow{display:block;margin-bottom:9px}
+.pact__list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.pact__list li{display:flex;gap:11px;font-size:13.6px;color:var(--text-dim)}
+.pact__list b{color:var(--text);font-weight:600}
+.pact__list li::before{content:"";flex:none;width:17px;height:17px;border-radius:5px;margin-top:1px;background:linear-gradient(135deg,rgba(138,162,255,.25),rgba(122,240,196,.18));border:1px solid var(--line)}
+.pact__choose li::before{background:linear-gradient(135deg,rgba(255,178,122,.22),rgba(169,139,255,.18))}
+
+/* ---------- contenedor de direcciones ---------- */
+main{display:block}
+.directions-note{border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft);background:rgba(0,0,0,.25)}
+.directions-note .wrap{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding-block:14px;font-size:13px;color:var(--text-mut)}
+.directions-note b{color:var(--text-dim);font-weight:600}
+.direccion{display:block;border-top:1px solid var(--line-soft)}
+.direccion__eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-mut);padding:18px 0 0}
+.direccion__eyebrow span{color:var(--text-dim)}
+/* En modo tabs (JS) solo se muestra la direccion activa. Sin JS se ven las tres apiladas. */
+body.js-tabs .direccion{display:none}
+body.js-tabs .direccion.is-active{display:block}
+
+/* ---------- footer ---------- */
+.site-footer{border-top:1px solid var(--line);padding-block:40px 54px;margin-top:10px;background:rgba(0,0,0,.3)}
+.site-footer .wrap{display:flex;flex-direction:column;gap:14px}
+.site-footer__top{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.site-footer p{font-size:13px;color:var(--text-mut);max-width:760px}
+.site-footer b{color:var(--text-dim);font-weight:600}
+
+/* ---------- sistema de reveal (progressive enhancement) ----------
+   Sin la clase js-reveal o con prefers-reduced-motion, el contenido
+   es visible por defecto. El JS solo la agrega si hay motion permitido. */
+@media (prefers-reduced-motion:no-preference){
+  body.js-reveal [data-reveal]{opacity:0;transform:translateY(16px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+  body.js-reveal [data-reveal].is-in{opacity:1;transform:none}
+}
+
+/* ---------- responsive base ---------- */
+@media (max-width:900px){
+  .decision-strip{grid-template-columns:1fr 1fr}
+  .cmp-grid{grid-template-columns:1fr}
+  .pact{grid-template-columns:1fr;gap:22px}
+}
+@media (max-width:620px){
+  .brand__sub{display:none}
+  .nav__tab small{display:none}
+  .nav__tab{padding:8px 11px}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#contenido">Saltar al contenido</a>
+
+<header class="site-header">
+  <div class="wrap site-header__row">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name"><b>Dona</b> · prototipos<span class="brand__sub">Dirección visual — borrador</span></span>
+    </div>
+    <nav class="switcher" aria-label="Cambiar entre direcciones del prototipo">
+      <a class="nav__tab nav__tab--plain" href="#resumen" data-scroll>Comparación</a>
+      <a class="nav__tab" id="tab-a" href="#dir-a" role="tab" aria-selected="true" data-dir-target="a">Dirección A<small>Execution Suite</small></a>
+      <a class="nav__tab" id="tab-b" href="#dir-b" role="tab" aria-selected="false" data-dir-target="b">Dirección B<small>Prompt to Production</small></a>
+      <a class="nav__tab" id="tab-c" href="#dir-c" role="tab" aria-selected="false" data-dir-target="c">Dirección C<small>Multimodal Output Gallery</small></a>
+    </nav>
+  </div>
+</header>
+
+<main id="contenido">
+
+  <!-- ===================== PANEL DE COMPARACION / RESUMEN ===================== -->
+  <section class="resumen" id="resumen" aria-labelledby="resumen-title">
+    <div class="wrap">
+      <div class="resumen__head" data-reveal>
+        <span class="proto-tag">Prototipo · no es la landing productiva</span>
+        <h1 id="resumen-title">Tres direcciones premium para <i>convertir intención en producción</i></h1>
+        <p class="resumen__lead">Dona es una <b>plataforma-agente multimodelo de negocio y ejecución controlada</b>: convierte ideas, archivos, conversaciones y objetivos en activos, workflows y acciones reales, siempre con <b>créditos operativos, permisos humanos, riesgo visible, audit trail y medición</b>. Este documento compara tres direcciones visuales para la landing. Sirve para <b>elegir un rumbo de marca</b>, no para reemplazar todavía nada en producción.</p>
+      </div>
+
+      <div class="decision-strip" aria-label="Lectura rapida para decision" data-reveal>
+        <div><b>A · Suite</b><span>Mejor para autoridad, plataforma completa y módulos Dona.</span></div>
+        <div><b>B · Aha moment</b><span>Mejor para explicar intención → producción en segundos.</span></div>
+        <div><b>C · Tangibles</b><span>Mejor para mostrar outputs, formatos y starting points.</span></div>
+        <div><b>Recomendación inicial</b><span>Hero de B + arquitectura de A + galería selectiva de C.</span></div>
+      </div>
+
+      <div class="cmp-grid">
+        <article class="cmp-card cmp-card--a" data-reveal>
+          <span class="cmp-card__tag">Dirección A</span>
+          <h2>Execution Suite</h2>
+          <p class="cmp-card__insp">Patrones de suite creativa / research enterprise (estilo ltx.io, ltx.studio). Sin copiar nombres ni layouts.</p>
+          <ul class="cmp-card__rows">
+            <li><b>Optimiza:</b> percibir un sistema con capas y módulos, no un chatbot.</li>
+            <li><b>Conviene si:</b> queremos autoridad técnica y sensación de plataforma completa.</li>
+            <li><b>Riesgo:</b> puede leerse fría si el copy no acerca lo humano.</li>
+          </ul>
+          <a class="btn btn--ghost" href="#dir-a" data-dir-target="a">Explorar dirección A</a>
+        </article>
+
+        <article class="cmp-card cmp-card--b" data-reveal>
+          <span class="cmp-card__tag">Dirección B</span>
+          <h2>Prompt to Production</h2>
+          <p class="cmp-card__insp">Patrones de hero con input y loop visible (estilo Luma, Lovable). Sin copiar nombres ni layouts.</p>
+          <ul class="cmp-card__rows">
+            <li><b>Optimiza:</b> entender en una pantalla cómo una intención se vuelve trabajo.</li>
+            <li><b>Conviene si:</b> queremos claridad inmediata y demostración sobre explicación.</li>
+            <li><b>Riesgo:</b> que parezca generador de respuestas; lo evita el bloque de permisos.</li>
+          </ul>
+          <a class="btn btn--ghost" href="#dir-b" data-dir-target="b">Explorar dirección B</a>
+        </article>
+
+        <article class="cmp-card cmp-card--c" data-reveal>
+          <span class="cmp-card__tag">Dirección C</span>
+          <h2>Multimodal Output Gallery</h2>
+          <p class="cmp-card__insp">Patrones de galería densa de outputs y starting points (estilo Higgsfield, Kittl). Sin copiar nombres ni layouts.</p>
+          <ul class="cmp-card__rows">
+            <li><b>Optimiza:</b> probar amplitud multimodal con resultados tangibles.</li>
+            <li><b>Conviene si:</b> queremos vender con outputs y puntos de partida accionables.</li>
+            <li><b>Riesgo:</b> verse como galería de tools; lo evita el bloque de control.</li>
+          </ul>
+          <a class="btn btn--ghost" href="#dir-c" data-dir-target="c">Explorar dirección C</a>
+        </article>
+      </div>
+
+      <div class="pact" data-reveal>
+        <div>
+          <h3><span class="eyebrow">No negociable en cualquier dirección</span>Lo que las tres deben sostener</h3>
+          <ul class="pact__list">
+            <li><span><b>Control humano:</b> ninguna acción sensible se ejecuta sin preview, permiso y confirmación.</span></li>
+            <li><span><b>Créditos operativos, costo y riesgo</b> visibles antes de ejecutar; con límites de gasto.</span></li>
+            <li><span><b>Audit trail y medición:</b> qué se hizo, qué costó, qué resultó y qué sigue.</span></li>
+            <li><span><b>Control Room</b> como capa de observabilidad del trabajo y los agentes.</span></li>
+            <li><span><b>WhatsApp es solo un canal de entrada</b> —junto a web, voz, archivos y email—, no la identidad.</span></li>
+            <li><span>Sin promesas de ingresos garantizados ni autonomía ciega.</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3><span class="eyebrow">Cómo elegir</span>Criterios para decidir el rumbo</h3>
+          <ul class="pact__list pact__choose">
+            <li><span>¿Cuál comunica mejor <b>plataforma-agente multimodelo</b> en la primera pantalla?</span></li>
+            <li><span>¿Cuál hace más creíble el <b>control humano</b> (permisos, costo, riesgo, audit trail)?</span></li>
+            <li><span>¿Cuál se sostiene en <b>mobile</b> y con el copy real de Dona?</span></li>
+            <li><span>¿Cuál es más <b>producible</b> en Next.js sin perder nivel premium?</span></li>
+            <li><span>Se puede elegir una o <b>combinar</b>: hero de B, módulos de A, galería de C.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="directions-note">
+    <div class="wrap">
+      <span class="proto-tag">Vista de dirección</span>
+      <span><b>Con JavaScript</b> usa las pestañas de arriba para alternar una dirección a la vez. <b>Sin JavaScript</b> las tres se muestran apiladas, completas y legibles.</span>
+    </div>
+  </div>
+
+  <!-- ===================== DIRECCION A — EXECUTION SUITE ===================== -->
+  <section class="direccion is-active" id="dir-a" data-dir="a" role="tabpanel" aria-labelledby="tab-a" tabindex="-1">
+    <style>
+    /* DIR A — Execution Suite. Todo scoped bajo #dir-a. Keyframes prefijo a- */
+    #dir-a{--accent:#8aa2ff;--accent-2:#cbd6f2;--a-glow:rgba(138,162,255,.18);color:var(--text)}
+    #dir-a .a-wrap{width:100%;max-width:var(--maxw);margin-inline:auto;padding-inline:clamp(18px,5vw,40px)}
+    #dir-a section{padding-block:clamp(40px,7vw,84px)}
+    #dir-a .a-kicker{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--accent)}
+    #dir-a h2{font-size:clamp(34px,6.4vw,76px);font-weight:720;letter-spacing:-.03em;text-transform:uppercase;line-height:.96}
+    #dir-a h3{font-size:clamp(19px,2.4vw,26px);font-weight:660;letter-spacing:-.01em;text-transform:uppercase}
+    #dir-a .a-dim{color:var(--text-dim)}
+
+    /* hero */
+    #dir-a .a-hero{display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(26px,4vw,56px);align-items:center;border-bottom:1px solid var(--line-soft)}
+    #dir-a .a-hero__sub{font-size:clamp(15.5px,1.8vw,18.5px);color:var(--text-dim);margin-top:22px;max-width:48ch}
+    #dir-a .a-hero__cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}
+    #dir-a .a-hero__meta{display:flex;gap:22px;flex-wrap:wrap;margin-top:26px;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.05em;color:var(--text-mut)}
+    #dir-a .a-hero__meta b{color:var(--text-dim);font-weight:600}
+    #dir-a h2 mark{background:none;color:var(--accent)}
+
+    /* composicion cinematografica del hero */
+    #dir-a .a-cine{position:relative;aspect-ratio:1/1;border:1px solid var(--line);border-radius:var(--radius-lg);background:radial-gradient(120% 120% at 70% 18%,rgba(138,162,255,.16),transparent 52%),linear-gradient(180deg,#0c0e15,#090a10);overflow:hidden}
+    #dir-a .a-cine__orb{position:absolute;top:-18%;right:-12%;width:62%;aspect-ratio:1;border-radius:50%;background:conic-gradient(from 200deg,#8aa2ff,#a98bff,#7af0c4,#8aa2ff);filter:blur(2px);opacity:.5;mask:radial-gradient(closest-side,transparent 56%,#000 58%)}
+    #dir-a .a-cine__grid{position:absolute;inset:0;background-image:linear-gradient(var(--line-soft) 1px,transparent 1px),linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);background-size:34px 34px;mask:radial-gradient(120% 90% at 50% 60%,#000,transparent 78%);opacity:.7}
+    #dir-a .a-cine__chips{position:absolute;inset:auto 0 0 0;padding:18px;display:flex;flex-wrap:wrap;gap:8px}
+    #dir-a .a-chip{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--text-dim);border:1px solid var(--line);background:rgba(8,9,13,.6);border-radius:8px;padding:6px 10px;backdrop-filter:blur(4px)}
+    #dir-a .a-chip b{color:var(--accent-2);font-weight:600}
+    #dir-a .a-cine__scan{position:absolute;left:0;right:0;height:30%;top:0;background:linear-gradient(180deg,rgba(138,162,255,.12),transparent);border-bottom:1px solid rgba(138,162,255,.25)}
+    @media (prefers-reduced-motion:no-preference){
+      #dir-a .a-cine__scan{animation:a-scan 7s ease-in-out infinite}
+      #dir-a .a-cine__orb{animation:a-spin 40s linear infinite}
+    }
+    @keyframes a-scan{0%,100%{transform:translateY(8%)}50%{transform:translateY(210%)}}
+    @keyframes a-spin{to{transform:rotate(360deg)}}
+
+    /* modulos */
+    #dir-a .a-modgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:34px}
+    #dir-a .a-mod{position:relative;border:1px solid var(--line);border-radius:var(--radius);padding:20px;background:linear-gradient(180deg,var(--bg-elev),rgba(13,16,22,.35));overflow:hidden;transition:border-color .25s,transform .25s}
+    #dir-a .a-mod:hover{border-color:rgba(138,162,255,.4);transform:translateY(-3px)}
+    #dir-a .a-mod__vis{height:64px;border-radius:9px;border:1px solid var(--line-soft);margin-bottom:16px;background:radial-gradient(80% 120% at 20% 10%,var(--a-glow),transparent 60%),repeating-linear-gradient(115deg,transparent 0 9px,rgba(255,255,255,.03) 9px 10px)}
+    #dir-a .a-mod h3{font-size:16px;text-transform:none;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+    #dir-a .a-mod h3 i{font-style:normal;font-family:var(--font-mono);font-size:11px;color:var(--accent)}
+    #dir-a .a-mod p{font-size:13.5px;color:var(--text-dim);margin-top:7px}
+    #dir-a .a-mod__tag{margin-top:14px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mut);display:flex;align-items:center;gap:7px}
+    #dir-a .a-mod__tag::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent)}
+
+    /* capas */
+    #dir-a .a-layers{border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface);padding:clamp(18px,2.4vw,26px);margin-top:30px;display:flex;flex-direction:column;gap:8px}
+    #dir-a .a-layer{display:grid;grid-template-columns:170px 1fr auto;gap:16px;align-items:center;padding:13px 16px;border:1px solid var(--line-soft);border-radius:10px;background:linear-gradient(90deg,rgba(138,162,255,.06),transparent 60%)}
+    #dir-a .a-layer__name{font-family:var(--font-mono);font-size:12.5px;letter-spacing:.06em;color:var(--text)}
+    #dir-a .a-layer__desc{font-size:13px;color:var(--text-dim)}
+    #dir-a .a-layer__lvl{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mut);white-space:nowrap}
+
+    /* consola de control */
+    #dir-a .a-control{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:30px}
+    #dir-a .a-console{border:1px solid var(--line);border-radius:var(--radius);background:#0a0c12;font-family:var(--font-mono);font-size:12.5px;overflow:hidden}
+    #dir-a .a-console__bar{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line-soft);color:var(--text-mut);letter-spacing:.05em}
+    #dir-a .a-console__bar::before{content:"";width:9px;height:9px;border-radius:50%;background:#ffce6b;box-shadow:14px 0 0 #7af0c4,28px 0 0 #ff7a90}
+    #dir-a .a-console__body{padding:16px 16px 18px;display:flex;flex-direction:column;gap:10px}
+    #dir-a .a-kv{display:flex;justify-content:space-between;gap:14px;color:var(--text-dim)}
+    #dir-a .a-kv b{color:var(--text);font-weight:600}
+    #dir-a .a-kv--risk b{color:#ffce6b}
+    #dir-a .a-preview{font-family:var(--font-sans);border:1px dashed var(--line);border-radius:10px;padding:13px;color:var(--text-dim);font-size:13px;background:var(--surface)}
+    #dir-a .a-actions{display:flex;gap:9px;margin-top:4px}
+    #dir-a .a-actions .btn{font-size:12.5px;padding:10px 16px}
+    #dir-a .a-note{font-family:var(--font-mono);font-size:10.5px;color:var(--text-mut);letter-spacing:.04em}
+
+    /* control room */
+    #dir-a .a-room{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;margin-top:30px;background:var(--bg-elev)}
+    #dir-a .a-room__head{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:16px 20px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
+    #dir-a .a-room__metrics{display:flex;gap:24px;flex-wrap:wrap;font-family:var(--font-mono);font-size:11.5px;color:var(--text-mut)}
+    #dir-a .a-room__metrics b{color:var(--text);font-size:18px;font-weight:700;display:block;font-family:var(--font-sans)}
+    #dir-a .a-table{width:100%;border-collapse:collapse;font-size:13px}
+    #dir-a .a-table th{text-align:left;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mut);font-weight:500;padding:12px 20px;border-bottom:1px solid var(--line-soft)}
+    #dir-a .a-table td{padding:13px 20px;border-bottom:1px solid var(--line-soft);color:var(--text-dim)}
+    #dir-a .a-table tr:last-child td{border-bottom:0}
+    #dir-a .a-table b{color:var(--text);font-weight:600}
+    #dir-a .a-pill{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:4px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+    #dir-a .a-pill--wait{color:#ffce6b;border-color:rgba(255,206,107,.4)}
+    #dir-a .a-pill--ok{color:#7af0c4;border-color:rgba(122,240,196,.4)}
+    #dir-a .a-pill--run{color:#8aa2ff;border-color:rgba(138,162,255,.4)}
+
+    /* canales */
+    #dir-a .a-channels{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}
+    #dir-a .a-ch{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:11px;padding:11px 15px;font-size:13px;color:var(--text-dim);background:var(--surface)}
+    #dir-a .a-ch b{color:var(--text);font-weight:600}
+    #dir-a .a-ch__dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+    #dir-a .a-ch--wa .a-ch__dot{background:#25d366}
+
+    /* cta */
+    #dir-a .a-final{border-top:1px solid var(--line);background:radial-gradient(90% 140% at 50% 0%,rgba(138,162,255,.12),transparent 60%)}
+    #dir-a .a-final__in{border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(30px,5vw,56px);text-align:center;background:var(--bg-elev)}
+    #dir-a .a-final h2{font-size:clamp(28px,4.6vw,52px)}
+    #dir-a .a-final p{color:var(--text-dim);margin:16px auto 0;max-width:54ch}
+    #dir-a .a-final__cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:28px}
+
+    @media (max-width:900px){
+      #dir-a .a-hero{grid-template-columns:1fr}
+      #dir-a .a-modgrid{grid-template-columns:1fr 1fr}
+      #dir-a .a-control{grid-template-columns:1fr}
+      #dir-a .a-layer{grid-template-columns:130px 1fr;row-gap:4px}
+      #dir-a .a-layer__lvl{grid-column:2}
+    }
+    @media (max-width:560px){
+      #dir-a .a-modgrid{grid-template-columns:1fr}
+      #dir-a .a-room__head{align-items:flex-start}
+      #dir-a .a-tablewrap{overflow-x:auto}
+    }
+    </style>
+
+    <p class="direccion__eyebrow">Dirección A — <span>Execution Suite</span></p>
+
+    <div class="a-wrap">
+      <!-- hero -->
+      <section class="a-hero">
+        <div data-reveal>
+          <span class="a-kicker">Sistema de ejecución · multimodelo</span>
+          <h2>De la intención<br>a la <mark>producción</mark></h2>
+          <p class="a-hero__sub">Dona es la capa que convierte contexto, recursos y objetivos en activos, workflows y acciones reales. Un sistema con módulos —no un chat— donde cada ejecución pasa por permisos, créditos operativos, riesgo y audit trail.</p>
+          <div class="a-hero__cta">
+            <a class="btn btn--primary" href="#">Solicitar acceso</a>
+            <a class="btn btn--ghost" href="#">Ver el sistema</a>
+          </div>
+          <div class="a-hero__meta">
+            <span><b>6 módulos</b> · Studio, Flow, Agents, Memory, Actions, Control Room</span>
+            <span><b>Control humano</b> en cada acción sensible</span>
+          </div>
+        </div>
+        <div class="a-cine" data-reveal aria-hidden="true">
+          <div class="a-cine__orb"></div>
+          <div class="a-cine__grid"></div>
+          <div class="a-cine__scan"></div>
+          <div class="a-cine__chips">
+            <span class="a-chip"><b>intención</b> recibida</span>
+            <span class="a-chip">plan + activos</span>
+            <span class="a-chip">permiso <b>requerido</b></span>
+            <span class="a-chip">créditos · riesgo</span>
+            <span class="a-chip">ejecución <b>medida</b></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- modulos -->
+      <section>
+        <span class="a-kicker">Módulos</span>
+        <h3>Un sistema, no una herramienta suelta</h3>
+        <div class="a-modgrid">
+          <article class="a-mod" data-reveal><div class="a-mod__vis"></div><h3>Studio <i>01</i></h3><p>Crea activos, documentos, campañas y piezas visuales con dirección humana.</p><div class="a-mod__tag">Trabajo autónomo · borradores</div></article>
+          <article class="a-mod" data-reveal><div class="a-mod__vis"></div><h3>Flow <i>02</i></h3><p>Convierte objetivos en workflows y playbooks con checkpoints.</p><div class="a-mod__tag">Aprobación simple</div></article>
+          <article class="a-mod" data-reveal><div class="a-mod__vis"></div><h3>Agents <i>03</i></h3><p>Coordina agentes especializados con límites y permisos por tarea.</p><div class="a-mod__tag">Permisos por herramienta</div></article>
+          <article class="a-mod" data-reveal><div class="a-mod__vis"></div><h3>Memory <i>04</i></h3><p>Conserva contexto, decisiones, estilo y preferencias del negocio.</p><div class="a-mod__tag">Privado · del usuario</div></article>
+          <article class="a-mod" data-reveal><div class="a-mod__vis"></div><h3>Actions <i>05</i></h3><p>Prepara y confirma acciones reales con costo en créditos y riesgo.</p><div class="a-mod__tag">Aprobación fuerte</div></article>
+          <article class="a-mod" data-reveal><div class="a-mod__vis"></div><h3>Control Room <i>06</i></h3><p>Mide progreso, costos, riesgo y resultados. Decide el siguiente paso.</p><div class="a-mod__tag">Observabilidad · medición</div></article>
+        </div>
+      </section>
+
+      <!-- capas -->
+      <section>
+        <span class="a-kicker">Arquitectura</span>
+        <h3>Capas con control humano de extremo a extremo</h3>
+        <div class="a-layers" data-reveal>
+          <div class="a-layer"><span class="a-layer__name">Studio</span><span class="a-layer__desc">Producción multimodal: texto, docs, imagen, video, voz, datos.</span><span class="a-layer__lvl">Crea</span></div>
+          <div class="a-layer"><span class="a-layer__name">Agents</span><span class="a-layer__desc">Tareas delegadas a agentes con límites y trazabilidad.</span><span class="a-layer__lvl">Delega</span></div>
+          <div class="a-layer"><span class="a-layer__name">Workflows</span><span class="a-layer__desc">Secuencias y playbooks con checkpoints de aprobación.</span><span class="a-layer__lvl">Orquesta</span></div>
+          <div class="a-layer"><span class="a-layer__name">Memory</span><span class="a-layer__desc">Contexto, estilo y decisiones que persisten.</span><span class="a-layer__lvl">Recuerda</span></div>
+          <div class="a-layer"><span class="a-layer__name">Actions</span><span class="a-layer__desc">Acciones reales con preview, créditos, riesgo y permiso.</span><span class="a-layer__lvl">Ejecuta</span></div>
+          <div class="a-layer"><span class="a-layer__name">Control Room</span><span class="a-layer__desc">Observabilidad, audit trail, costo y medición.</span><span class="a-layer__lvl">Mide</span></div>
+          <div class="a-layer"><span class="a-layer__name">Integraciones</span><span class="a-layer__desc">Herramientas conectadas con TOS y permisos por origen.</span><span class="a-layer__lvl">Conecta</span></div>
+          <div class="a-layer"><span class="a-layer__name">Seguridad · Permisos</span><span class="a-layer__desc">Niveles de riesgo, límites de gasto y consentimiento.</span><span class="a-layer__lvl">Protege</span></div>
+        </div>
+      </section>
+
+      <!-- control + sin ejecutar a ciegas -->
+      <section>
+        <span class="a-kicker">Control humano</span>
+        <h3>Dona no ejecuta a ciegas</h3>
+        <p class="a-dim" style="margin-top:14px;max-width:60ch">Antes de cualquier acción con costo o efecto real, el sistema muestra la propuesta completa. Tú apruebas, ajustas o cancelas.</p>
+        <div class="a-control">
+          <div class="a-console" data-reveal>
+            <div class="a-console__bar">actions · preparar_envio_campaña</div>
+            <div class="a-console__body">
+              <div class="a-preview">Preview: enviar campaña “Lanzamiento de servicio” a 1.240 contactos con consentimiento vigente. Plantilla revisada, 2 variantes.</div>
+              <div class="a-kv"><span>Costo estimado</span><b>48 créditos operativos</b></div>
+              <div class="a-kv"><span>Límite de gasto</span><b>120 créditos / día</b></div>
+              <div class="a-kv a-kv--risk"><span>Riesgo</span><b>MEDIO · envío a terceros</b></div>
+              <div class="a-kv"><span>Permiso</span><b>Aprobación fuerte</b></div>
+              <div class="a-actions"><button class="btn btn--primary" type="button">Aprobar</button><button class="btn btn--ghost" type="button">Ajustar</button></div>
+              <span class="a-note">audit trail: registrado · reversible antes de envío · prototipo</span>
+            </div>
+          </div>
+          <div class="a-console" data-reveal>
+            <div class="a-console__bar">actions · políticas activas</div>
+            <div class="a-console__body">
+              <div class="a-kv"><span>Saldo</span><b>312 créditos operativos</b></div>
+              <div class="a-kv"><span>Acciones autónomas</span><b>Borradores, análisis, assets internos</b></div>
+              <div class="a-kv"><span>Requiere aprobación</span><b>Publicar, enviar, gastar</b></div>
+              <div class="a-kv"><span>Bloqueado por defecto</span><b>Mover dinero · cuentas externas</b></div>
+              <div class="a-preview">Cada acción declara: qué hará, por qué, costo, riesgo, permiso, datos usados, resultado esperado, métrica y reversibilidad.</div>
+              <span class="a-note">trazabilidad completa · límites por usuario · prototipo</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- control room -->
+      <section>
+        <span class="a-kicker">Control Room</span>
+        <h3>Observabilidad y medición del trabajo</h3>
+        <div class="a-room" data-reveal>
+          <div class="a-room__head">
+            <div class="a-room__metrics">
+              <span><b>7</b>agentes activos</span>
+              <span><b>3</b>esperan aprobación</span>
+              <span><b>184</b>créditos esta semana</span>
+              <span><b>2</b>riesgo ALTO en cola</span>
+            </div>
+            <span class="a-pill a-pill--run">en vivo · prototipo</span>
+          </div>
+          <div class="a-tablewrap">
+          <table class="a-table">
+            <thead><tr><th>Agente / acción</th><th>Estado</th><th>Costo</th><th>Riesgo</th><th>Output</th><th>Siguiente</th></tr></thead>
+            <tbody>
+              <tr><td><b>Studio</b> · brief de lanzamiento</td><td><span class="a-pill a-pill--ok">listo</span></td><td>12 créditos</td><td>BAJO</td><td>Documento</td><td>Revisar</td></tr>
+              <tr><td><b>Actions</b> · envío de campaña</td><td><span class="a-pill a-pill--wait">espera aprobación</span></td><td>48 créditos</td><td>MEDIO</td><td>Envío</td><td>Aprobar</td></tr>
+              <tr><td><b>Flow</b> · seguimiento de leads</td><td><span class="a-pill a-pill--run">en curso</span></td><td>9 créditos</td><td>BAJO</td><td>Workflow</td><td>Medir</td></tr>
+              <tr><td><b>Agents</b> · investigación de mercado</td><td><span class="a-pill a-pill--ok">listo</span></td><td>23 créditos</td><td>BAJO</td><td>Informe</td><td>Decidir</td></tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- canales -->
+      <section>
+        <span class="a-kicker">Entradas</span>
+        <h3>Empieza por donde ya trabajas</h3>
+        <p class="a-dim" style="margin-top:14px;max-width:58ch">WhatsApp es una puerta cómoda para delegar desde el móvil. Es un canal de entrada más, no el límite del producto.</p>
+        <div class="a-channels" data-reveal>
+          <span class="a-ch a-ch--wa"><span class="a-ch__dot"></span><b>WhatsApp</b> · canal de entrada</span>
+          <span class="a-ch"><span class="a-ch__dot"></span>Web</span>
+          <span class="a-ch"><span class="a-ch__dot"></span>Voz</span>
+          <span class="a-ch"><span class="a-ch__dot"></span>Archivos · PDF</span>
+          <span class="a-ch"><span class="a-ch__dot"></span>Email</span>
+          <span class="a-ch"><span class="a-ch__dot"></span>Herramientas conectadas</span>
+        </div>
+      </section>
+
+      <!-- cta -->
+      <section class="a-final">
+        <div class="a-final__in" data-reveal>
+          <span class="a-kicker">Empieza con una idea</span>
+          <h2 style="margin-top:14px">Convierte intención en ejecución</h2>
+          <p>Dona prepara el plan, crea los activos y deja cada acción lista para tu aprobación, con costo, riesgo y audit trail a la vista.</p>
+          <div class="a-final__cta">
+            <a class="btn btn--primary" href="#">Solicitar acceso</a>
+            <a class="btn btn--ghost" href="#">Ver una demo guiada</a>
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+  <!-- ===================== DIRECCION B — PROMPT A PRODUCCION ===================== -->
+  <section class="direccion" id="dir-b" data-dir="b" role="tabpanel" aria-labelledby="tab-b" tabindex="-1">
+    <style>
+    /* DIR B — Prompt a Produccion. Scoped bajo #dir-b. Keyframes prefijo b- */
+    #dir-b{--accent:#ffb27a;--accent-2:#a98bff;--b-warm:rgba(255,178,122,.16);--b-violet:rgba(169,139,255,.16);color:var(--text)}
+    #dir-b .b-wrap{width:100%;max-width:980px;margin-inline:auto;padding-inline:clamp(18px,5vw,40px)}
+    #dir-b .b-wide{max-width:var(--maxw)}
+    #dir-b section{padding-block:clamp(38px,6vw,76px)}
+    #dir-b .b-kicker{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
+    #dir-b h2{font-size:clamp(30px,5.2vw,58px);font-weight:700;letter-spacing:-.025em;line-height:1.0}
+    #dir-b h3{font-size:clamp(18px,2.2vw,24px);font-weight:660;letter-spacing:-.01em}
+    #dir-b .b-dim{color:var(--text-dim)}
+
+    /* hero centrado con prompt */
+    #dir-b .b-hero{text-align:center;border-bottom:1px solid var(--line-soft)}
+    #dir-b .b-hero h2 i{font-style:normal;background:linear-gradient(100deg,#ffb27a,#a98bff);-webkit-background-clip:text;background-clip:text;color:transparent}
+    #dir-b .b-hero__sub{font-size:clamp(15.5px,1.9vw,18px);color:var(--text-dim);margin:18px auto 0;max-width:56ch}
+    #dir-b .b-promptwrap{position:relative;margin:34px auto 0;max-width:680px}
+    #dir-b .b-promptwrap::before{content:"";position:absolute;inset:-40px -30px;background:radial-gradient(60% 80% at 30% 20%,var(--b-warm),transparent 60%),radial-gradient(60% 80% at 75% 80%,var(--b-violet),transparent 62%);filter:blur(8px);z-index:0;border-radius:40px}
+    #dir-b .b-prompt{position:relative;z-index:1;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,#101117,#0c0d12);box-shadow:0 30px 80px -40px rgba(255,178,122,.4);text-align:left;overflow:hidden}
+    #dir-b .b-prompt__bar{display:flex;align-items:center;gap:9px;padding:11px 16px;border-bottom:1px solid var(--line-soft);font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;color:var(--text-mut)}
+    #dir-b .b-prompt__bar span{margin-left:auto;display:inline-flex;gap:6px}
+    #dir-b .b-prompt__bar i{width:7px;height:7px;border-radius:50%;background:var(--accent);font-style:normal;opacity:.5}
+    #dir-b .b-prompt__field{padding:20px 18px 16px;font-size:17px;color:var(--text);min-height:84px}
+    #dir-b .b-prompt__field b{font-weight:600}
+    #dir-b .b-caret{display:inline-block;width:2px;height:20px;background:var(--accent);vertical-align:-4px;margin-left:1px}
+    @media (prefers-reduced-motion:no-preference){#dir-b .b-caret{animation:b-blink 1.1s step-end infinite}}
+    @keyframes b-blink{50%{opacity:0}}
+    #dir-b .b-prompt__foot{display:flex;align-items:center;gap:12px;padding:14px 16px;border-top:1px solid var(--line-soft);flex-wrap:wrap}
+    #dir-b .b-prompt__hint{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.05em;color:var(--text-mut)}
+    #dir-b .b-prompt__foot .btn{margin-left:auto;background:linear-gradient(100deg,#ffb27a,#a98bff);color:#150f0a;border:0}
+    #dir-b .b-srcline{margin-top:16px;font-family:var(--font-mono);font-size:11px;color:var(--text-mut);display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+    #dir-b .b-srcline b{color:var(--text-dim);font-weight:600}
+
+    /* breakdown intencion -> outputs */
+    #dir-b .b-flowline{text-align:center;font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--text-mut);margin-bottom:8px}
+    #dir-b .b-break{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:8px}
+    #dir-b .b-step{border:1px solid var(--line);border-radius:13px;padding:16px;background:linear-gradient(180deg,var(--bg-elev),rgba(13,14,20,.4));display:flex;flex-direction:column;gap:8px;min-height:100%}
+    #dir-b .b-step__n{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;color:var(--accent)}
+    #dir-b .b-step h4{margin:0;font-size:14.5px;font-weight:660}
+    #dir-b .b-step p{font-size:12.5px;color:var(--text-dim)}
+    #dir-b .b-step__chip{margin-top:auto;font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;color:var(--text-mut);border-top:1px solid var(--line-soft);padding-top:9px}
+    #dir-b .b-step--gate{border-color:rgba(255,178,122,.4);background:linear-gradient(180deg,rgba(255,178,122,.08),rgba(13,14,20,.4))}
+    #dir-b .b-step--gate .b-step__chip{color:var(--accent)}
+
+    /* loop 6 pasos */
+    #dir-b .b-loop{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:30px}
+    #dir-b .b-loopcell{border:1px solid var(--line-soft);border-radius:11px;padding:14px 13px;background:var(--surface)}
+    #dir-b .b-loopcell__k{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--accent-2)}
+    #dir-b .b-loopcell h4{margin:8px 0 5px;font-size:14px;font-weight:640}
+    #dir-b .b-loopcell p{font-size:12px;color:var(--text-dim)}
+    #dir-b .b-loopcell--gate{border-color:rgba(255,178,122,.45)}
+    #dir-b .b-loopcell--gate .b-loopcell__k{color:var(--accent)}
+
+    /* outputs */
+    #dir-b .b-outs{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:26px}
+    #dir-b .b-out{border:1px solid var(--line);border-radius:13px;overflow:hidden;background:var(--bg-elev);transition:transform .25s,border-color .25s}
+    #dir-b .b-out:hover{transform:translateY(-3px);border-color:rgba(255,178,122,.4)}
+    #dir-b .b-out__vis{height:88px;border-bottom:1px solid var(--line-soft)}
+    #dir-b .b-out:nth-child(1) .b-out__vis{background:linear-gradient(135deg,rgba(255,178,122,.3),transparent),repeating-linear-gradient(0deg,transparent 0 13px,rgba(255,255,255,.04) 13px 14px)}
+    #dir-b .b-out:nth-child(2) .b-out__vis{background:radial-gradient(60% 80% at 30% 20%,rgba(169,139,255,.34),transparent),conic-gradient(from 0deg at 70% 70%,rgba(255,255,255,.06),transparent 40%)}
+    #dir-b .b-out:nth-child(3) .b-out__vis{background:linear-gradient(120deg,rgba(122,240,196,.24),transparent),repeating-linear-gradient(90deg,transparent 0 22px,rgba(255,255,255,.04) 22px 23px)}
+    #dir-b .b-out:nth-child(4) .b-out__vis{background:radial-gradient(70% 90% at 60% 30%,rgba(138,162,255,.3),transparent),linear-gradient(0deg,rgba(255,255,255,.05),transparent)}
+    #dir-b .b-out__body{padding:13px 14px}
+    #dir-b .b-out__type{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mut)}
+    #dir-b .b-out h4{margin:6px 0 0;font-size:14px;font-weight:620}
+
+    /* aprobacion */
+    #dir-b .b-approve{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-top:8px;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface);padding:clamp(18px,2.6vw,26px)}
+    #dir-b .b-approve h3{margin-bottom:6px}
+    #dir-b .b-approve__why{color:var(--text-dim);font-size:13.5px;margin-bottom:14px}
+    #dir-b .b-kv{display:grid;grid-template-columns:130px 1fr;gap:10px;padding:9px 0;border-top:1px solid var(--line-soft);font-size:13.5px}
+    #dir-b .b-kv:first-of-type{border-top:0}
+    #dir-b .b-kv dt{font-family:var(--font-mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-mut)}
+    #dir-b .b-kv dd{margin:0;color:var(--text)}
+    #dir-b .b-kv dd.b-risk{color:#ffce6b}
+    #dir-b .b-preview{border:1px dashed var(--line);border-radius:12px;padding:15px;background:#0c0d12;display:flex;flex-direction:column;gap:10px}
+    #dir-b .b-preview__t{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mut)}
+    #dir-b .b-preview__card{border:1px solid var(--line-soft);border-radius:9px;padding:12px;font-size:13px;color:var(--text-dim);background:var(--surface)}
+    #dir-b .b-approve__cta{display:flex;gap:9px;margin-top:4px;flex-wrap:wrap}
+    #dir-b .b-approve__cta .btn{font-size:13px;padding:11px 18px}
+    #dir-b .b-approve__cta .btn--primary{background:linear-gradient(100deg,#ffb27a,#a98bff);color:#150f0a}
+    #dir-b .b-audit{font-family:var(--font-mono);font-size:10.5px;color:var(--text-mut);letter-spacing:.04em;margin-top:10px}
+
+    /* control room compacto */
+    #dir-b .b-measure{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:8px}
+    #dir-b .b-metric{border:1px solid var(--line);border-radius:13px;padding:18px;background:var(--bg-elev)}
+    #dir-b .b-metric b{font-size:26px;font-weight:720;letter-spacing:-.02em;display:block}
+    #dir-b .b-metric span{font-size:12.5px;color:var(--text-mut)}
+    #dir-b .b-next{margin-top:14px;border:1px solid rgba(255,178,122,.35);border-radius:13px;padding:16px 18px;background:linear-gradient(100deg,rgba(255,178,122,.1),transparent);font-size:14px;color:var(--text-dim)}
+    #dir-b .b-next b{color:var(--text);font-weight:600}
+
+    /* canales */
+    #dir-b .b-channels{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:22px}
+    #dir-b .b-ch{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;padding:9px 15px;font-size:13px;color:var(--text-dim);background:var(--surface)}
+    #dir-b .b-ch b{color:var(--text);font-weight:600}
+    #dir-b .b-ch i{width:7px;height:7px;border-radius:50%;background:var(--accent);font-style:normal}
+    #dir-b .b-ch--wa i{background:#25d366}
+
+    /* cta */
+    #dir-b .b-final{text-align:center;border-top:1px solid var(--line);background:radial-gradient(80% 130% at 50% 0%,rgba(255,178,122,.12),transparent 60%)}
+    #dir-b .b-final p{color:var(--text-dim);margin:14px auto 0;max-width:52ch}
+    #dir-b .b-final__cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+    #dir-b .b-final .btn--primary{background:linear-gradient(100deg,#ffb27a,#a98bff);color:#150f0a}
+
+    @media (max-width:900px){
+      #dir-b .b-break{grid-template-columns:1fr 1fr}
+      #dir-b .b-loop{grid-template-columns:1fr 1fr 1fr}
+      #dir-b .b-outs{grid-template-columns:1fr 1fr}
+      #dir-b .b-approve{grid-template-columns:1fr}
+      #dir-b .b-measure{grid-template-columns:1fr 1fr}
+    }
+    @media (max-width:540px){
+      #dir-b .b-break{grid-template-columns:1fr}
+      #dir-b .b-loop{grid-template-columns:1fr 1fr}
+    }
+    </style>
+
+    <p class="direccion__eyebrow">Dirección B — <span>Prompt to Production</span></p>
+
+    <div class="b-wrap">
+      <!-- hero prompt -->
+      <section class="b-hero">
+        <span class="b-kicker">De la intención a la producción</span>
+        <h2 style="margin-top:14px">Dale a Dona una intención.<br>Recibe un <i>sistema de trabajo</i>.</h2>
+        <p class="b-hero__sub">Qué crear, qué hacer, quién aprueba, cuánto cuesta y qué sigue. No una respuesta de chat: un plan con activos, acciones y medición —bajo tu control.</p>
+
+        <div class="b-promptwrap" data-reveal>
+          <div class="b-prompt">
+            <div class="b-prompt__bar">intención <span><i></i><i></i><i></i></span></div>
+            <div class="b-prompt__field">“Necesito lanzar mi nuevo servicio esta semana.”<span class="b-caret" aria-hidden="true"></span></div>
+            <div class="b-prompt__foot">
+              <span class="b-prompt__hint">Entra por WhatsApp, web, voz o archivo</span>
+              <button class="btn" type="button">Convertir en plan</button>
+            </div>
+          </div>
+        </div>
+        <p class="b-srcline"><span>Prototipo de flujo —</span> <b>intención</b> → <b>plan</b> → <b>activos</b> → <b>permisos</b> → <b>ejecución</b> → <b>medición</b></p>
+      </section>
+
+      <!-- breakdown -->
+      <section class="b-wide" style="margin-inline:auto">
+        <p class="b-flowline">Dona descompone la intención</p>
+        <div class="b-break" data-reveal>
+          <article class="b-step"><span class="b-step__n">01 · Plan</span><h4>Plan de lanzamiento</h4><p>Diagnóstico, oferta, mensajes y calendario de 5 días.</p><span class="b-step__chip">borrador · autónomo</span></article>
+          <article class="b-step"><span class="b-step__n">02 · Activos</span><h4>Activos creados</h4><p>Landing draft, propuesta, posts y secuencia de email.</p><span class="b-step__chip">Studio · multimodal</span></article>
+          <article class="b-step"><span class="b-step__n">03 · Workflow</span><h4>Workflow armado</h4><p>Tareas, responsables y checkpoints de seguimiento.</p><span class="b-step__chip">Flow · orquesta</span></article>
+          <article class="b-step b-step--gate"><span class="b-step__n">04 · Permisos</span><h4>Acciones por aprobar</h4><p>Envío y publicación: con costo, riesgo y permiso.</p><span class="b-step__chip">créditos · riesgo · permiso</span></article>
+          <article class="b-step"><span class="b-step__n">05 · Medición</span><h4>Medición</h4><p>Resultados, audit trail y siguiente recomendación.</p><span class="b-step__chip">Control Room</span></article>
+        </div>
+      </section>
+
+      <!-- loop -->
+      <section class="b-wide" style="margin-inline:auto">
+        <span class="b-kicker">El loop de Dona</span>
+        <h3 style="margin-top:12px">Seis pasos, un checkpoint de permisos que nunca se salta</h3>
+        <div class="b-loop" data-reveal>
+          <div class="b-loopcell"><span class="b-loopcell__k">01</span><h4>Intención</h4><p>Idea, nota de voz, archivo o mensaje.</p></div>
+          <div class="b-loopcell"><span class="b-loopcell__k">02</span><h4>Contexto</h4><p>Memoria, objetivos e historial.</p></div>
+          <div class="b-loopcell"><span class="b-loopcell__k">03</span><h4>Producción</h4><p>Activos, documentos y workflows.</p></div>
+          <div class="b-loopcell b-loopcell--gate"><span class="b-loopcell__k">04 · gate</span><h4>Permisos</h4><p>Preview, créditos, riesgo y aprobación.</p></div>
+          <div class="b-loopcell"><span class="b-loopcell__k">05</span><h4>Ejecución</h4><p>Solo lo autorizado, con audit trail.</p></div>
+          <div class="b-loopcell"><span class="b-loopcell__k">06</span><h4>Medición</h4><p>Resultados y siguiente paso.</p></div>
+        </div>
+      </section>
+
+      <!-- outputs -->
+      <section class="b-wide" style="margin-inline:auto">
+        <span class="b-kicker">Salidas del prompt</span>
+        <h3 style="margin-top:12px">Una intención, varios activos listos para revisar</h3>
+        <div class="b-outs" data-reveal>
+          <article class="b-out"><div class="b-out__vis"></div><div class="b-out__body"><span class="b-out__type">Campaña</span><h4>Lanzamiento de servicio</h4></div></article>
+          <article class="b-out"><div class="b-out__vis"></div><div class="b-out__body"><span class="b-out__type">Documento</span><h4>Propuesta comercial</h4></div></article>
+          <article class="b-out"><div class="b-out__vis"></div><div class="b-out__body"><span class="b-out__type">Secuencia</span><h4>Emails de seguimiento</h4></div></article>
+          <article class="b-out"><div class="b-out__vis"></div><div class="b-out__body"><span class="b-out__type">Web</span><h4>Landing draft</h4></div></article>
+        </div>
+      </section>
+
+      <!-- aprobacion -->
+      <section class="b-wide" style="margin-inline:auto">
+        <span class="b-kicker">Control humano</span>
+        <h3 style="margin-top:12px">Antes de ejecutar, apruebas con todo a la vista</h3>
+        <div class="b-approve" data-reveal>
+          <div>
+            <h3>Enviar campaña de lanzamiento</h3>
+            <p class="b-approve__why">Por qué: tu intención pedía lanzar esta semana; este envío activa la campaña a tu lista con consentimiento vigente.</p>
+            <dl>
+              <div class="b-kv"><dt>Qué hará</dt><dd>Enviar 2 variantes a 1.240 contactos</dd></div>
+              <div class="b-kv"><dt>Costo</dt><dd>48 créditos operativos</dd></div>
+              <div class="b-kv"><dt>Riesgo</dt><dd class="b-risk">MEDIO · envío a terceros</dd></div>
+              <div class="b-kv"><dt>Permiso</dt><dd>Aprobación fuerte</dd></div>
+              <div class="b-kv"><dt>Reversibilidad</dt><dd>Cancelable hasta el envío</dd></div>
+            </dl>
+            <div class="b-approve__cta">
+              <button class="btn btn--primary" type="button">Aprobar y ejecutar</button>
+              <button class="btn btn--ghost" type="button">Rechazar</button>
+            </div>
+            <p class="b-audit">audit trail: propuesta registrada · datos usados visibles · límite de gasto 120 créditos/día · prototipo</p>
+          </div>
+          <div class="b-preview">
+            <span class="b-preview__t">Preview del envío</span>
+            <div class="b-preview__card"><b style="color:var(--text)">Asunto:</b> Tu nuevo servicio ya está disponible</div>
+            <div class="b-preview__card">Hola {nombre}, esta semana abrimos cupos para… <br><span style="color:var(--text-mut)">Variante A · 620 contactos</span></div>
+            <div class="b-preview__card">Versión breve para recordatorio <br><span style="color:var(--text-mut)">Variante B · 620 contactos</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- medicion / control room -->
+      <section class="b-wide" style="margin-inline:auto">
+        <span class="b-kicker">Control Room</span>
+        <h3 style="margin-top:12px">Dona mide el resultado y propone el siguiente paso</h3>
+        <div class="b-measure" data-reveal>
+          <div class="b-metric"><b>1.240</b><span>Contactos alcanzados</span></div>
+          <div class="b-metric"><b>9,4%</b><span>Respuestas</span></div>
+          <div class="b-metric"><b>48</b><span>Créditos usados</span></div>
+          <div class="b-metric"><b>2</b><span>Acciones en audit trail</span></div>
+        </div>
+        <div class="b-next" data-reveal><b>Siguiente recomendación:</b> preparar recordatorio para quienes abrieron y no respondieron (costo estimado 14 créditos operativos, riesgo BAJO). Queda listo para tu aprobación.</div>
+      </section>
+
+      <!-- canales -->
+      <section class="b-hero" style="border-bottom:0;text-align:center">
+        <span class="b-kicker">Entradas</span>
+        <h3 style="margin-top:12px">El prompt puede venir de donde tú ya estás</h3>
+        <p class="b-dim" style="margin:12px auto 0;max-width:52ch">WhatsApp es un canal de entrada cómodo desde el móvil. También web, voz o un archivo. La plataforma es la misma.</p>
+        <div class="b-channels" data-reveal>
+          <span class="b-ch b-ch--wa"><i></i><b>WhatsApp</b> · entrada</span>
+          <span class="b-ch"><i></i>Web</span>
+          <span class="b-ch"><i></i>Voz</span>
+          <span class="b-ch"><i></i>Archivo · PDF</span>
+          <span class="b-ch"><i></i>Email</span>
+        </div>
+      </section>
+
+      <!-- cta -->
+      <section class="b-final">
+        <span class="b-kicker">Empieza con una intención</span>
+        <h2 style="margin-top:14px;font-size:clamp(26px,4.4vw,46px)">Escríbela. Dona la convierte en ejecución.</h2>
+        <p>Con plan, activos y acciones listas para tu aprobación —siempre con costo, riesgo, permisos y medición.</p>
+        <div class="b-final__cta">
+          <a class="btn btn--primary" href="#">Crear mi primer flujo</a>
+          <a class="btn btn--ghost" href="#">Ver demo</a>
+        </div>
+      </section>
+    </div>
+  </section>
+  <!-- ===================== DIRECCION C — GALERIA MULTIMODAL ===================== -->
+  <section class="direccion" id="dir-c" data-dir="c" role="tabpanel" aria-labelledby="tab-c" tabindex="-1">
+    <style>
+    /* DIR C — Multimodal Output Gallery. Scoped bajo #dir-c. Keyframes prefijo c- */
+    #dir-c{--accent:#5fe3b0;--accent-2:#ff8fbf;color:var(--text)}
+    #dir-c .c-wrap{width:100%;max-width:var(--maxw);margin-inline:auto;padding-inline:clamp(18px,5vw,40px)}
+    #dir-c section{padding-block:clamp(34px,5.5vw,68px)}
+    #dir-c .c-kicker{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
+    #dir-c h2{font-size:clamp(30px,5vw,56px);font-weight:710;letter-spacing:-.025em;line-height:1.0}
+    #dir-c h3{font-size:clamp(18px,2.2vw,24px);font-weight:660;letter-spacing:-.01em}
+    #dir-c .c-dim{color:var(--text-dim)}
+
+    /* hero + legend de formatos */
+    #dir-c .c-hero{border-bottom:1px solid var(--line-soft)}
+    #dir-c .c-hero h2 i{font-style:normal;background:linear-gradient(100deg,#5fe3b0,#8aa2ff 55%,#ff8fbf);-webkit-background-clip:text;background-clip:text;color:transparent}
+    #dir-c .c-hero__sub{font-size:clamp(15px,1.8vw,17.5px);color:var(--text-dim);margin-top:16px;max-width:58ch}
+    #dir-c .c-formats{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px;align-items:center}
+    #dir-c .c-formats__lbl{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-mut);margin-right:4px}
+    #dir-c .c-fmt{font-size:12.5px;color:var(--text-dim);border:1px solid var(--line);border-radius:999px;padding:7px 13px;background:var(--surface);display:inline-flex;align-items:center;gap:7px}
+    #dir-c .c-fmt i{width:7px;height:7px;border-radius:2px;font-style:normal}
+
+    /* galeria bento */
+    #dir-c .c-gal{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-top:8px}
+    #dir-c .c-out{position:relative;border:1px solid var(--line);border-radius:15px;overflow:hidden;background:var(--bg-elev);display:flex;flex-direction:column;transition:transform .25s,border-color .25s;--c:#5fe3b0}
+    #dir-c .c-out:hover{transform:translateY(-3px);border-color:color-mix(in srgb,var(--c) 55%,var(--line))}
+    #dir-c .c-out--wide{grid-column:span 2}
+    #dir-c .c-out__vis{position:relative;height:120px;border-bottom:1px solid var(--line-soft);background:linear-gradient(135deg,color-mix(in srgb,var(--c) 26%,transparent),transparent 60%),#0c0e14;overflow:hidden}
+    #dir-c .c-out__vis::after{content:"";position:absolute;inset:0;background-image:var(--pat,none);opacity:.5}
+    #dir-c .c-out__badge{position:absolute;top:11px;left:11px;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#06070a;background:var(--c);border-radius:6px;padding:4px 8px;font-weight:600}
+    #dir-c .c-out__body{padding:13px 14px 14px;display:flex;flex-direction:column;gap:9px;flex:1}
+    #dir-c .c-out h4{margin:0;font-size:15px;font-weight:640;letter-spacing:-.01em}
+    #dir-c .c-out p{font-size:12.5px;color:var(--text-dim);margin:0}
+    #dir-c .c-meta{margin-top:auto;display:flex;flex-wrap:wrap;gap:6px;padding-top:10px;border-top:1px solid var(--line-soft)}
+    #dir-c .c-tag{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.04em;color:var(--text-mut);border:1px solid var(--line-soft);border-radius:6px;padding:3px 7px;white-space:nowrap}
+    #dir-c .c-tag b{color:var(--text-dim);font-weight:600}
+    #dir-c .c-tag--risk b{color:#ffce6b}
+    #dir-c .c-tag--ok b{color:var(--accent)}
+
+    /* patrones de preview por tipo */
+    #dir-c .c-p-lines{--pat:repeating-linear-gradient(0deg,transparent 0 12px,rgba(255,255,255,.06) 12px 13px)}
+    #dir-c .c-p-grid{--pat:linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px);background-size:18px 18px}
+    #dir-c .c-p-bars{--pat:repeating-linear-gradient(90deg,transparent 0 16px,rgba(255,255,255,.07) 16px 19px)}
+    #dir-c .c-p-wave{--pat:repeating-linear-gradient(90deg,rgba(255,255,255,.08) 0 2px,transparent 2px 7px)}
+    #dir-c .c-p-dots{--pat:radial-gradient(rgba(255,255,255,.12) 1.4px,transparent 1.5px);background-size:14px 14px}
+    #dir-c .c-out__vis .c-orb{position:absolute;width:80px;height:80px;border-radius:50%;right:-16px;top:-16px;background:conic-gradient(from 0deg,var(--c),transparent 70%);opacity:.5;filter:blur(1px)}
+    @media (prefers-reduced-motion:no-preference){#dir-c .c-out__vis .c-orb{animation:c-float 9s ease-in-out infinite}}
+    @keyframes c-float{0%,100%{transform:translateY(0)}50%{transform:translateY(8px)}}
+
+    /* starting points */
+    #dir-c .c-starts{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:8px}
+    #dir-c .c-start{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:13px;padding:16px;background:linear-gradient(180deg,var(--bg-elev),rgba(13,15,20,.4));cursor:pointer;transition:border-color .25s,transform .25s;text-align:left;color:inherit;font:inherit}
+    #dir-c .c-start:hover{transform:translateY(-3px);border-color:rgba(95,227,176,.45)}
+    #dir-c .c-start__ar{font-family:var(--font-mono);font-size:11px;color:var(--accent)}
+    #dir-c .c-start h4{margin:0;font-size:15px;font-weight:620}
+    #dir-c .c-start p{margin:0;font-size:12.5px;color:var(--text-dim)}
+
+    /* bloque de control */
+    #dir-c .c-control{border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface);padding:clamp(20px,3vw,30px);margin-top:8px}
+    #dir-c .c-control__lead{color:var(--text-dim);max-width:62ch;margin-top:12px}
+    #dir-c .c-gate{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:22px}
+    #dir-c .c-gate__step{border:1px solid var(--line-soft);border-radius:11px;padding:14px;background:var(--bg-elev)}
+    #dir-c .c-gate__step span{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--accent)}
+    #dir-c .c-gate__step h4{margin:7px 0 4px;font-size:14px;font-weight:640}
+    #dir-c .c-gate__step p{margin:0;font-size:12px;color:var(--text-dim)}
+    #dir-c .c-control__room{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:20px;padding-top:18px;border-top:1px solid var(--line-soft);font-size:13.5px;color:var(--text-dim)}
+    #dir-c .c-control__room b{color:var(--text);font-weight:600}
+    #dir-c .c-control__room .c-roompill{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);border:1px solid rgba(95,227,176,.4);border-radius:999px;padding:5px 11px}
+
+    /* canales */
+    #dir-c .c-channels{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+    #dir-c .c-ch{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:11px;padding:10px 15px;font-size:13px;color:var(--text-dim);background:var(--surface)}
+    #dir-c .c-ch b{color:var(--text);font-weight:600}
+    #dir-c .c-ch i{width:7px;height:7px;border-radius:50%;background:var(--accent);font-style:normal}
+    #dir-c .c-ch--wa i{background:#25d366}
+
+    /* cta */
+    #dir-c .c-final{border-top:1px solid var(--line);background:radial-gradient(80% 130% at 50% 0%,rgba(95,227,176,.1),transparent 60%)}
+    #dir-c .c-final__in{text-align:center}
+    #dir-c .c-final p{color:var(--text-dim);margin:14px auto 0;max-width:54ch}
+    #dir-c .c-final__cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:24px}
+    #dir-c .c-final .btn--primary{background:linear-gradient(100deg,#5fe3b0,#8aa2ff);color:#04130d}
+
+    @media (max-width:1000px){#dir-c .c-gal{grid-template-columns:repeat(2,1fr)}#dir-c .c-out--wide{grid-column:span 2}#dir-c .c-starts{grid-template-columns:1fr 1fr}#dir-c .c-gate{grid-template-columns:1fr 1fr}}
+    @media (max-width:560px){#dir-c .c-gal{grid-template-columns:1fr}#dir-c .c-out--wide{grid-column:span 1}#dir-c .c-starts{grid-template-columns:1fr}#dir-c .c-gate{grid-template-columns:1fr}}
+    </style>
+
+    <p class="direccion__eyebrow">Dirección C — <span>Multimodal Output Gallery de outputs</span></p>
+
+    <div class="c-wrap">
+      <!-- hero -->
+      <section class="c-hero">
+        <span class="c-kicker">Resultados, no solo respuestas</span>
+        <h2 style="margin-top:14px">Lo que Dona <i>produce</i></h2>
+        <p class="c-hero__sub">Texto, voz, imagen, video, documentos, datos y acciones reales. Outputs tangibles que puedes revisar, ajustar y —cuando implican una acción— aprobar con costo, riesgo y audit trail a la vista.</p>
+        <div class="c-formats">
+          <span class="c-formats__lbl">Formatos</span>
+          <span class="c-fmt"><i style="background:#cbd6f2"></i>Texto</span>
+          <span class="c-fmt"><i style="background:#ff8fbf"></i>Voz</span>
+          <span class="c-fmt"><i style="background:#8aa2ff"></i>Imagen</span>
+          <span class="c-fmt"><i style="background:#a98bff"></i>Video</span>
+          <span class="c-fmt"><i style="background:#5fe3b0"></i>Docs</span>
+          <span class="c-fmt"><i style="background:#7ad0ff"></i>Datos</span>
+          <span class="c-fmt"><i style="background:#ffb27a"></i>Acciones</span>
+        </div>
+      </section>
+
+      <!-- galeria -->
+      <section>
+        <span class="c-kicker">Galería de outputs</span>
+        <h3 style="margin-top:12px">Mockups de prototipo · abstractos y autocontenidos</h3>
+        <div class="c-gal" data-reveal>
+          <article class="c-out c-out--wide" style="--c:#ffb27a"><div class="c-out__vis c-p-bars"><span class="c-out__badge">Campaña</span><span class="c-orb"></span></div><div class="c-out__body"><h4>Campaña de lanzamiento</h4><p>Concepto, variantes y plan de envío para 5 días.</p><div class="c-meta"><span class="c-tag"><b>34</b> créditos</span><span class="c-tag c-tag--risk">riesgo <b>MEDIO</b></span><span class="c-tag">permiso: <b>aprobación fuerte</b></span><span class="c-tag c-tag--ok"><b>audit trail</b></span></div></div></article>
+          <article class="c-out" style="--c:#8aa2ff"><div class="c-out__vis c-p-lines"><span class="c-out__badge">Documento</span></div><div class="c-out__body"><h4>Brief estratégico</h4><p>Diagnóstico y oportunidades priorizadas.</p><div class="c-meta"><span class="c-tag"><b>12</b> créditos</span><span class="c-tag c-tag--ok">riesgo <b>BAJO</b></span><span class="c-tag"><b>autónomo</b></span></div></div></article>
+          <article class="c-out" style="--c:#5fe3b0"><div class="c-out__vis c-p-grid"><span class="c-out__badge">Web</span></div><div class="c-out__body"><h4>Landing draft</h4><p>Estructura y copy listos para iterar.</p><div class="c-meta"><span class="c-tag"><b>18</b> créditos</span><span class="c-tag c-tag--ok">riesgo <b>BAJO</b></span><span class="c-tag">permiso: <b>simple</b></span></div></div></article>
+          <article class="c-out" style="--c:#a98bff"><div class="c-out__vis c-p-grid"><span class="c-out__badge">Presentación</span><span class="c-orb"></span></div><div class="c-out__body"><h4>Presentación ejecutiva</h4><p>10 slides con narrativa y datos.</p><div class="c-meta"><span class="c-tag"><b>16</b> créditos</span><span class="c-tag c-tag--ok">riesgo <b>BAJO</b></span><span class="c-tag"><b>autónomo</b></span></div></div></article>
+          <article class="c-out" style="--c:#ff8fbf"><div class="c-out__vis c-p-lines"><span class="c-out__badge">Secuencia</span></div><div class="c-out__body"><h4>Emails de seguimiento</h4><p>5 correos con disparadores y tono.</p><div class="c-meta"><span class="c-tag"><b>14</b> créditos</span><span class="c-tag c-tag--risk">riesgo <b>MEDIO</b></span><span class="c-tag">permiso: <b>fuerte</b></span></div></div></article>
+          <article class="c-out" style="--c:#7ad0ff"><div class="c-out__vis c-p-grid"><span class="c-out__badge">Calendario</span></div><div class="c-out__body"><h4>Calendario de contenido</h4><p>4 semanas por canal con formatos.</p><div class="c-meta"><span class="c-tag"><b>11</b> créditos</span><span class="c-tag c-tag--ok">riesgo <b>BAJO</b></span><span class="c-tag"><b>autónomo</b></span></div></div></article>
+          <article class="c-out" style="--c:#b6f06a"><div class="c-out__vis c-p-dots"><span class="c-out__badge">Investigación</span></div><div class="c-out__body"><h4>Informe de mercado</h4><p>Hallazgos con fuentes y citas.</p><div class="c-meta"><span class="c-tag"><b>23</b> créditos</span><span class="c-tag c-tag--ok">riesgo <b>BAJO</b></span><span class="c-tag"><b>datos verificados</b></span></div></div></article>
+          <article class="c-out" style="--c:#7af0c4"><div class="c-out__vis c-p-bars"><span class="c-out__badge">Workflow</span></div><div class="c-out__body"><h4>Workflow operativo</h4><p>Tareas, dueños y checkpoints.</p><div class="c-meta"><span class="c-tag"><b>9</b> créditos</span><span class="c-tag c-tag--ok">riesgo <b>BAJO</b></span><span class="c-tag">permiso: <b>simple</b></span></div></div></article>
+          <article class="c-out c-out--wide" style="--c:#5fe3b0"><div class="c-out__vis c-p-grid"><span class="c-out__badge">Control Room</span><span class="c-orb"></span></div><div class="c-out__body"><h4>Tablero de seguimiento · Control Room</h4><p>Qué agente hizo qué, qué espera aprobación, cuánto costó y qué sigue. Aquí vive la medición.</p><div class="c-meta"><span class="c-tag"><b>medición</b></span><span class="c-tag"><b>costos</b></span><span class="c-tag c-tag--risk">riesgo en cola</span><span class="c-tag c-tag--ok"><b>audit trail</b></span></div></div></article>
+          <article class="c-out" style="--c:#ff8fbf"><div class="c-out__vis c-p-dots"><span class="c-out__badge">Visual</span><span class="c-orb"></span></div><div class="c-out__body"><h4>Assets visuales</h4><p>Piezas para redes y propuesta.</p><div class="c-meta"><span class="c-tag"><b>20</b> créditos</span><span class="c-tag c-tag--ok">riesgo <b>BAJO</b></span><span class="c-tag"><b>imagen</b></span></div></div></article>
+          <article class="c-out" style="--c:#cbd6f2"><div class="c-out__vis c-p-wave"><span class="c-out__badge">Voz</span></div><div class="c-out__body"><h4>Nota de voz → resumen</h4><p>Transcribe, ordena y propone tareas.</p><div class="c-meta"><span class="c-tag"><b>6</b> créditos</span><span class="c-tag c-tag--ok">riesgo <b>BAJO</b></span><span class="c-tag"><b>autónomo</b></span></div></div></article>
+        </div>
+      </section>
+
+      <!-- starting points -->
+      <section>
+        <span class="c-kicker">Starting points</span>
+        <h3 style="margin-top:12px">Empieza por un resultado, no por una página en blanco</h3>
+        <div class="c-starts" data-reveal>
+          <button class="c-start" type="button"><span class="c-start__ar">→</span><h4>Lanzar una campaña</h4><p>De la idea al plan con activos y envío por aprobar.</p></button>
+          <button class="c-start" type="button"><span class="c-start__ar">→</span><h4>Crear una propuesta</h4><p>Documento comercial listo para revisar.</p></button>
+          <button class="c-start" type="button"><span class="c-start__ar">→</span><h4>Investigar un mercado</h4><p>Informe con fuentes y oportunidades.</p></button>
+          <button class="c-start" type="button"><span class="c-start__ar">→</span><h4>Convertir notas en plan</h4><p>De voz o texto a un workflow con tareas.</p></button>
+          <button class="c-start" type="button"><span class="c-start__ar">→</span><h4>Diseñar una landing</h4><p>Draft con estructura y copy.</p></button>
+          <button class="c-start" type="button"><span class="c-start__ar">→</span><h4>Automatizar seguimiento</h4><p>Secuencia con permisos y límites.</p></button>
+          <button class="c-start" type="button"><span class="c-start__ar">→</span><h4>Preparar una reunión</h4><p>Agenda, brief y materiales.</p></button>
+          <button class="c-start" type="button"><span class="c-start__ar">→</span><h4>Coordinar agentes</h4><p>Delega tareas con límites y trazabilidad.</p></button>
+        </div>
+      </section>
+
+      <!-- control -->
+      <section>
+        <span class="c-kicker">Multimodal con control</span>
+        <h3 style="margin-top:12px">Cada output tangible; cada acción real, bajo permiso</h3>
+        <div class="c-control" data-reveal>
+          <p class="c-control__lead">Crear activos es libre y autónomo. Pero cuando un output se convierte en una <b>acción real</b> —enviar, publicar, gastar, contactar— pasa por la misma compuerta de control, sin excepción.</p>
+          <div class="c-gate">
+            <div class="c-gate__step"><span>01</span><h4>Preview</h4><p>Ves exactamente qué se hará.</p></div>
+            <div class="c-gate__step"><span>02</span><h4>Costo</h4><p>Créditos operativos estimados.</p></div>
+            <div class="c-gate__step"><span>03</span><h4>Riesgo</h4><p>BAJO · MEDIO · ALTO.</p></div>
+            <div class="c-gate__step"><span>04</span><h4>Permiso</h4><p>Aprobación humana explícita.</p></div>
+            <div class="c-gate__step"><span>05</span><h4>Audit trail</h4><p>Registro y reversibilidad.</p></div>
+          </div>
+          <div class="c-control__room">
+            <span class="c-roompill">Control Room</span>
+            <span>Agrega todos los outputs y acciones, <b>mide</b> resultados y costos, y recomienda el siguiente paso. La medición no es un extra: es parte del producto.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- canales -->
+      <section>
+        <span class="c-kicker">Entradas</span>
+        <h3 style="margin-top:12px">Pide un output desde donde ya trabajas</h3>
+        <p class="c-dim" style="margin-top:12px;max-width:56ch">WhatsApp es un canal de entrada para pedir y aprobar desde el móvil. La galería, los créditos y el control son los mismos en todos los canales.</p>
+        <div class="c-channels" data-reveal>
+          <span class="c-ch c-ch--wa"><i></i><b>WhatsApp</b> · entrada</span>
+          <span class="c-ch"><i></i>Web</span>
+          <span class="c-ch"><i></i>Voz</span>
+          <span class="c-ch"><i></i>Archivos · PDF</span>
+          <span class="c-ch"><i></i>Email</span>
+          <span class="c-ch"><i></i>Datos conectados</span>
+        </div>
+      </section>
+
+      <!-- cta -->
+      <section class="c-final">
+        <div class="c-final__in" data-reveal>
+          <span class="c-kicker">Empieza por un resultado</span>
+          <h2 style="margin-top:14px;font-size:clamp(26px,4.4vw,46px)">Elige un output. Dona lo produce y lo deja listo.</h2>
+          <p>Con créditos, riesgo y permisos claros, y todo medido en el Control Room.</p>
+          <div class="c-final__cta">
+            <a class="btn btn--primary" href="#">Explorar outputs</a>
+            <a class="btn btn--ghost" href="#">Solicitar acceso</a>
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer__top">
+      <span class="brand__mark" aria-hidden="true" style="width:24px;height:24px"></span>
+      <strong>Dona — prototipos de dirección visual</strong>
+      <span class="proto-tag">No es la landing productiva</span>
+    </div>
+    <p>Documento comparativo interno. Los mockups son abstractos y autocontenidos (CSS/SVG), sin assets externos. Las capacidades mostradas ilustran <b>dirección de producto</b>; algunas están en diseño o en prototipo y no deben presentarse como ya disponibles en producción. Dona prepara, propone y ejecuta acciones reales solo con <b>costo, riesgo, permisos, trazabilidad y control humano</b> claros. Sin promesas de ingresos garantizados.</p>
+  </div>
+</footer>
+
+<script>
+/* Progressive enhancement: tabs sin romper el acceso sin JS + reveal respetando motion. */
+(function(){
+  var dirs=["a","b","c"];
+  var reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function activar(id,foco){
+    if(dirs.indexOf(id)<0)id="a";
+    dirs.forEach(function(x){
+      var sec=document.getElementById("dir-"+x);
+      var tab=document.getElementById("tab-"+x);
+      var on=x===id;
+      if(sec)sec.classList.toggle("is-active",on);
+      if(tab){tab.setAttribute("aria-selected",on?"true":"false");tab.tabIndex=on?0:-1;}
+    });
+    var sec=document.getElementById("dir-"+id);
+    if(sec){
+      sec.querySelectorAll("[data-reveal]").forEach(function(el){el.classList.add("is-in");});
+      if(foco){try{sec.focus({preventScroll:true});}catch(e){sec.focus();}}
+    }
+  }
+
+  document.body.classList.add("js-tabs");
+
+  // Activar segun hash inicial o dejar A.
+  var h=(location.hash||"").replace("#dir-","");
+  activar(dirs.indexOf(h)>=0?h:"a",false);
+
+  // Cualquier elemento con data-dir-target alterna la direccion.
+  document.querySelectorAll("[data-dir-target]").forEach(function(el){
+    el.addEventListener("click",function(ev){
+      ev.preventDefault();
+      var id=el.getAttribute("data-dir-target");
+      activar(id,true);
+      var sec=document.getElementById("dir-"+id);
+      if(sec)sec.scrollIntoView({behavior:reduce?"auto":"smooth",block:"start"});
+      if(history.replaceState)history.replaceState(null,"","#dir-"+id);
+    });
+  });
+
+  // Flechas izq/der sobre las pestañas.
+  var tabs=[document.getElementById("tab-a"),document.getElementById("tab-b"),document.getElementById("tab-c")];
+  tabs.forEach(function(tab,i){
+    if(!tab)return;
+    tab.addEventListener("keydown",function(ev){
+      var d=ev.key==="ArrowRight"?1:ev.key==="ArrowLeft"?-1:0;
+      if(!d)return;
+      ev.preventDefault();
+      var n=(i+d+tabs.length)%tabs.length;
+      activar(dirs[n],true);
+      if(tabs[n])tabs[n].focus();
+    });
+  });
+
+  // Scroll suave del enlace "Comparación".
+  document.querySelectorAll("[data-scroll]").forEach(function(el){
+    el.addEventListener("click",function(ev){
+      var t=document.querySelector(el.getAttribute("href"));
+      if(!t)return;
+      ev.preventDefault();
+      t.scrollIntoView({behavior:reduce?"auto":"smooth",block:"start"});
+    });
+  });
+
+  // Reveal solo si hay motion permitido.
+  if(!reduce&&"IntersectionObserver" in window){
+    document.body.classList.add("js-reveal");
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add("is-in");io.unobserve(e.target);}});
+    },{rootMargin:"0px 0px -8% 0px",threshold:.08});
+    document.querySelectorAll("[data-reveal]").forEach(function(el){io.observe(el);});
+    // Asegura visibles los de la direccion activa inicial.
+    var act=document.querySelector(".direccion.is-active");
+    if(act)act.querySelectorAll("[data-reveal]").forEach(function(el){el.classList.add("is-in");});
+  }
+})();
+</script>
+</body>
+</html>
