@@ -56,3 +56,15 @@ export function constantTimeEqual(a: string, b: string): boolean {
     return false;
   }
 }
+
+/**
+ * Formato del password derivado: "dona-" + 12 hex (48 bits · ver
+ * deriveDashboardPassword). Un password que no matchea no puede ser válido,
+ * así que el login lo rechaza ANTES de pegarle a Stripe y sin contarlo como
+ * intento de brute-force (no consume presupuesto de lockout).
+ */
+const PASSWORD_FORMAT_RE = /^dona-[0-9a-f]{12}$/;
+
+export function tienePasswordFormatoValido(password: unknown): boolean {
+  return typeof password === "string" && PASSWORD_FORMAT_RE.test(password);
+}

@@ -3264,6 +3264,42 @@ async def internal_automation_high_confirmar(request: Request):
     }
 
 
+# ── /internal/auth/* (HMAC bridge · lockout de login del dashboard, rank 4) ──
+#
+# Llamados por landing/lib/auth-lockout-bridge.ts (server-side) desde el
+# authorize de NextAuth. El email viaja sobre el bridge firmado (HMAC); el
+# backend lo hashea para la fila (sin PII en DB). Misma verificación de firma
+# que /internal/automation/*.
+
+
+@app.post("/internal/auth/login-check")
+async def internal_auth_login_check(request: Request):
+    """¿Está bloqueado este email por brute-force? No muta estado. La landing
+    llama ANTES de pegarle a Stripe; si está bloqueado, aborta el login."""
+    payload = await _verificar_y_parsear_internal(request)
+    email = (payload.get("email") or "").strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="missing_email")
+    from agent.dashboard_lockout import verificar_lockout
+
+    return await verificar_lockout(email)
+
+
+@app.post("/internal/auth/login-record")
+async def internal_auth_login_record(request: Request):
+    """Registra el resultado de un intento de login: el éxito resetea el
+    contador, el fallo lo incrementa y bloquea al alcanzar el umbral. La landing
+    llama DESPUÉS de validar contra Stripe."""
+    payload = await _verificar_y_parsear_internal(request)
+    email = (payload.get("email") or "").strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="missing_email")
+    exito = bool(payload.get("exito"))
+    from agent.dashboard_lockout import registrar_resultado
+
+    return await registrar_resultado(email, exito)
+
+
 @app.post("/webhook")
 async def webhook_handler(request: Request):
     """Webhook genérico."""

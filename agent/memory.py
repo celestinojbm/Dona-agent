@@ -683,6 +683,11 @@ async def _migrar_columnas():
 
 async def inicializar_db():
     """Crea las tablas si no existen y aplica migraciones."""
+    # Registrar modelos cuyas tablas se crean por create_all pero cuyos módulos
+    # solo se importan lazy desde sus endpoints (no en el arranque normal).
+    # El import fuerza el registro de la tabla en Base.metadata.
+    from agent.dashboard_lockout import DashboardLoginIntento  # noqa: F401
+
     tablas_esperadas = set(Base.metadata.tables.keys())
     logger.info(f"[DB] Driver: {'PostgreSQL/asyncpg' if _ES_POSTGRES else 'SQLite'}")
     logger.info(f"[DB] Tablas en metadata ({len(tablas_esperadas)}): {sorted(tablas_esperadas)}")
