@@ -1,0 +1,40 @@
+name: Tests
+
+"on":
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+# Cancela corridas anteriores de la misma rama/PR para no malgastar runners.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: Suite completa (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      # conftest.py fija ENVIRONMENT=test, DATABASE_URL sqlite y claves fake:
+      # la suite es autocontenida (SQLite en archivo temporal, sin secretos reales).
+      - name: Correr pytest
+        run: python -m pytest -q
