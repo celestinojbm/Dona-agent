@@ -90,6 +90,28 @@ class TestOAuthState:
         with pytest.raises(ValueError):
             decodificar_state("esto-no-es-un-state-valido.xxx")
 
+    def test_state_sin_firma_legacy_rechazado(self):
+        """REGRESIÓN CSRF: un state legacy sin firma (solo base64 del teléfono,
+        sin ".") DEBE rechazarse. Antes se aceptaba en 'modo degradado' y devolvía
+        el teléfono, permitiendo account-linking forjado."""
+        from agent.google_calendar import decodificar_state
+        import base64
+        state_forjado = base64.urlsafe_b64encode(b"5219999999999").decode().rstrip("=")
+        assert "." not in state_forjado  # sin firma
+        with pytest.raises(ValueError):
+            decodificar_state(state_forjado)
+
+    def test_state_secret_falla_rapido_en_prod(self, monkeypatch):
+        """Sin secret real configurado, en producción debe abortar (RuntimeError)
+        en vez de firmar con un fallback público falsificable."""
+        import agent.google_calendar as gc
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("OAUTH_STATE_SECRET", raising=False)
+        monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
+        monkeypatch.setattr(gc, "GOOGLE_CLIENT_SECRET", "")
+        with pytest.raises(RuntimeError, match="producción"):
+            gc._resolver_state_secret()
+
 
 # ── HIGH-7: Validación E.164 ─────────────────────────────────────────────────
 
