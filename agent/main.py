@@ -881,6 +881,38 @@ async def _mensaje_ya_procesado(mensaje_id: str, telefono: str) -> bool:
     return False
 
 
+async def _procesar_tcpa_optout(msg) -> bool:
+    """Maneja opt-out/opt-in TCPA (STOP/START). Devuelve True si manejó el mensaje.
+
+    TCPA (ley federal EEUU) exige honrar todo opt-out de forma inmediata e
+    incondicional. Por eso se invoca al INICIO del bucle de procesamiento (antes
+    de dedup y rate-limit) para mensajes de texto, y de nuevo tras transcribir
+    notas de voz. No consume LLM ni créditos. La confirmación de baja es el único
+    mensaje permitido tras un STOP.
+    """
+    if not msg.texto:
+        return False
+    if es_comando_stop_tcpa(msg.texto):
+        try:
+            respuesta_stop = await manejar_stop_tcpa(msg.telefono)
+        except Exception as _e_stop:
+            logger.error(f"[TCPA] Error en opt-out: {_e_stop}")
+            respuesta_stop = "Has sido dado de baja. No te enviaremos más mensajes proactivos."
+        await proveedor.enviar_mensaje(msg.telefono, respuesta_stop)
+        logger.info(f"[TCPA] STOP → {msg.telefono}")
+        return True
+    if es_comando_start_tcpa(msg.texto):
+        try:
+            respuesta_start = await manejar_start_tcpa(msg.telefono)
+        except Exception as _e_start:
+            logger.error(f"[TCPA] Error en re-opt-in: {_e_start}")
+            respuesta_start = "Proactividad reactivada."
+        await proveedor.enviar_mensaje(msg.telefono, respuesta_start)
+        logger.info(f"[TCPA] START → {msg.telefono}")
+        return True
+    return False
+
+
 async def procesar_webhook(request: Request):
     """Lógica compartida: parsea el mensaje, llama a Claude y responde."""
     import asyncio as _asyncio
@@ -898,6 +930,12 @@ async def procesar_webhook(request: Request):
         try:
             if msg.es_propio:
                 logger.debug(f"[SKIP] Mensaje propio ignorado: {msg.telefono}")
+                continue
+
+            # ── TCPA opt-out (STOP/START) — PRIORIDAD MÁXIMA: ANTES de dedup y
+            # rate-limit, para que un opt-out NUNCA se descarte (ni siquiera si el
+            # usuario está rate-limited). Cumplimiento legal federal (TCPA). ──
+            if await _procesar_tcpa_optout(msg):
                 continue
 
             # ── Deduplicación: ignorar si ya procesamos este mensaje_id ─────
@@ -1246,27 +1284,11 @@ async def procesar_webhook(request: Request):
             except Exception as _e_cat:
                 logger.error(f"[ENHANCED] Error en catálogo/sistemas: {_e_cat}")
 
-            # ── TCPA opt-out (STOP/UNSUBSCRIBE/BAJA) — PRIORIDAD MÁXIMA ────────
-            # Ley federal de EEUU requiere respuesta inmediata a opt-out.
-            # Se procesa ANTES que cualquier otro flujo (onboarding, comandos, IA).
-            if es_comando_stop_tcpa(msg.texto):
-                try:
-                    respuesta_stop = await manejar_stop_tcpa(msg.telefono)
-                except Exception as _e_stop:
-                    logger.error(f"[TCPA] Error en opt-out: {_e_stop}")
-                    respuesta_stop = "Has sido dado de baja. No te enviaremos más mensajes proactivos."
-                await proveedor.enviar_mensaje(msg.telefono, respuesta_stop)
-                logger.info(f"[TCPA] STOP → {msg.telefono}")
-                continue
-
-            if es_comando_start_tcpa(msg.texto):
-                try:
-                    respuesta_start = await manejar_start_tcpa(msg.telefono)
-                except Exception as _e_start:
-                    logger.error(f"[TCPA] Error en re-opt-in: {_e_start}")
-                    respuesta_start = "Proactividad reactivada."
-                await proveedor.enviar_mensaje(msg.telefono, respuesta_start)
-                logger.info(f"[TCPA] START → {msg.telefono}")
+            # ── TCPA opt-out en notas de voz ya transcritas ───────────────────
+            # Fallback al check del inicio del bucle: una nota de voz que diga
+            # "STOP" llega aquí con msg.texto ya transcrito (el check temprano la
+            # dejó pasar porque msg.texto estaba vacío antes de transcribir).
+            if await _procesar_tcpa_optout(msg):
                 continue
 
             # ── Recordatorio en lenguaje natural ("recuérdame mañana 9am que...") ──

@@ -157,3 +157,68 @@ async def test_parser_rompe_no_crashea():
         res = await procesar_webhook(MagicMock())
 
     assert res == {"status": "error", "detail": "parse_error"}
+
+
+@pytest.mark.asyncio
+async def test_stop_tcpa_se_procesa_aunque_rate_limit_excedido():
+    """REGRESIÓN TCPA (rank 1 del audit de readiness):
+    Un opt-out STOP DEBE honrarse aunque el usuario esté rate-limited.
+    Antes, el check STOP corría DESPUÉS del rate-limit, así que un STOP de un
+    número rate-limited se descartaba en silencio (violación TCPA). Ahora corre
+    al inicio del bucle, antes de dedup y rate-limit.
+    """
+    from agent.providers.base import MensajeEntrante
+
+    fake_msg = MensajeEntrante(
+        telefono="5551234567",
+        texto="STOP",
+        mensaje_id="wamid.tcpa.1",
+        es_propio=False,
+    )
+    fake_proveedor = MagicMock()
+    fake_proveedor.parsear_webhook = AsyncMock(return_value=[fake_msg])
+    fake_proveedor.enviar_mensaje = AsyncMock(return_value=True)
+    spy_stop = AsyncMock(return_value="Has sido dado de baja. No te enviaremos más mensajes proactivos.")
+
+    # _dentro_de_limite=False ⇒ usuario rate-limited; aun así el STOP debe procesarse.
+    with patch("agent.main.proveedor", fake_proveedor), \
+         patch("agent.main._dentro_de_limite", return_value=False), \
+         patch("agent.main._mensaje_ya_procesado", new=AsyncMock(return_value=False)), \
+         patch("agent.main.manejar_stop_tcpa", new=spy_stop):
+        from agent.main import procesar_webhook
+        await procesar_webhook(MagicMock())
+
+    spy_stop.assert_awaited_once_with("5551234567")
+    fake_proveedor.enviar_mensaje.assert_awaited_once()
+    args, _ = fake_proveedor.enviar_mensaje.call_args
+    assert args[0] == "5551234567"
+    assert "baja" in args[1].lower()
+
+
+@pytest.mark.asyncio
+async def test_stop_tcpa_se_procesa_antes_de_dedup():
+    """El STOP debe procesarse aunque la dedup marque el mensaje como ya visto:
+    un webhook de STOP reentregado por el proveedor no debe perderse."""
+    from agent.providers.base import MensajeEntrante
+
+    fake_msg = MensajeEntrante(
+        telefono="5551234567",
+        texto="unsubscribe",
+        mensaje_id="wamid.tcpa.2",
+        es_propio=False,
+    )
+    fake_proveedor = MagicMock()
+    fake_proveedor.parsear_webhook = AsyncMock(return_value=[fake_msg])
+    fake_proveedor.enviar_mensaje = AsyncMock(return_value=True)
+    spy_stop = AsyncMock(return_value="Has sido dado de baja.")
+
+    # _mensaje_ya_procesado=True ⇒ la dedup descartaría el mensaje; el STOP, no.
+    with patch("agent.main.proveedor", fake_proveedor), \
+         patch("agent.main._dentro_de_limite", return_value=True), \
+         patch("agent.main._mensaje_ya_procesado", new=AsyncMock(return_value=True)), \
+         patch("agent.main.manejar_stop_tcpa", new=spy_stop):
+        from agent.main import procesar_webhook
+        await procesar_webhook(MagicMock())
+
+    spy_stop.assert_awaited_once_with("5551234567")
+    fake_proveedor.enviar_mensaje.assert_awaited_once()
