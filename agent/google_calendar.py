@@ -36,12 +36,34 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 # Secret para firmar el parámetro `state` de OAuth (protección CSRF).
 # Reusa ENCRYPTION_KEY si existe, si no deriva de GOOGLE_CLIENT_SECRET.
-_OAUTH_STATE_SECRET = (
-    os.getenv("OAUTH_STATE_SECRET")
-    or os.getenv("ENCRYPTION_KEY")
-    or GOOGLE_CLIENT_SECRET
-    or "dona-oauth-state-fallback-DO-NOT-USE-IN-PROD"
-).encode()
+_FALLBACK_STATE_SECRET = "dona-oauth-state-fallback-DO-NOT-USE-IN-PROD"
+
+
+def _resolver_state_secret() -> bytes:
+    """Resuelve el secret para firmar el `state` de OAuth.
+
+    En producción exige un secret real (OAUTH_STATE_SECRET / ENCRYPTION_KEY /
+    GOOGLE_CLIENT_SECRET): un secret público haría los `state` falsificables
+    (CSRF). Fail-fast en vez de degradar la seguridad. En dev/test usa un
+    fallback no-secreto.
+    """
+    raw = (
+        os.getenv("OAUTH_STATE_SECRET")
+        or os.getenv("ENCRYPTION_KEY")
+        or GOOGLE_CLIENT_SECRET
+    )
+    if not raw:
+        if os.getenv("ENVIRONMENT", "").strip().lower() == "production":
+            raise RuntimeError(
+                "OAUTH_STATE_SECRET (o ENCRYPTION_KEY / GOOGLE_CLIENT_SECRET) es "
+                "obligatorio en producción para firmar el state de OAuth de forma "
+                "no falsificable. Configúralo antes de desplegar."
+            )
+        raw = _FALLBACK_STATE_SECRET
+    return raw.encode()
+
+
+_OAUTH_STATE_SECRET = _resolver_state_secret()
 _OAUTH_STATE_TTL_SECONDS = 600  # 10 minutos
 BASE_URL = (
     os.getenv("BASE_URL")
@@ -99,17 +121,13 @@ def decodificar_state(state: str) -> str:
     Decodifica y valida el `state` de OAuth. Retorna el teléfono si es válido.
     Lanza ValueError si la firma es inválida o el state expiró.
     """
-    try:
-        payload_b64, firma = state.split(".", 1)
-    except ValueError:
-        # Compatibilidad: state legacy (solo base64 del teléfono, sin firma)
-        # Lo aceptamos en modo degradado pero logueamos warning.
-        try:
-            telefono_legacy = base64.urlsafe_b64decode(state.encode()).decode()
-            logger.warning(f"[OAUTH] State sin firma (legacy) para {telefono_legacy}")
-            return telefono_legacy
-        except Exception:
-            raise ValueError("State OAuth malformado")
+    # Un `state` sin firma HMAC (sin ".") se RECHAZA. Aceptarlo permitiría a un
+    # atacante forjar `state = base64(telefono_victima)` y vincular su cuenta de
+    # Google al teléfono que elija (CSRF / account-linking). Se eliminó el path
+    # legacy "degradado" que antes lo aceptaba.
+    if "." not in state:
+        raise ValueError("State OAuth sin firma (rechazado)")
+    payload_b64, firma = state.split(".", 1)
 
     # Re-agregar padding base64 si es necesario
     padding = "=" * (-len(payload_b64) % 4)
