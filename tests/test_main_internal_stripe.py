@@ -505,7 +505,7 @@ class TestFailFastProduccion:
             _check_internal_bridge_secret()
         msg = str(exc.value)
         assert "INTERNAL_BRIDGE_SECRET" in msg
-        assert "producción" in msg
+        assert "estricto" in msg  # fail-closed: producción O entorno desconocido
         # No debe filtrar valores reales del secret en el error.
         assert "test-secret" not in msg
 

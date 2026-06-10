@@ -111,10 +111,10 @@ class ProveedorMeta(ProveedorWhatsApp):
         # no a nivel módulo porque el factory de agent/providers/__init__.py
         # solo importa este módulo si el provider activo es Meta — así no
         # bloqueamos deploys con WHATSAPP_PROVIDER=whapi/twilio sin secret.
-        environment = os.getenv("ENVIRONMENT", "development").lower()
-        if environment == "production" and not self.app_secret:
+        from agent.entorno import es_entorno_estricto
+        if es_entorno_estricto() and not self.app_secret:
             raise RuntimeError(
-                "[META] META_APP_SECRET no configurado en producción — "
+                "[META] META_APP_SECRET no configurado en entorno estricto — "
                 "los webhooks aceptarían payloads forjados, lo que permite "
                 "a un atacante inyectar mensajes WhatsApp falsos. Configura "
                 "la variable o cambia WHATSAPP_PROVIDER antes de reintentar "
@@ -155,12 +155,12 @@ class ProveedorMeta(ProveedorWhatsApp):
         ``ENVIRONMENT`` se lee en cada llamada (no se cachea) para facilitar
         tests con ``monkeypatch.setenv``.
         """
-        environment = os.getenv("ENVIRONMENT", "development").lower()
+        from agent.entorno import es_entorno_estricto
 
         if not self.app_secret:
-            if environment == "production":
+            if es_entorno_estricto():
                 logger.error(
-                    "[META] META_APP_SECRET no configurado en producción — "
+                    "[META] META_APP_SECRET no configurado en entorno estricto — "
                     "rechazando webhook (defensa en profundidad)."
                 )
                 return False

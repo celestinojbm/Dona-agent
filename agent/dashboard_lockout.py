@@ -61,10 +61,24 @@ def _hash_email(email: str) -> str:
     Hash con ``INTERNAL_BRIDGE_SECRET`` para que no sea reversible ni enumerable
     sin el secret. Email normalizado (trim + lower) para que el casing no genere
     filas distintas.
+
+    Fail-closed por defecto (ver agent/entorno.py): en entorno estricto un
+    secret ausente aborta en vez de producir hashes computables por cualquiera
+    (enumeración de PII). Solo dev/test explícitos degradan a un literal local.
     """
-    secret = os.getenv("INTERNAL_BRIDGE_SECRET", "").encode("utf-8")
+    from agent.entorno import es_entorno_estricto
+
+    raw = os.getenv("INTERNAL_BRIDGE_SECRET", "").strip()
+    if not raw:
+        if es_entorno_estricto():
+            raise RuntimeError(
+                "[LOCKOUT] INTERNAL_BRIDGE_SECRET no configurado en entorno "
+                "estricto — el hash de email sería computable por cualquiera "
+                "(enumeración de PII). Configura la variable."
+            )
+        raw = "dona-lockout-dev-secret-do-not-use-in-prod"
     norm = (email or "").strip().lower().encode("utf-8")
-    return hmac.new(secret, norm, hashlib.sha256).hexdigest()
+    return hmac.new(raw.encode("utf-8"), norm, hashlib.sha256).hexdigest()
 
 
 async def verificar_lockout(email: str) -> dict:

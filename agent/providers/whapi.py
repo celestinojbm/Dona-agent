@@ -35,10 +35,10 @@ class ProveedorWhapi(ProveedorWhatsApp):
         # factory de agent/providers/__init__.py solo importa este módulo
         # si el provider activo es Whapi — así no bloqueamos deploys con
         # WHATSAPP_PROVIDER=meta/twilio sin necesidad de este token.
-        environment = os.getenv("ENVIRONMENT", "development").lower()
-        if environment == "production" and not self.webhook_token:
+        from agent.entorno import es_entorno_estricto
+        if es_entorno_estricto() and not self.webhook_token:
             raise RuntimeError(
-                "[WHAPI] WHAPI_WEBHOOK_TOKEN no configurado en producción — "
+                "[WHAPI] WHAPI_WEBHOOK_TOKEN no configurado en entorno estricto — "
                 "los webhooks aceptarían payloads forjados, lo que permite "
                 "a un atacante inyectar mensajes WhatsApp falsos. Configura "
                 "la variable o cambia WHATSAPP_PROVIDER antes de reintentar "
@@ -66,13 +66,13 @@ class ProveedorWhapi(ProveedorWhatsApp):
         ``ENVIRONMENT`` se lee en cada llamada para facilitar tests con
         ``monkeypatch.setenv``.
         """
-        environment = os.getenv("ENVIRONMENT", "development").lower()
+        from agent.entorno import es_entorno_estricto
 
         if not self.webhook_token:
-            if environment == "production":
+            if es_entorno_estricto():
                 logger.error(
-                    "[WHAPI] WHAPI_WEBHOOK_TOKEN no configurado en producción — "
-                    "rechazando webhook (defensa en profundidad)."
+                    "[WHAPI] WHAPI_WEBHOOK_TOKEN no configurado en entorno "
+                    "estricto — rechazando webhook (defensa en profundidad)."
                 )
                 return False
             logger.warning(

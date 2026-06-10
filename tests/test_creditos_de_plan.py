@@ -95,7 +95,7 @@ class TestProduccionSinEnv:
         with caplog.at_level(logging.ERROR, logger="dona"):
             creditos_de_plan("premium")
         assert any(
-            "STRIPE_CREDITOS_PREMIUM" in rec.message and "producción" in rec.message
+            "STRIPE_CREDITOS_PREMIUM" in rec.message and "estricto" in rec.message
             for rec in caplog.records
         )
 
