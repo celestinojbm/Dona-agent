@@ -90,7 +90,6 @@ from agent.proactivity import (
 )
 from agent.memory import (
     contar_eventos_estres_recientes, ya_avisado_sobrecarga_hoy, marcar_aviso_sobrecarga,
-    incrementar_mensajes_proactivos,
 )
 from agent.providers import obtener_proveedor
 from agent.envio_gate import (
@@ -2128,7 +2127,10 @@ async def _verificar_sobrecarga(telefono: str, proveedor, texto_mensaje: str = "
     """
     Detecta sobrecarga crónica: 4+ eventos de estrés/agotamiento (intensidad ≥2) en 24h.
     Envía un mensaje de cuidado proactivo si se detecta y no se ha enviado hoy.
-    Cuenta dentro del límite diario de mensajes proactivos.
+
+    Es contenido NO solicitado → se envía como PROACTIVO explícito (anulando
+    el contexto DIRECTO heredado del webhook): respeta opt-out, quiet hours
+    y el límite diario, que verifica y cuenta el gate de envíos.
     No se activa si el mensaje actual es una consulta analítica (análisis de decisiones).
     """
     try:
@@ -2155,10 +2157,13 @@ async def _verificar_sobrecarga(telefono: str, proveedor, texto_mensaje: str = "
             "o simplemente necesitas que te escuche?"
         )
 
-        enviado = await proveedor.enviar_mensaje(telefono, mensaje)
+        from agent.envio_gate import contexto_envio_proactivo
+        with contexto_envio_proactivo():
+            enviado = await proveedor.enviar_mensaje(telefono, mensaje)
         if enviado:
             await marcar_aviso_sobrecarga(telefono)
-            await incrementar_mensajes_proactivos(telefono)
+            # El contador proactivo lo incrementa el gate — incrementarlo
+            # aquí también lo contaría doble (review Hermes, PR #75).
             logger.info(f"Aviso de sobrecarga enviado a {telefono}")
 
     except Exception as e:

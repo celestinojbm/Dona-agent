@@ -94,6 +94,21 @@ def contexto_envio_automatico():
         _ctx_envio.reset(token)
 
 
+@contextmanager
+def contexto_envio_proactivo():
+    """Fuerza PROACTIVO dentro del bloque, ANULANDO un contexto heredado.
+
+    Necesario para envíos conceptualmente proactivos que nacen dentro del
+    procesamiento de un mensaje inbound (p. ej. el aviso de sobrecarga,
+    lanzado con create_task desde el webhook): sin esto heredarían DIRECTO
+    y evadirían opt-out, quiet hours y límite diario."""
+    token = _ctx_envio.set((TIPO_PROACTIVO, None))
+    try:
+        yield
+    finally:
+        _ctx_envio.reset(token)
+
+
 def activar_contexto_directo(telefono: str):
     """Variante imperativa de `contexto_envio_directo` para bloques donde un
     `with` obligaría a re-indentar cientos de líneas (loop del webhook).

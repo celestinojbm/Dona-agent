@@ -422,3 +422,117 @@ class TestEjecutorHighOptOutTercero:
 
         assert resultado["estado_envio"] == "sent"
         assert len(fake.enviados) == 1
+
+
+# ── 7. Aviso de sobrecarga es PROACTIVO (review Hermes, PR #75) ──────────
+
+
+class TestSobrecargaEsProactivo:
+    """El aviso de sobrecarga nace dentro del webhook (create_task hereda el
+    contexto DIRECTO) pero es contenido NO solicitado: debe anular el
+    contexto heredado y pasar por el gate como PROACTIVO."""
+
+    @pytest.fixture
+    async def main_sobrecarga(self, memoria, monkeypatch):
+        import agent.main as main_mod
+
+        async def _cinco_eventos(telefono, horas=24):
+            return 5
+
+        async def _no_avisado(telefono):
+            return False
+
+        avisados: list[str] = []
+
+        async def _marcar(telefono):
+            avisados.append(telefono)
+
+        monkeypatch.setattr(main_mod, "contar_eventos_estres_recientes", _cinco_eventos)
+        monkeypatch.setattr(main_mod, "ya_avisado_sobrecarga_hoy", _no_avisado)
+        monkeypatch.setattr(main_mod, "marcar_aviso_sobrecarga", _marcar)
+        return main_mod, avisados
+
+    async def test_optout_no_recibe_sobrecarga_ni_en_contexto_directo(
+        self, memoria, main_sobrecarga
+    ):
+        """REGRESIÓN (review Hermes): heredando DIRECTO del webhook, el aviso
+        de sobrecarga evadía el opt-out."""
+        from agent.envio_gate import contexto_envio_directo
+
+        main_mod, avisados = main_sobrecarga
+        await memoria.guardar_proactividad(TEL, proactive_enabled=False)
+
+        fake = _proveedor_fake()
+        with contexto_envio_directo(TEL):
+            await main_mod._verificar_sobrecarga(TEL, fake, "estoy agotado")
+
+        assert fake.enviados == []
+        assert avisados == []
+
+    async def test_sobrecarga_cuenta_una_sola_vez(self, memoria, main_sobrecarga):
+        """REGRESIÓN (review Hermes): gate + incremento manual = doble conteo."""
+        main_mod, avisados = main_sobrecarga
+
+        fake = _proveedor_fake()
+        await main_mod._verificar_sobrecarga(TEL, fake, "no puedo con todo")
+
+        assert len(fake.enviados) == 1
+        assert avisados == [TEL]
+        config = await memoria.obtener_proactividad(TEL)
+        assert config["mensajes_hoy"] == 1
+
+    async def test_sobrecarga_respeta_limite_diario(self, memoria, main_sobrecarga):
+        """Antes el aviso se enviaba aunque el presupuesto diario estuviera
+        agotado (solo contaba después); ahora el gate lo verifica ANTES."""
+        from agent.proactivity import MAX_MENSAJES_DIARIOS
+
+        main_mod, avisados = main_sobrecarga
+        await memoria.guardar_proactividad(
+            TEL,
+            proactive_enabled=True,
+            mensajes_hoy=MAX_MENSAJES_DIARIOS,
+            ultimo_reset=datetime.utcnow(),
+        )
+
+        fake = _proveedor_fake()
+        await main_mod._verificar_sobrecarga(TEL, fake, "qué día pesado")
+
+        assert fake.enviados == []
+        assert avisados == []
+
+
+# ── 8. Guardrail: subclases no deben sobreescribir los métodos públicos ──
+
+
+class TestGuardrailSubclases:
+    def test_providers_concretos_no_sobreescriben_metodos_publicos(self):
+        """El gate vive en los métodos públicos de ProveedorWhatsApp: una
+        subclase que defina enviar_* (en vez de _enviar_*_impl) lo evadiría.
+        Este test falla si alguien lo intenta (review Hermes, PR #75)."""
+        from agent.providers.base import ProveedorWhatsApp
+        import agent.providers.meta  # noqa: F401 — registra la subclase
+        import agent.providers.whapi  # noqa: F401
+
+        publicos = (
+            "enviar_mensaje", "enviar_botones", "enviar_lista", "enviar_audio",
+            "enviar_documento", "enviar_imagen", "enviar_video",
+        )
+
+        def _subclases(cls):
+            for sub in cls.__subclasses__():
+                yield sub
+                yield from _subclases(sub)
+
+        revisadas = 0
+        for sub in _subclases(ProveedorWhatsApp):
+            # Solo providers de producción (los fakes de tests quedan fuera)
+            if not sub.__module__.startswith("agent."):
+                continue
+            revisadas += 1
+            for metodo in publicos:
+                assert metodo not in vars(sub), (
+                    f"{sub.__name__} sobreescribe {metodo}() y evade el gate "
+                    f"de envíos — implementa _{metodo}_impl() en su lugar"
+                )
+
+        assert revisadas >= 2  # al menos ProveedorMeta y ProveedorWhapi
