@@ -163,7 +163,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
 
         return mensajes
 
-    async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
+    async def _enviar_mensaje_impl(self, telefono: str, mensaje: str) -> bool:
         """Envía mensaje de texto via Whapi.cloud."""
         if not self.token:
             logger.warning("WHAPI_TOKEN no configurado — mensaje no enviado")
@@ -188,7 +188,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
             logger.error(f"Excepción al enviar mensaje Whapi ({type(e).__name__}): {e}")
             return False
 
-    async def enviar_documento(
+    async def _enviar_documento_impl(
         self, telefono: str, archivo_bytes: bytes, filename: str,
         mime_type: str = "application/pdf", caption: str = "",
     ) -> bool:
@@ -228,7 +228,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
             logger.error(f"Excepción enviando documento Whapi ({type(e).__name__}): {e}")
             return False
 
-    async def enviar_video(
+    async def _enviar_video_impl(
         self, telefono: str, url: str = "", video_bytes: bytes = b"",
         caption: str = "", mime_type: str = "video/mp4",
     ) -> bool:
@@ -271,7 +271,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
             logger.error(f"Excepción enviando video Whapi ({type(e).__name__}): {e}")
             return False
 
-    async def enviar_imagen(
+    async def _enviar_imagen_impl(
         self, telefono: str, url: str = "", imagen_bytes: bytes = b"",
         caption: str = "", mime_type: str = "image/png",
     ) -> bool:

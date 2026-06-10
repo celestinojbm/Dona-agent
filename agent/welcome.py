@@ -238,8 +238,12 @@ async def enviar_bienvenida_premium(
     # Envío real vía proveedor (Whapi en prod).
     try:
         from agent.providers import obtener_proveedor
+        from agent.envio_gate import contexto_envio_directo
         proveedor = obtener_proveedor()
-        ok = await proveedor.enviar_mensaje(telefono, mensaje)
+        # Transaccional: bienvenida de la suscripción que el usuario acaba
+        # de comprar (incluye su password del dashboard — debe llegar).
+        with contexto_envio_directo(telefono):
+            ok = await proveedor.enviar_mensaje(telefono, mensaje)
     except Exception as e:
         # No fallar el webhook por un error en el proveedor. El owner
         # puede regenerar manualmente con el CLI helper de T1.4.B.

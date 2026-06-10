@@ -495,7 +495,13 @@ async def ejecutor_enviar_mensaje_whatsapp(
 
     ok = False
     try:
-        ok = await proveedor.enviar_mensaje(numero_destino, mensaje)
+        # AUTOMATICO: el gate evalúa el opt-out del TERCERO destinatario
+        # (si alguna vez envió STOP a Dona, no se le escribe), fail-closed.
+        # Sin quiet hours/límite diario: la acción fue confirmada por el
+        # usuario con confirmación dedicada HIGH.
+        from agent.envio_gate import contexto_envio_automatico
+        with contexto_envio_automatico():
+            ok = await proveedor.enviar_mensaje(numero_destino, mensaje)
     except Exception as e:
         # Provider lanzó · propagamos como RuntimeError uniforme · la
         # ejecutar_accion catch atrapará y liberará la reserva.

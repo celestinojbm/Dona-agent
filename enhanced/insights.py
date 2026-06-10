@@ -241,7 +241,10 @@ async def job_reporte_semanal(proveedor):
     try:
         reporte = await insights.generar_reporte_semanal()
 
-        enviado = await proveedor.enviar_mensaje(OWNER_PHONE, reporte)
+        # Reporte operativo al owner — no sujeto a límite diario.
+        from agent.envio_gate import contexto_envio_automatico
+        with contexto_envio_automatico():
+            enviado = await proveedor.enviar_mensaje(OWNER_PHONE, reporte)
         if enviado:
             await insights.registrar_actividad(
                 OWNER_PHONE, "reporte_semanal_enviado",

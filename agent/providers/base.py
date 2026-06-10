@@ -4,11 +4,19 @@
 """
 Define la interfaz común que todos los proveedores de WhatsApp deben implementar.
 Esto permite cambiar de proveedor sin modificar el resto del código.
+
+Los métodos públicos `enviar_*` son el CHOKE POINT del gate central de
+envíos (agent/envio_gate.py — Fase 0 · 2.1): consultan `puede_enviar()` y
+solo entonces delegan en `_enviar_*_impl`. Los proveedores concretos
+implementan los `_enviar_*_impl`; NUNCA deben sobreescribir los públicos,
+o el opt-out TCPA dejaría de aplicarse.
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from fastapi import Request
+
+from agent.envio_gate import puede_enviar, registrar_envio_realizado
 
 
 @dataclass
@@ -41,48 +49,129 @@ class OpcionLista:
 
 
 class ProveedorWhatsApp(ABC):
-    """Interfaz que cada proveedor de WhatsApp debe implementar."""
+    """Interfaz que cada proveedor de WhatsApp debe implementar.
+
+    Los métodos públicos `enviar_*` aplican el gate central y NO se
+    sobreescriben; los proveedores implementan los `_enviar_*_impl`.
+    """
 
     @abstractmethod
     async def parsear_webhook(self, request: Request) -> list[MensajeEntrante]:
         """Extrae y normaliza mensajes del payload del webhook."""
         ...
 
-    @abstractmethod
+    # ── Métodos públicos (gateados) ──────────────────────────────────────
+
     async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
-        """Envía un mensaje de texto. Retorna True si fue exitoso."""
-        ...
+        """Envía un mensaje de texto. Retorna True si fue exitoso.
+        Retorna False sin tocar la API si el gate bloquea el envío."""
+        if not await puede_enviar(telefono):
+            return False
+        ok = await self._enviar_mensaje_impl(telefono, mensaje)
+        if ok:
+            await registrar_envio_realizado(telefono)
+        return ok
 
     async def enviar_botones(
         self, telefono: str, texto: str, botones: list[BotonRespuesta]
     ) -> bool:
         """Envía mensaje con botones interactivos (max 3). Fallback a texto si no soportado."""
-        # Fallback por defecto: enviar como texto con opciones numeradas
-        opciones = "\n".join(f"{i+1}. {b.titulo}" for i, b in enumerate(botones))
-        return await self.enviar_mensaje(telefono, f"{texto}\n\n{opciones}")
+        if not await puede_enviar(telefono):
+            return False
+        ok = await self._enviar_botones_impl(telefono, texto, botones)
+        if ok:
+            await registrar_envio_realizado(telefono)
+        return ok
 
     async def enviar_lista(
         self, telefono: str, texto: str, boton_menu: str, opciones: list[OpcionLista]
     ) -> bool:
         """Envía mensaje con lista desplegable (max 10). Fallback a texto si no soportado."""
-        items = "\n".join(
-            f"• {o.titulo}" + (f" — {o.descripcion}" if o.descripcion else "")
-            for o in opciones
-        )
-        return await self.enviar_mensaje(telefono, f"{texto}\n\n{items}")
+        if not await puede_enviar(telefono):
+            return False
+        ok = await self._enviar_lista_impl(telefono, texto, boton_menu, opciones)
+        if ok:
+            await registrar_envio_realizado(telefono)
+        return ok
 
     async def enviar_audio(self, telefono: str, audio_bytes: bytes, mime_type: str = "audio/ogg") -> bool:
         """Envía una nota de voz. Los proveedores sin soporte devuelven False (no fallback a texto;
         el caller decide si manda el texto por separado)."""
-        return False
+        if not await puede_enviar(telefono):
+            return False
+        ok = await self._enviar_audio_impl(telefono, audio_bytes, mime_type)
+        if ok:
+            await registrar_envio_realizado(telefono)
+        return ok
 
     async def enviar_documento(
         self, telefono: str, archivo_bytes: bytes, filename: str, mime_type: str = "text/csv", caption: str = ""
     ) -> bool:
         """Envía un documento adjunto. Devuelve False si no hay soporte nativo."""
-        return False
+        if not await puede_enviar(telefono):
+            return False
+        ok = await self._enviar_documento_impl(telefono, archivo_bytes, filename, mime_type, caption)
+        if ok:
+            await registrar_envio_realizado(telefono)
+        return ok
 
     async def enviar_imagen(
+        self, telefono: str, url: str = "", imagen_bytes: bytes = b"",
+        caption: str = "", mime_type: str = "image/png",
+    ) -> bool:
+        """Envía una imagen (ver _enviar_imagen_impl)."""
+        if not await puede_enviar(telefono):
+            return False
+        ok = await self._enviar_imagen_impl(telefono, url, imagen_bytes, caption, mime_type)
+        if ok:
+            await registrar_envio_realizado(telefono)
+        return ok
+
+    async def enviar_video(
+        self, telefono: str, url: str = "", video_bytes: bytes = b"",
+        caption: str = "", mime_type: str = "video/mp4",
+    ) -> bool:
+        """Envía un video (ver _enviar_video_impl)."""
+        if not await puede_enviar(telefono):
+            return False
+        ok = await self._enviar_video_impl(telefono, url, video_bytes, caption, mime_type)
+        if ok:
+            await registrar_envio_realizado(telefono)
+        return ok
+
+    # ── Implementaciones por proveedor ───────────────────────────────────
+
+    @abstractmethod
+    async def _enviar_mensaje_impl(self, telefono: str, mensaje: str) -> bool:
+        """Transporte real del mensaje de texto. Retorna True si fue exitoso."""
+        ...
+
+    async def _enviar_botones_impl(
+        self, telefono: str, texto: str, botones: list[BotonRespuesta]
+    ) -> bool:
+        # Fallback por defecto: enviar como texto con opciones numeradas.
+        # Llama al _impl (no al público) — el gate ya corrió una vez.
+        opciones = "\n".join(f"{i+1}. {b.titulo}" for i, b in enumerate(botones))
+        return await self._enviar_mensaje_impl(telefono, f"{texto}\n\n{opciones}")
+
+    async def _enviar_lista_impl(
+        self, telefono: str, texto: str, boton_menu: str, opciones: list[OpcionLista]
+    ) -> bool:
+        items = "\n".join(
+            f"• {o.titulo}" + (f" — {o.descripcion}" if o.descripcion else "")
+            for o in opciones
+        )
+        return await self._enviar_mensaje_impl(telefono, f"{texto}\n\n{items}")
+
+    async def _enviar_audio_impl(self, telefono: str, audio_bytes: bytes, mime_type: str = "audio/ogg") -> bool:
+        return False
+
+    async def _enviar_documento_impl(
+        self, telefono: str, archivo_bytes: bytes, filename: str, mime_type: str = "text/csv", caption: str = ""
+    ) -> bool:
+        return False
+
+    async def _enviar_imagen_impl(
         self, telefono: str, url: str = "", imagen_bytes: bytes = b"",
         caption: str = "", mime_type: str = "image/png",
     ) -> bool:
@@ -94,7 +183,7 @@ class ProveedorWhatsApp(ABC):
         """
         return False
 
-    async def enviar_video(
+    async def _enviar_video_impl(
         self, telefono: str, url: str = "", video_bytes: bytes = b"",
         caption: str = "", mime_type: str = "video/mp4",
     ) -> bool:

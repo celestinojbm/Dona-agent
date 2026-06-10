@@ -95,7 +95,10 @@ class ModuloMonitoreo(SafeModule):
             )
 
             try:
-                enviado = await proveedor.enviar_mensaje(OWNER_PHONE, mensaje)
+                # Alerta operativa al owner — no sujeta a límite diario.
+                from agent.envio_gate import contexto_envio_automatico
+                with contexto_envio_automatico():
+                    enviado = await proveedor.enviar_mensaje(OWNER_PHONE, mensaje)
                 if enviado:
                     _ultimas_alertas[tipo] = ahora
                     enviadas += 1
