@@ -18,6 +18,10 @@ from agent.memory import (
     marcar_recordatorio_enviado,
     registrar_fallo_recordatorio,
     obtener_usuarios_onboarding_pendientes,
+    claim_recordatorio_para_envio,
+    liberar_claim_recordatorio,
+    claim_gcal_enviado,
+    liberar_claim_gcal,
 )
 from agent.onboarding import iniciar_siguiente_fase
 from agent.proactivity import verificar_proactividad
@@ -73,6 +77,12 @@ async def _verificar_y_enviar_recordatorios_impl(proveedor):
             encabezado = "🔔 Recordatorio"
         mensaje = f"{encabezado}: {r.mensaje}"
 
+        # Claim atómico ANTES de enviar (Fase 0 · 2.3): con varios procesos
+        # corriendo el scheduler, todos ven esta fila pendiente pero solo UNO
+        # gana el claim; el resto la salta (antes: todos enviaban duplicado).
+        if not await claim_recordatorio_para_envio(r.id):
+            continue
+
         # Contenido programado por el usuario: opt-out aplica (fail-closed),
         # pero sin quiet hours ni límite diario — la hora la eligió él.
         with contexto_envio_automatico():
@@ -95,6 +105,9 @@ async def _verificar_y_enviar_recordatorios_impl(proveedor):
 
         else:
             await registrar_fallo_recordatorio(r.id)
+            # Liberar el claim para conservar el reintento por tick (cada
+            # minuto); la pausa a los 3 fallos la gobierna el contador.
+            await liberar_claim_recordatorio(r.id)
             nuevo_fallos = (r.intentos_fallidos or 0) + 1
             logger.warning(
                 f"No se pudo enviar recordatorio #{r.id} a {r.telefono} "
@@ -149,18 +162,6 @@ async def _gcal_ya_enviado(clave: str) -> bool:
     return False
 
 
-async def _gcal_marcar_enviado(clave: str):
-    """Marca un recordatorio GCal como enviado (DB + memoria)."""
-    _recordatorios_gcal_enviados_mem.add(clave)
-    try:
-        from agent.memory import async_session, RecordatorioGCalEnviado
-        async with async_session() as session:
-            session.add(RecordatorioGCalEnviado(clave=clave))
-            await session.commit()
-    except Exception:
-        pass
-
-
 async def _verificar_recordatorios_google_calendar_impl(proveedor):
     """Implementación real del job de Google Calendar (envuelta en timeout)."""
     import agent.google_calendar as gc
@@ -200,11 +201,22 @@ async def _verificar_recordatorios_google_calendar_impl(proveedor):
                 if lugar:
                     mensaje += f"\n📍 {lugar}"
 
+                # Claim atómico ANTES de enviar (Fase 0 · 2.3): el INSERT de
+                # la clave (PK) decide UN ganador; los procesos que pierden
+                # ven el conflicto y saltan (antes: check-then-act duplicaba).
+                if not await claim_gcal_enviado(clave):
+                    _recordatorios_gcal_enviados_mem.add(clave)
+                    continue
+
                 with contexto_envio_automatico():
                     enviado = await proveedor.enviar_mensaje(telefono, mensaje)
                 if enviado:
-                    await _gcal_marcar_enviado(clave)
+                    _recordatorios_gcal_enviados_mem.add(clave)
                     logger.info(f"[GCAL] Recordatorio enviado a {telefono}: '{titulo}' en {minutos} min")
+                else:
+                    # Envío fallido: liberar el claim para que el próximo
+                    # ciclo (5 min) lo reintente.
+                    await liberar_claim_gcal(clave)
 
         except Exception as e_user:
             logger.debug(f"[GCAL] Error verificando eventos para {telefono}: {e_user}")
@@ -280,7 +292,10 @@ async def _verificar_seguimientos_vencidos(proveedor):
         from agent.business.models import Seguimiento
         from agent.memory import async_session
         from sqlalchemy import select, and_
-        from agent.business.crm import completar_seguimiento
+        from agent.business.crm import (
+            claim_seguimiento_para_envio,
+            revertir_claim_seguimiento,
+        )
 
         ahora = datetime.utcnow()
         async with async_session() as session:
@@ -300,6 +315,12 @@ async def _verificar_seguimientos_vencidos(proveedor):
         logger.info(f"[SEGUIMIENTOS] {len(vencidos)} seguimiento(s) vencido(s) a disparar")
 
         for seg in vencidos:
+            # Claim atómico ANTES de enviar (Fase 0 · 2.3): completado
+            # false→true decide UN ganador entre procesos concurrentes;
+            # si el envío falla, se revierte para reintentar.
+            if not await claim_seguimiento_para_envio(seg.id):
+                continue
+
             cliente_str = f" con {seg.cliente_nombre}" if seg.cliente_nombre else ""
             mensaje = (
                 f"📞 Recordatorio de seguimiento{cliente_str}:\n"
@@ -309,12 +330,12 @@ async def _verificar_seguimientos_vencidos(proveedor):
             with contexto_envio_automatico():
                 enviado = await proveedor.enviar_mensaje(seg.telefono, mensaje)
             if enviado:
-                await completar_seguimiento(seg.telefono, seg.id)
                 logger.info(
                     f"[SEGUIMIENTOS] #{seg.id} enviado a {seg.telefono}: "
                     f"'{seg.descripcion[:60]}'"
                 )
             else:
+                await revertir_claim_seguimiento(seg.id)
                 logger.warning(
                     f"[SEGUIMIENTOS] No se pudo enviar #{seg.id} a {seg.telefono} — "
                     "se reintenta en el próximo ciclo"
