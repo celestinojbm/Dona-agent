@@ -26,14 +26,22 @@ class ReadinessError(RuntimeError):
     """Falta una precondición crítica para arrancar en entorno estricto."""
 
 
-# Secrets siempre requeridos en entorno estricto. (nombre, para qué sirve)
+# Secrets/precondiciones siempre requeridos en entorno estricto. (nombre, para qué)
 # Todos verificados SET en el deploy de producción actual → no rompe el boot.
+# Nota (OAuth state): NO se exige OAUTH_STATE_SECRET por separado — el firmado
+# del state cae a ENCRYPTION_KEY (ya requerido) o GOOGLE_CLIENT_SECRET; exigirlo
+# rompería prod (está ausente). Ver agent/google_calendar.py:_resolver_state_secret.
+# Nota (Stripe): se exige STRIPE_WEBHOOK_SECRET (verificación de webhooks) pero NO
+# STRIPE_SECRET_KEY — el backend no inicia checkout server-side (ausente en prod;
+# billing.py degrada con "checkout no disponible", no aborta).
 _SECRETS_REQUERIDOS = [
+    ("DATABASE_URL", "persistencia (sin DB confiable, dedup/créditos/auditoría/permisos no son seguros)"),
     ("ENCRYPTION_KEY", "cifrado de tokens OAuth y firma del state OAuth"),
     ("INTERNAL_BRIDGE_SECRET", "bridge landing→backend + hash de lockout del dashboard"),
     ("STRIPE_WEBHOOK_SECRET", "verificación de webhooks de Stripe (billing)"),
     ("INBOUND_WEBHOOK_SECRET", "firma de tokens de webhooks inbound"),
     ("ADMIN_TOKEN", "autenticación de endpoints admin"),
+    ("DASHBOARD_PASSWORD_SECRET", "derivación del password del dashboard del usuario"),
     ("ANTHROPIC_API_KEY", "LLM principal (Claude)"),
 ]
 
@@ -57,11 +65,21 @@ def evaluar_readiness() -> list[str]:
         if _falta(var):
             problemas.append(f"{var} — {desc}")
 
-    # Solo el secret del proveedor de WhatsApp ACTIVO.
-    proveedor = os.getenv("WHATSAPP_PROVIDER", "whapi").strip().lower()
-    par = _SECRET_POR_PROVEEDOR.get(proveedor)
-    if par and _falta(par[0]):
-        problemas.append(f"{par[0]} — {par[1]} (WHATSAPP_PROVIDER={proveedor})")
+    # Proveedor de WhatsApp: no se adivina en entorno estricto. Ausente o no
+    # soportado es un problema; si es válido, se exige SOLO el secret del activo.
+    proveedor = os.getenv("WHATSAPP_PROVIDER", "").strip().lower()
+    if not proveedor:
+        problemas.append(
+            "WHATSAPP_PROVIDER — no configurado (no se debe adivinar el proveedor)"
+        )
+    elif proveedor not in _SECRET_POR_PROVEEDOR:
+        problemas.append(
+            f"WHATSAPP_PROVIDER — valor no soportado: {proveedor} (usa whapi/meta/twilio)"
+        )
+    else:
+        var, desc = _SECRET_POR_PROVEEDOR[proveedor]
+        if _falta(var):
+            problemas.append(f"{var} — {desc} (WHATSAPP_PROVIDER={proveedor})")
 
     return problemas
 
@@ -81,7 +99,7 @@ def verificar_readiness() -> None:
     raise ReadinessError(
         f"[READINESS] Arranque abortado en entorno estricto "
         f"(ENVIRONMENT={entorno_actual() or '<ausente>'}): faltan "
-        f"{len(problemas)} secret(s) crítico(s):\n  - {lista}\n"
-        "Configura TODOS antes de reintentar el deploy (o usa "
+        f"{len(problemas)} precondición(es) crítica(s):\n  - {lista}\n"
+        "Configura TODAS antes de reintentar el deploy (o usa "
         "ENVIRONMENT=development/test explícito en entornos no productivos)."
     )

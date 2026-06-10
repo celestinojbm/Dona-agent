@@ -69,7 +69,7 @@ class TestReadinessEstricto:
         assert "ENCRYPTION_KEY" in joined
         assert "ADMIN_TOKEN" in joined
         assert "INBOUND_WEBHOOK_SECRET" in joined
-        with pytest.raises(ReadinessError, match="faltan 3 secret"):
+        with pytest.raises(ReadinessError, match="faltan 3 precondici"):
             verificar_readiness()
 
     def test_variable_de_entorno_ausente_es_estricto(self, monkeypatch):
@@ -77,6 +77,21 @@ class TestReadinessEstricto:
         _setear_todos(monkeypatch, "meta")
         monkeypatch.delenv("INTERNAL_BRIDGE_SECRET", raising=False)
         with pytest.raises(ReadinessError, match="INTERNAL_BRIDGE_SECRET"):
+            verificar_readiness()
+
+    def test_database_url_es_requerido(self, monkeypatch):
+        """Hermes (review #72): no arrancar 'vivo pero sin persistencia'."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        _setear_todos(monkeypatch, "meta")
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        with pytest.raises(ReadinessError, match="DATABASE_URL"):
+            verificar_readiness()
+
+    def test_dashboard_password_secret_es_requerido(self, monkeypatch):
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        _setear_todos(monkeypatch, "meta")
+        monkeypatch.delenv("DASHBOARD_PASSWORD_SECRET", raising=False)
+        with pytest.raises(ReadinessError, match="DASHBOARD_PASSWORD_SECRET"):
             verificar_readiness()
 
 
@@ -103,6 +118,21 @@ class TestReadinessProveedorActivo:
         monkeypatch.delenv("WHAPI_WEBHOOK_TOKEN", raising=False)
         problemas = evaluar_readiness()
         assert any("WHAPI_WEBHOOK_TOKEN" in p for p in problemas)
+
+    def test_provider_ausente_es_problema(self, monkeypatch):
+        """Hermes (review #72): no adivinar el provider en estricto."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        _setear_todos(monkeypatch, "meta")
+        monkeypatch.delenv("WHATSAPP_PROVIDER", raising=False)
+        problemas = evaluar_readiness()
+        assert any("WHATSAPP_PROVIDER" in p and "no configurado" in p for p in problemas)
+
+    def test_provider_invalido_es_problema(self, monkeypatch):
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        _setear_todos(monkeypatch, "meta")
+        monkeypatch.setenv("WHATSAPP_PROVIDER", "telegram")
+        problemas = evaluar_readiness()
+        assert any("no soportado" in p for p in problemas)
 
 
 class TestReadinessPermisivo:
