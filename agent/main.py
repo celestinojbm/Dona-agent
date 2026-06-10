@@ -31,9 +31,16 @@ configurar_logging()
 from agent.observability import instalar_filtro_request_id
 instalar_filtro_request_id()
 
-# Forzar el check de STRIPE_WEBHOOK_SECRET al startup. Si ENVIRONMENT=production
-# y la variable no está configurada, agent.billing levanta RuntimeError al
-# import y aborta el deploy antes de empezar a servir tráfico.
+# Readiness check agregado (Fase 0 · 0.2): valida TODOS los secrets críticos
+# de una vez y aborta el deploy con la lista completa de faltantes. Corre
+# ANTES que los checks per-módulo de abajo (que abortan al primer faltante)
+# para que un deploy mal configurado se arregle en una sola iteración.
+from agent.readiness import verificar_secrets_criticos
+verificar_secrets_criticos()
+
+# Forzar el check de STRIPE_WEBHOOK_SECRET al startup. Si el entorno es
+# estricto y la variable no está configurada, agent.billing levanta
+# RuntimeError al import y aborta el deploy antes de empezar a servir tráfico.
 import agent.billing  # noqa: F401
 
 # Mismo patrón para INBOUND_WEBHOOK_SECRET. Si falta en producción, el módulo
