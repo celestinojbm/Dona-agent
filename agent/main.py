@@ -908,7 +908,17 @@ async def _mensaje_ya_procesado(mensaje_id: str, telefono: str) -> bool:
         # Error REAL de DB (la unicidad la absorbe ON CONFLICT, no llega acá).
         # Subir a WARNING (antes era DEBUG invisible) para que un fallo de
         # persistencia del dedup sea observable, y degradar al dedup in-memory
-        # per-worker (más débil, pero mejor que procesar doble).
+        # per-worker.
+        #
+        # LIMITACIÓN (best-effort, NO garantía · review Hermes): el fallback
+        # in-memory solo cubre duplicados que caen en el MISMO worker. NO es
+        # durable ni cross-worker (no protege ante varios pods, restart del
+        # proceso, ni reentrega que cae en otro worker). Si la DB está caída y
+        # el tráfico sigue, un duplicado puede procesarse en otro worker.
+        # FOLLOW-UP (decisión de producto availability-vs-safety): para rutas
+        # con LLM/costo/acción, un fallo de DB-dedup debería ir a fail-closed
+        # (503 → el proveedor reintenta cuando la DB vuelva) en vez de procesar
+        # sin dedup durable. Se deja como ítem aparte (otro patrón → otro PR).
         logger.warning(
             f"[DEDUP] Error DB, degradando a memoria per-worker: {type(e).__name__}: {e}"
         )

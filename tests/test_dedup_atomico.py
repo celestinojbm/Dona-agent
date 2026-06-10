@@ -65,6 +65,29 @@ async def test_ids_distintos_son_independientes(main):
 
 
 @pytest.mark.asyncio
+async def test_db_caida_degrada_a_memoria_best_effort(main, monkeypatch, caplog):
+    """Review Hermes: documenta el comportamiento best-effort ante fallo REAL de
+    DB. Degrada al dedup in-memory per-worker con WARNING (antes era DEBUG
+    invisible + return False silencioso). NO es garantía cross-worker — eso es
+    un follow-up fail-closed."""
+    import logging
+    import agent.memory
+
+    def _boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(agent.memory, "async_session", _boom)
+    main._mensajes_procesados_mem.clear()
+
+    with caplog.at_level(logging.WARNING, logger="dona"):
+        r1 = await main._mensaje_ya_procesado("wamid.dberr", "5551234567")
+    assert r1 is False  # degrada: trata como nuevo (best-effort), procesa
+    assert any("DEDUP" in rec.message for rec in caplog.records), "debe loguear WARNING"
+    # En el MISMO worker, la memoria sí bloquea el duplicado inmediato.
+    assert await main._mensaje_ya_procesado("wamid.dberr", "5551234567") is True
+
+
+@pytest.mark.asyncio
 async def test_concurrencia_exactamente_uno_procesa(main):
     """CORAZÓN DE C9: N reentregas concurrentes del MISMO mensaje_id → solo UNA
     debe verse como nueva (False); el resto, duplicado (True). Con el código
