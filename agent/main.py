@@ -867,38 +867,73 @@ async def debug_handler(request: Request):
     return {"status": "ok", "body": body.decode("utf-8", errors="replace")}
 
 
-async def _mensaje_ya_procesado(mensaje_id: str, telefono: str) -> bool:
-    """
-    Verifica si un mensaje ya fue procesado. Usa DB con fallback a memoria.
-    Registra el mensaje como procesado si es nuevo.
-    """
-    # Check memoria primero (rápido, cubre el caso de mensajes en ráfaga)
-    if mensaje_id in _mensajes_procesados_mem:
-        return True
-
-    try:
-        from agent.memory import async_session, MensajeProcesado
-        from sqlalchemy import select as _select
-        async with async_session() as session:
-            result = await session.execute(
-                _select(MensajeProcesado).where(MensajeProcesado.mensaje_id == mensaje_id)
-            )
-            if result.scalar_one_or_none():
-                _mensajes_procesados_mem[mensaje_id] = True
-                return True
-
-            # Registrar como procesado
-            session.add(MensajeProcesado(mensaje_id=mensaje_id, telefono=telefono))
-            await session.commit()
-    except Exception as e:
-        logger.debug(f"[DEDUP] Error DB, usando solo memoria: {e}")
-
-    # Registrar en memoria también
+def _recordar_en_memoria(mensaje_id: str) -> None:
+    """Cachea el id en el dedup in-memory per-worker (con tope LRU)."""
     _mensajes_procesados_mem[mensaje_id] = True
     if len(_mensajes_procesados_mem) > _MAX_IDS_DEDUP:
         _mensajes_procesados_mem.popitem(last=False)
 
-    return False
+
+async def _mensaje_ya_procesado(mensaje_id: str, telefono: str) -> bool:
+    """Registra el mensaje_id de forma ATÓMICA e indica si ya estaba (duplicado).
+
+    Fix C9 (audit 2026-06-09): antes esto hacía SELECT-then-INSERT no atómico —
+    dos webhooks concurrentes con el mismo id pasaban ambos el SELECT y se
+    procesaban dos veces (doble LLM, doble cobro, doble acción); además una
+    violación de unicidad caía en un ``except`` genérico a DEBUG que devolvía
+    ``False`` (= procesar). Ahora: ``INSERT ... ON CONFLICT DO NOTHING`` y el
+    ``rowcount`` decide — 1 fila = mensaje nuevo (``False``), 0 filas = ya
+    existía (``True``). La unicidad de la PK serializa las reentregas
+    concurrentes, sin importar el interleaving.
+    """
+    if not mensaje_id:
+        # Sin id no se puede deduplicar (el caller ya gatea en truthy; defensa).
+        return False
+
+    # Cache in-memory primero: cubre la ráfaga intra-worker sin tocar la DB.
+    if mensaje_id in _mensajes_procesados_mem:
+        return True
+
+    try:
+        from agent.memory import async_session, MensajeProcesado, _ES_POSTGRES
+        if _ES_POSTGRES:
+            from sqlalchemy.dialects.postgresql import insert as _insert
+        else:
+            from sqlalchemy.dialects.sqlite import insert as _insert
+
+        stmt = (
+            _insert(MensajeProcesado)
+            .values(mensaje_id=mensaje_id, telefono=telefono)
+            .on_conflict_do_nothing(index_elements=["mensaje_id"])
+        )
+        async with async_session() as session:
+            result = await session.execute(stmt)
+            await session.commit()
+
+        ya_estaba = (result.rowcount == 0)  # 0 = conflicto = duplicado
+        _recordar_en_memoria(mensaje_id)
+        return ya_estaba
+    except Exception as e:
+        # Error REAL de DB (la unicidad la absorbe ON CONFLICT, no llega acá).
+        # Subir a WARNING (antes era DEBUG invisible) para que un fallo de
+        # persistencia del dedup sea observable, y degradar al dedup in-memory
+        # per-worker.
+        #
+        # LIMITACIÓN (best-effort, NO garantía · review Hermes): el fallback
+        # in-memory solo cubre duplicados que caen en el MISMO worker. NO es
+        # durable ni cross-worker (no protege ante varios pods, restart del
+        # proceso, ni reentrega que cae en otro worker). Si la DB está caída y
+        # el tráfico sigue, un duplicado puede procesarse en otro worker.
+        # FOLLOW-UP (decisión de producto availability-vs-safety): para rutas
+        # con LLM/costo/acción, un fallo de DB-dedup debería ir a fail-closed
+        # (503 → el proveedor reintenta cuando la DB vuelva) en vez de procesar
+        # sin dedup durable. Se deja como ítem aparte (otro patrón → otro PR).
+        logger.warning(
+            f"[DEDUP] Error DB, degradando a memoria per-worker: {type(e).__name__}: {e}"
+        )
+        ya_estaba = mensaje_id in _mensajes_procesados_mem
+        _recordar_en_memoria(mensaje_id)
+        return ya_estaba
 
 
 async def _procesar_tcpa_optout(msg) -> bool:
