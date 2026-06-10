@@ -1,0 +1,67 @@
+{
+  "titulo": "Fase 0 — Bloqueadores de lanzamiento",
+  "actualizado": "2026-06-10",
+  "items": [
+    {
+      "id": "C8",
+      "nombre": "Fail-closed por entorno (gates invertidos)",
+      "estado": "hecho",
+      "detalle": "#70 mergeado + live"
+    },
+    {
+      "id": "0.2",
+      "nombre": "Readiness check de secrets en startup",
+      "estado": "hecho",
+      "detalle": "#72 mergeado"
+    },
+    {
+      "id": "1.1",
+      "nombre": "Dedup atómico de mensajes",
+      "estado": "hecho",
+      "detalle": "#73 mergeado"
+    },
+    {
+      "id": "2.2",
+      "nombre": "STOP/TCPA durable (retry + sin fail-open)",
+      "estado": "hecho",
+      "detalle": "#74 mergeado + live"
+    },
+    {
+      "id": "2.1",
+      "nombre": "Gate central puede_enviar() fail-closed",
+      "estado": "hecho",
+      "detalle": "#75 mergeado + live"
+    },
+    {
+      "id": "2.3",
+      "nombre": "Scheduler con claims atómicos (lock)",
+      "estado": "hecho",
+      "detalle": "#76 mergeado + live"
+    },
+    {
+      "id": "2.4",
+      "nombre": "Tope de recurrencias sub-diarias + catch-up storm",
+      "estado": "siguiente"
+    },
+    {
+      "id": "2.5",
+      "nombre": "Opt-out de terceros completo en ejecutor HIGH",
+      "estado": "pendiente"
+    },
+    {
+      "id": "4.1/4.2",
+      "nombre": "Timeouts + tope de profundidad LLM",
+      "estado": "pendiente"
+    },
+    {
+      "id": "F",
+      "nombre": "Prueba adversarial consolidada + checklist binario",
+      "estado": "pendiente"
+    },
+    {
+      "id": "5.1",
+      "nombre": "Borrar atajo legacy HIGH muerto (PR chico)",
+      "estado": "pendiente"
+    }
+  ]
+}
