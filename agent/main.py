@@ -924,9 +924,15 @@ async def _procesar_tcpa_optout(msg) -> bool:
                 f"[TCPA] STOP NO persistido para {msg.telefono}: "
                 f"{type(_e_stop).__name__}: {_e_stop}"
             )
+            # Copy según review de Hermes: honesto (no promete una baja que no
+            # se guardó), refleja la escalada (CRITICAL), y trata un eventual
+            # mensaje posterior como ERROR, sin pasarle la responsabilidad al
+            # usuario ni normalizar nuevos proactivos tras un STOP.
             respuesta_stop = (
-                "Recibí tu *STOP* y lo estoy procesando. Si volvieras a recibir "
-                "un mensaje proactivo, responde *STOP* de nuevo."
+                "Recibí tu *STOP*. No puedo confirmar todavía que la baja quedó "
+                "guardada, pero el caso fue escalado automáticamente para "
+                "resolverlo. Si recibieras otro mensaje por error, responde "
+                "*STOP* nuevamente."
             )
         await proveedor.enviar_mensaje(msg.telefono, respuesta_stop)
         logger.info(f"[TCPA] STOP → {msg.telefono}")

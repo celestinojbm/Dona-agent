@@ -116,6 +116,7 @@ async def test_caller_no_confirma_baja_en_falso(monkeypatch, caplog):
     assert manejo is True
     args, _ = fake_prov.enviar_mensaje.call_args
     enviado = args[1].lower()
-    assert "procesando" in enviado          # honesto
+    assert "escalado" in enviado            # honesto: refleja la escalada
+    assert "no puedo confirmar" in enviado  # no promete una baja guardada
     assert "dado de baja" not in enviado    # ya NO confirma una baja falsa
     assert crit_calls, "un STOP no persistido debe escalar a CRITICAL"
