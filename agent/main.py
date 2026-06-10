@@ -31,7 +31,16 @@ configurar_logging()
 from agent.observability import instalar_filtro_request_id
 instalar_filtro_request_id()
 
-# Forzar el check de STRIPE_WEBHOOK_SECRET al startup. Si ENVIRONMENT=production
+# Readiness check consolidado (Fase 0 · 0.2): en entorno estricto, aborta el
+# arranque si falta CUALQUIER secret crítico, reportando TODOS los faltantes de
+# una vez. Va ANTES de los checks per-módulo (billing/inbound) para que el
+# operador vea la lista completa en un solo intento, en vez de descubrirlos de a
+# uno por redeploy. Complementa el fail-closed de C8: aquel rechaza requests sin
+# verificación, éste impide arrancar "vivo pero degradado".
+from agent.readiness import verificar_readiness
+verificar_readiness()
+
+# Forzar el check de STRIPE_WEBHOOK_SECRET al startup. Si el entorno es estricto
 # y la variable no está configurada, agent.billing levanta RuntimeError al
 # import y aborta el deploy antes de empezar a servir tráfico.
 import agent.billing  # noqa: F401
