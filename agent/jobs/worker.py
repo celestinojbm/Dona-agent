@@ -54,7 +54,12 @@ async def _dispatch(tipo: str, telefono: str, params: dict[str, Any]) -> int | N
     handler = _HANDLERS.get(tipo)
     if handler is None:
         raise ValueError(f"No hay handler registrado para tipo='{tipo}'")
-    return await handler(telefono, params)
+    # La entrega del resultado (y avisos de error/reembolso) es respuesta
+    # DIRECTA a un trabajo que el usuario pidió y pagó — el gate de envíos
+    # no la restringe.
+    from agent.envio_gate import contexto_envio_directo
+    with contexto_envio_directo(telefono):
+        return await handler(telefono, params)
 
 
 async def _ejecutar_con_estado(job_id: int, tipo: str, telefono: str, params: dict) -> None:

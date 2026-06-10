@@ -73,6 +73,12 @@ def es_comando_start_tcpa(texto: str) -> bool:
 async def manejar_stop_tcpa(telefono: str) -> str:
     """Desactiva toda proactividad para el usuario. Mensaje compliant con TCPA 47 CFR 64.1200."""
     from agent.memory import guardar_proactividad
+    from agent.envio_gate import registrar_supresion_emergencia
+
+    # Supresión in-memory ANTES de persistir: si el write a DB falla, el gate
+    # de envíos igual bloquea AUTOMATICO/PROACTIVO en este worker. Cinturón
+    # best-effort; la durabilidad real es responsabilidad del write de abajo.
+    registrar_supresion_emergencia(telefono)
     await guardar_proactividad(telefono, proactive_enabled=False)
     logger.info(f"[TCPA] Opt-out registrado para {telefono}")
     return (
@@ -86,7 +92,11 @@ async def manejar_stop_tcpa(telefono: str) -> str:
 async def manejar_start_tcpa(telefono: str) -> str:
     """Reactiva proactividad tras un STOP previo."""
     from agent.memory import guardar_proactividad
+    from agent.envio_gate import limpiar_supresion_emergencia
+
     await guardar_proactividad(telefono, proactive_enabled=True)
+    # Solo tras persistir el re-opt-in se levanta la supresión de emergencia.
+    limpiar_supresion_emergencia(telefono)
     logger.info(f"[TCPA] Re-opt-in registrado para {telefono}")
     return (
         "✅ ¡Bienvenido de vuelta! Los mensajes proactivos están activos nuevamente.\n\n"
@@ -114,6 +124,10 @@ async def manejar_comando_proactividad(telefono: str, texto: str) -> str:
 
     if cmd in ("dona actívate", "dona activar", "dona activa"):
         await guardar_proactividad(telefono, proactive_enabled=True)
+        # Coherencia con el re-opt-in: si había supresión de emergencia por
+        # un STOP previo, levantarla también por esta vía.
+        from agent.envio_gate import limpiar_supresion_emergencia
+        limpiar_supresion_emergencia(telefono)
         return "De vuelta al modo proactivo. Te avisaré cuando detecte algo importante 🚀"
 
     if cmd == "dona resumen":
@@ -149,7 +163,6 @@ async def verificar_proactividad(proveedor):
     """
     from agent.memory import (
         obtener_usuarios_proactividad_activos,
-        incrementar_mensajes_proactivos,
         guardar_proactividad,
         obtener_timezone,
     )
@@ -177,9 +190,11 @@ async def verificar_proactividad(proveedor):
             mensaje = await _evaluar_disparadores(u, ahora_local, offset_min)
 
             if mensaje:
+                # El contador diario lo incrementa el gate de envíos
+                # (registrar_envio_realizado) en el choke point del proveedor
+                # — incrementarlo aquí también lo contaría doble.
                 enviado = await proveedor.enviar_mensaje(telefono, mensaje)
                 if enviado:
-                    await incrementar_mensajes_proactivos(telefono)
                     logger.info(f"Proactividad: mensaje enviado a {telefono}")
 
     except Exception as e:

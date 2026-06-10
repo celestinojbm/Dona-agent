@@ -93,6 +93,12 @@ from agent.memory import (
     incrementar_mensajes_proactivos,
 )
 from agent.providers import obtener_proveedor
+from agent.envio_gate import (
+    activar_contexto_directo,
+    restaurar_contexto,
+    contexto_envio_directo,
+    contexto_envio_automatico,
+)
 from agent.scheduler import iniciar_scheduler, detener_scheduler
 from agent.transcriber import procesar_audio_whapi, procesar_audio_meta
 from agent.memory_summary import actualizar_resumen_si_necesario
@@ -689,7 +695,10 @@ async def webhook_inbound(token: str, request: Request):
     # Límite defensivo para no quemar quota con un payload gigante de un Zap mal configurado
     if len(mensaje) > 4000:
         mensaje = mensaje[:4000] + "…"
-    ok = await proveedor.enviar_mensaje(telefono, mensaje)
+    # Automatización configurada por el propio usuario (Zapier/Make/n8n):
+    # respeta opt-out fail-closed, sin quiet hours ni límite diario.
+    with contexto_envio_automatico():
+        ok = await proveedor.enviar_mensaje(telefono, mensaje)
     if not ok:
         logger.error(f"[INBOUND] Fallo enviando a {telefono[:4]}***")
         raise HTTPException(status_code=502, detail="Fallo enviando a WhatsApp")
@@ -845,7 +854,9 @@ async def _notificar_google_conectado(telefono: str, email: str):
             "👥 *Contactos* — te busco por nombre al escribir correos\n\n"
             "Prueba con *\"dona ayuda\"* para ver todo lo que sé hacer."
         )
-        await proveedor.enviar_mensaje(telefono, mensaje)
+        # Transaccional: el usuario acaba de completar el OAuth que él inició.
+        with contexto_envio_directo(telefono):
+            await proveedor.enviar_mensaje(telefono, mensaje)
     except Exception as e:
         logger.error(f"_notificar_google_conectado error para {telefono}: {e}")
 
@@ -982,6 +993,11 @@ async def procesar_webhook(request: Request):
     for msg in mensajes:
         # ── Cada mensaje se procesa de forma independiente ────────────────────
         # Un fallo en un mensaje NO debe bloquear los mensajes siguientes.
+        # Todo envío durante el procesamiento de este mensaje (incluidas las
+        # tareas en background, que copian el contextvar al crearse) es
+        # respuesta DIRECTA al usuario que escribió: el gate de envíos no la
+        # restringe (la conversación reactiva sigue viva incluso tras STOP).
+        _token_envio = activar_contexto_directo(msg.telefono)
         try:
             if msg.es_propio:
                 logger.debug(f"[SKIP] Mensaje propio ignorado: {msg.telefono}")
@@ -2077,6 +2093,8 @@ async def procesar_webhook(request: Request):
                 await proveedor.enviar_mensaje(getattr(msg, 'telefono', ''), obtener_mensaje_error())
             except Exception:
                 pass  # Si esto también falla, no hay más que hacer
+        finally:
+            restaurar_contexto(_token_envio)
 
     return {"status": "ok"}
 
@@ -2334,12 +2352,14 @@ async def webhook_stripe(request: Request):
         saldo = resultado.get("saldo", 0)
         if tel and creditos:
             try:
-                await proveedor.enviar_mensaje(
-                    tel,
-                    f"✅ ¡Gracias por tu compra!\n"
-                    f"Se acreditaron *{creditos} créditos* a tu cuenta.\n"
-                    f"Saldo actual: *{saldo} créditos*."
-                )
+                # Transaccional: confirmación de la compra que el usuario inició.
+                with contexto_envio_directo(tel):
+                    await proveedor.enviar_mensaje(
+                        tel,
+                        f"✅ ¡Gracias por tu compra!\n"
+                        f"Se acreditaron *{creditos} créditos* a tu cuenta.\n"
+                        f"Saldo actual: *{saldo} créditos*."
+                    )
             except Exception as _e_notif:
                 logger.warning(f"[STRIPE] No se pudo notificar por WhatsApp a {tel}: {_e_notif}")
 

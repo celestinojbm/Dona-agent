@@ -22,6 +22,7 @@ from agent.memory import (
 from agent.onboarding import iniciar_siguiente_fase
 from agent.proactivity import verificar_proactividad
 from agent.learning import actualizar_perfiles_todos
+from agent.envio_gate import contexto_envio_automatico
 
 # Timeout máximo para jobs del scheduler (en segundos).
 # Si un job tarda más que esto, se cancela para no bloquear el event loop.
@@ -72,7 +73,10 @@ async def _verificar_y_enviar_recordatorios_impl(proveedor):
             encabezado = "🔔 Recordatorio"
         mensaje = f"{encabezado}: {r.mensaje}"
 
-        enviado = await proveedor.enviar_mensaje(r.telefono, mensaje)
+        # Contenido programado por el usuario: opt-out aplica (fail-closed),
+        # pero sin quiet hours ni límite diario — la hora la eligió él.
+        with contexto_envio_automatico():
+            enviado = await proveedor.enviar_mensaje(r.telefono, mensaje)
 
         if enviado:
             await marcar_recordatorio_enviado(r.id)
@@ -84,7 +88,8 @@ async def _verificar_y_enviar_recordatorios_impl(proveedor):
                 try:
                     from agent.brain import obtener_mensaje_error
                     aviso = obtener_mensaje_error("recuperacion_recordatorio")
-                    await proveedor.enviar_mensaje(r.telefono, aviso)
+                    with contexto_envio_automatico():
+                        await proveedor.enviar_mensaje(r.telefono, aviso)
                 except Exception:
                     pass  # El aviso es best-effort
 
@@ -195,7 +200,8 @@ async def _verificar_recordatorios_google_calendar_impl(proveedor):
                 if lugar:
                     mensaje += f"\n📍 {lugar}"
 
-                enviado = await proveedor.enviar_mensaje(telefono, mensaje)
+                with contexto_envio_automatico():
+                    enviado = await proveedor.enviar_mensaje(telefono, mensaje)
                 if enviado:
                     await _gcal_marcar_enviado(clave)
                     logger.info(f"[GCAL] Recordatorio enviado a {telefono}: '{titulo}' en {minutos} min")
@@ -300,7 +306,8 @@ async def _verificar_seguimientos_vencidos(proveedor):
                 f"{seg.descripcion}\n\n"
                 f"(Programado para {seg.fecha_programada.strftime('%d/%m %H:%M')} UTC)"
             )
-            enviado = await proveedor.enviar_mensaje(seg.telefono, mensaje)
+            with contexto_envio_automatico():
+                enviado = await proveedor.enviar_mensaje(seg.telefono, mensaje)
             if enviado:
                 await completar_seguimiento(seg.telefono, seg.id)
                 logger.info(
@@ -563,7 +570,9 @@ async def _ejecutar_simulacion_mirofish_programada(escenario_id: str, proveedor)
                     f"{resumen[:400]}\n\n"
                     f"_El insight ya está disponible para consultas en Dona._"
                 )
-                await proveedor.enviar_mensaje(admin_telefono, mensaje)
+                # Notificación operativa al admin — no sujeta a límite diario.
+                with contexto_envio_automatico():
+                    await proveedor.enviar_mensaje(admin_telefono, mensaje)
 
         resultado = await mf.pipeline_simulacion_programada(
             project_id=project_id,

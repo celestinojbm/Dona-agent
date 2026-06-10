@@ -308,7 +308,7 @@ class ProveedorMeta(ProveedorWhatsApp):
 
         return mensajes
 
-    async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
+    async def _enviar_mensaje_impl(self, telefono: str, mensaje: str) -> bool:
         """
         Envía mensaje de texto via Meta Cloud API.
         El número de teléfono debe incluir código de país sin '+' (ej: 521234567890).
@@ -344,7 +344,7 @@ class ProveedorMeta(ProveedorWhatsApp):
             logger.error(f"[META] Excepción al enviar mensaje ({type(e).__name__}): {e}")
             return False
 
-    async def enviar_botones(
+    async def _enviar_botones_impl(
         self, telefono: str, texto: str, botones: list[BotonRespuesta]
     ) -> bool:
         """Envía mensaje con botones interactivos via Meta Cloud API (max 3 botones)."""
@@ -388,7 +388,7 @@ class ProveedorMeta(ProveedorWhatsApp):
             logger.error(f"[META] Error enviando botones: {e}")
             return await super().enviar_botones(telefono, texto, botones)
 
-    async def enviar_lista(
+    async def _enviar_lista_impl(
         self, telefono: str, texto: str, boton_menu: str, opciones: list[OpcionLista]
     ) -> bool:
         """Envía mensaje con lista desplegable via Meta Cloud API (max 10 opciones)."""
@@ -469,7 +469,7 @@ class ProveedorMeta(ProveedorWhatsApp):
             logger.error(f"[META] Excepción subiendo media ({type(e).__name__}): {e}")
             return None
 
-    async def enviar_audio(self, telefono: str, audio_bytes: bytes, mime_type: str = "audio/ogg") -> bool:
+    async def _enviar_audio_impl(self, telefono: str, audio_bytes: bytes, mime_type: str = "audio/ogg") -> bool:
         """
         Envía un audio (nota de voz) via Meta Cloud API.
         Sube los bytes a la Media API y luego manda un mensaje tipo 'audio'.
@@ -503,7 +503,7 @@ class ProveedorMeta(ProveedorWhatsApp):
             logger.error(f"[META] Excepción enviando audio ({type(e).__name__}): {e}")
             return False
 
-    async def enviar_imagen(
+    async def _enviar_imagen_impl(
         self, telefono: str, url: str = "", imagen_bytes: bytes = b"",
         caption: str = "", mime_type: str = "image/png",
     ) -> bool:
@@ -551,7 +551,7 @@ class ProveedorMeta(ProveedorWhatsApp):
             logger.error(f"[META] Excepción enviando imagen ({type(e).__name__}): {e}")
             return False
 
-    async def enviar_video(
+    async def _enviar_video_impl(
         self, telefono: str, url: str = "", video_bytes: bytes = b"",
         caption: str = "", mime_type: str = "video/mp4",
     ) -> bool:
@@ -599,7 +599,7 @@ class ProveedorMeta(ProveedorWhatsApp):
             logger.error(f"[META] Excepción enviando video ({type(e).__name__}): {e}")
             return False
 
-    async def enviar_documento(
+    async def _enviar_documento_impl(
         self, telefono: str, archivo_bytes: bytes, filename: str, mime_type: str = "text/csv", caption: str = ""
     ) -> bool:
         """Envía un documento adjunto (CSV, PDF, etc.) via Meta Cloud API."""

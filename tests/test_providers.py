@@ -389,21 +389,27 @@ class TestValidarWebhook:
 # ── Tests de base.py fallback ───────────────────────────────────────────────
 
 class TestFallbackTexto:
+    # Estos tests verifican TRANSPORTE (formato del fallback a texto), no la
+    # política del gate de envíos — por eso corren en contexto DIRECTO, que
+    # no consulta la DB. La política se cubre en tests/test_envio_gate.py.
+
     @pytest.mark.asyncio
     async def test_botones_fallback(self):
         """Fallback de botones debe enviar texto con opciones numeradas."""
         from agent.providers.base import ProveedorWhatsApp
+        from agent.envio_gate import contexto_envio_directo
 
         class FakeProveedor(ProveedorWhatsApp):
             async def parsear_webhook(self, request):
                 return []
-            async def enviar_mensaje(self, telefono, mensaje):
+            async def _enviar_mensaje_impl(self, telefono, mensaje):
                 self.ultimo_mensaje = mensaje
                 return True
 
         p = FakeProveedor()
         botones = [BotonRespuesta(id="1", titulo="Opción A"), BotonRespuesta(id="2", titulo="Opción B")]
-        result = await p.enviar_botones("521555", "Elige:", botones)
+        with contexto_envio_directo("521555"):
+            result = await p.enviar_botones("521555", "Elige:", botones)
         assert result is True
         assert "1. Opción A" in p.ultimo_mensaje
         assert "2. Opción B" in p.ultimo_mensaje
@@ -412,11 +418,12 @@ class TestFallbackTexto:
     async def test_lista_fallback(self):
         """Fallback de lista debe enviar texto con bullets."""
         from agent.providers.base import ProveedorWhatsApp
+        from agent.envio_gate import contexto_envio_directo
 
         class FakeProveedor(ProveedorWhatsApp):
             async def parsear_webhook(self, request):
                 return []
-            async def enviar_mensaje(self, telefono, mensaje):
+            async def _enviar_mensaje_impl(self, telefono, mensaje):
                 self.ultimo_mensaje = mensaje
                 return True
 
@@ -425,7 +432,8 @@ class TestFallbackTexto:
             OpcionLista(id="a", titulo="Item A", descripcion="Desc A"),
             OpcionLista(id="b", titulo="Item B"),
         ]
-        result = await p.enviar_lista("521555", "Menú:", "Ver", opciones)
+        with contexto_envio_directo("521555"):
+            result = await p.enviar_lista("521555", "Menú:", "Ver", opciones)
         assert result is True
         assert "Item A" in p.ultimo_mensaje
         assert "Desc A" in p.ultimo_mensaje
