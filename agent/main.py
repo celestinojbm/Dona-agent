@@ -915,18 +915,31 @@ async def _procesar_tcpa_optout(msg) -> bool:
     if es_comando_stop_tcpa(msg.texto):
         try:
             respuesta_stop = await manejar_stop_tcpa(msg.telefono)
-        except Exception as _e_stop:
-            logger.error(f"[TCPA] Error en opt-out: {_e_stop}")
-            respuesta_stop = "Has sido dado de baja. No te enviaremos más mensajes proactivos."
+        except Exception as _e_stop:  # TCPAOptOutError (esperado) o fallo inesperado
+            # Fix C3: ya NO se confirma una baja en falso. Si la persistencia
+            # falló (tras retry; ya se logueó CRITICAL en proactivity), se envía
+            # un mensaje HONESTO y se re-escala como CRITICAL — un STOP no honrado
+            # es exposición legal, no un error de DEBUG.
+            logger.critical(
+                f"[TCPA] STOP NO persistido para {msg.telefono}: "
+                f"{type(_e_stop).__name__}: {_e_stop}"
+            )
+            respuesta_stop = (
+                "Recibí tu *STOP* y lo estoy procesando. Si volvieras a recibir "
+                "un mensaje proactivo, responde *STOP* de nuevo."
+            )
         await proveedor.enviar_mensaje(msg.telefono, respuesta_stop)
         logger.info(f"[TCPA] STOP → {msg.telefono}")
         return True
     if es_comando_start_tcpa(msg.texto):
         try:
             respuesta_start = await manejar_start_tcpa(msg.telefono)
-        except Exception as _e_start:
-            logger.error(f"[TCPA] Error en re-opt-in: {_e_start}")
-            respuesta_start = "Proactividad reactivada."
+        except Exception as _e_start:  # TCPAOptOutError (esperado) o fallo inesperado
+            logger.error(f"[TCPA] Re-opt-in no persistido para {msg.telefono}: {_e_start}")
+            respuesta_start = (
+                "Recibí tu *START*. Estoy reactivando los mensajes proactivos; "
+                "si no los recibes, envía *START* de nuevo."
+            )
         await proveedor.enviar_mensaje(msg.telefono, respuesta_start)
         logger.info(f"[TCPA] START → {msg.telefono}")
         return True
