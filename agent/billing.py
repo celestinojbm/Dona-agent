@@ -34,19 +34,27 @@ logger = logging.getLogger("dona")
 # ── Fail-fast: STRIPE_WEBHOOK_SECRET obligatorio en producción ───────────────
 # El endpoint /webhook/stripe está públicamente expuesto. Sin secret de
 # verificación, un atacante puede forjar payloads de checkout.session.completed
-# y acreditar créditos arbitrarios. En producción exigimos la variable al
-# import del módulo — si falta, el deploy aborta antes de empezar a servir.
-# En dev/test mantenemos el path permisivo (con warning) para que se puedan
-# correr pruebas locales sin configurar Stripe.
-_ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+# y acreditar créditos arbitrarios. En entorno estricto (producción o
+# desconocido — ver agent/entorno.py) exigimos la variable al import del
+# módulo: si falta, el deploy aborta antes de empezar a servir. Solo dev/test
+# explícitos mantienen el path permisivo (con warning) para pruebas locales
+# sin configurar Stripe. Fail-closed por defecto (C8 del audit 2026-06-09).
+from agent.entorno import es_entorno_estricto
 
-if _ENVIRONMENT == "production" and not os.getenv("STRIPE_WEBHOOK_SECRET", "").strip():
-    raise RuntimeError(
-        "[BILLING] STRIPE_WEBHOOK_SECRET no configurada en producción — "
-        "los webhooks de Stripe podrían aceptar payloads forjados, lo que "
-        "permitiría a un atacante acreditar créditos arbitrarios. "
-        "Configura la variable antes de reintentar el deploy."
-    )
+
+def _check_stripe_webhook_secret() -> None:
+    """Aborta el arranque si el entorno es estricto y falta STRIPE_WEBHOOK_SECRET."""
+    if es_entorno_estricto() and not os.getenv("STRIPE_WEBHOOK_SECRET", "").strip():
+        raise RuntimeError(
+            "[BILLING] STRIPE_WEBHOOK_SECRET no configurada en entorno estricto "
+            "(producción o ENVIRONMENT desconocido/ausente) — los webhooks de "
+            "Stripe podrían aceptar payloads forjados, lo que permitiría a un "
+            "atacante acreditar créditos arbitrarios. Configura la variable "
+            "(o ENVIRONMENT=development/test explícito) antes de reintentar."
+        )
+
+
+_check_stripe_webhook_secret()
 
 
 # ── Configuración de paquetes ───────────────────────────────────────────────
@@ -159,10 +167,9 @@ def creditos_de_plan(plan_codigo: str) -> int | None:
     raw = os.getenv(env_var, "").strip()
 
     if not raw:
-        environment = os.getenv("ENVIRONMENT", "development").lower()
-        if environment == "production":
+        if es_entorno_estricto():
             logger.error(
-                f"[BILLING] {env_var} no configurada en producción — "
+                f"[BILLING] {env_var} no configurada en entorno estricto — "
                 f"NO se acreditan créditos para plan '{plan}'. Configura la "
                 f"variable en Render o suspende ventas del plan."
             )
@@ -478,13 +485,14 @@ def verificar_firma_stripe(payload: bytes, sig_header: str, webhook_secret: str 
     Verifica la firma de un evento de Stripe. Retorna el evento dict o None.
 
     Comportamiento:
-      - En ``ENVIRONMENT=production``: si no hay secret (ni argumento ni env var),
+      - En entorno estricto (producción o ENVIRONMENT desconocido/ausente —
+        ver agent/entorno.py): si no hay secret (ni argumento ni env var),
         retorna ``None`` y loguea ERROR. Defensa en profundidad: el check
         de import-time ya debería haber abortado el deploy, pero esto cubre
         el caso de que el módulo se haya cargado por algún path alternativo
         sin el secret.
-      - En dev/test: si no hay secret, parsea el JSON sin verificar (con
-        warning explícito). Permite probar el flujo localmente sin Stripe.
+      - En dev/test explícitos: si no hay secret, parsea el JSON sin verificar
+        (con warning). Permite probar el flujo localmente sin Stripe.
       - Con secret configurado: valida con ``stripe.Webhook.construct_event``.
         Si la firma es inválida, retorna ``None``.
 
@@ -495,13 +503,12 @@ def verificar_firma_stripe(payload: bytes, sig_header: str, webhook_secret: str 
         webhook_secret if webhook_secret is not None
         else os.getenv("STRIPE_WEBHOOK_SECRET", "")
     ).strip()
-    environment = os.getenv("ENVIRONMENT", "development").lower()
 
     if not secret:
-        if environment == "production":
+        if es_entorno_estricto():
             logger.error(
-                "[BILLING] STRIPE_WEBHOOK_SECRET no configurada en producción — "
-                "rechazando webhook (no se acreditan créditos)."
+                "[BILLING] STRIPE_WEBHOOK_SECRET no configurada en entorno "
+                "estricto — rechazando webhook (no se acreditan créditos)."
             )
             return None
         logger.warning(

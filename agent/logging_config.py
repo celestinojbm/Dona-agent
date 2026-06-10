@@ -141,8 +141,10 @@ def configurar_logging():
       - ENVIRONMENT=production → JsonFormatter + redaction en INFO+.
       - LOG_LEVEL=DEBUG → fuerza nivel DEBUG (sin redaction, útil para diagnóstico).
     """
-    environment = os.getenv("ENVIRONMENT", "development")
-    es_produccion = environment == "production"
+    # Fail-closed (C8): JSON + redaction de PII salvo dev/test EXPLÍCITOS.
+    # Antes, un typo en ENVIRONMENT apagaba la redacción en silencio.
+    from agent.entorno import es_entorno_estricto
+    es_produccion = es_entorno_estricto()
 
     # LOG_LEVEL puede sobrescribir el nivel default. Útil para activar DEBUG
     # temporal en producción sin redeploy si se hace via env var.

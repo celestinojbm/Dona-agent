@@ -13,37 +13,48 @@ para no romper deploys existentes. Loguea un warning en cada arranque.
 import os
 import logging
 
+from agent.entorno import es_entorno_estricto
+
 logger = logging.getLogger("dona")
 
-_ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
-_ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
-_fernet = None
 
-if _ENCRYPTION_KEY:
-    try:
-        from cryptography.fernet import Fernet
-        _fernet = Fernet(_ENCRYPTION_KEY.encode())
-        logger.info("[CRYPTO] Cifrado de tokens activado")
-    except Exception as e:
-        if _ENVIRONMENT == "production":
-            raise RuntimeError(
-                f"[CRYPTO] ENCRYPTION_KEY inválida en producción: {e}. "
-                "Deploy abortado — genera una clave válida con "
-                "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
-            )
-        logger.error(f"[CRYPTO] ENCRYPTION_KEY inválida: {e}. Tokens NO se cifrarán.")
-else:
-    if _ENVIRONMENT == "production":
+def _inicializar_fernet():
+    """Construye el Fernet desde ENCRYPTION_KEY. Fail-closed por defecto:
+    en entorno estricto (producción o ENVIRONMENT desconocido/ausente — ver
+    agent/entorno.py) una clave ausente o inválida aborta el arranque. Solo
+    dev/test explícitos degradan a modo texto plano (con warning)."""
+    key = os.getenv("ENCRYPTION_KEY", "")
+    if key:
+        try:
+            from cryptography.fernet import Fernet
+            fernet = Fernet(key.encode())
+            logger.info("[CRYPTO] Cifrado de tokens activado")
+            return fernet
+        except Exception as e:
+            if es_entorno_estricto():
+                raise RuntimeError(
+                    f"[CRYPTO] ENCRYPTION_KEY inválida en entorno estricto: {e}. "
+                    "Deploy abortado — genera una clave válida con "
+                    "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                )
+            logger.error(f"[CRYPTO] ENCRYPTION_KEY inválida: {e}. Tokens NO se cifrarán.")
+            return None
+    if es_entorno_estricto():
         raise RuntimeError(
-            "[CRYPTO] ENCRYPTION_KEY no configurada en producción — "
-            "almacenar tokens OAuth en texto plano es inaceptable. "
+            "[CRYPTO] ENCRYPTION_KEY no configurada en entorno estricto "
+            "(producción o ENVIRONMENT desconocido/ausente) — almacenar tokens "
+            "OAuth en texto plano es inaceptable. "
             "Genera una con: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\" "
-            "y configúrala como variable de entorno antes de reintentar el deploy."
+            "y configúrala antes de reintentar el deploy."
         )
     logger.warning(
         "[CRYPTO] ENCRYPTION_KEY no configurada — tokens se almacenan en texto plano. "
         "Genera una con: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
     )
+    return None
+
+
+_fernet = _inicializar_fernet()
 
 
 def cifrar(valor: str) -> str:

@@ -36,16 +36,25 @@ logger = logging.getLogger("dona")
 # WhatsApp arbitrarios via POST /webhook/inbound/<token>.
 # El check vive a nivel módulo y se ejecuta cuando agent.inbound_tokens se
 # importa al startup (ver agent/main.py).
-_ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+from agent.entorno import es_entorno_estricto
 
-if _ENVIRONMENT == "production" and not os.getenv("INBOUND_WEBHOOK_SECRET", "").strip():
-    raise RuntimeError(
-        "[INBOUND] INBOUND_WEBHOOK_SECRET no configurado en producción — "
-        "los tokens caerían a un fallback derivado de ADMIN_TOKEN o a un "
-        "literal público del repo, lo que permitiría a un atacante forjar "
-        "tokens para enviar mensajes WhatsApp a cualquier número. "
-        "Configura la variable antes de reintentar el deploy."
-    )
+
+def _check_inbound_secret() -> None:
+    """Aborta el arranque si el entorno es estricto y falta INBOUND_WEBHOOK_SECRET.
+    Fail-closed por defecto (ver agent/entorno.py): solo dev/test explícitos
+    permiten el fallback inseguro."""
+    if es_entorno_estricto() and not os.getenv("INBOUND_WEBHOOK_SECRET", "").strip():
+        raise RuntimeError(
+            "[INBOUND] INBOUND_WEBHOOK_SECRET no configurado en entorno estricto "
+            "(producción o ENVIRONMENT desconocido/ausente) — los tokens caerían "
+            "a un fallback derivado de ADMIN_TOKEN o a un literal público del "
+            "repo, lo que permitiría a un atacante forjar tokens para enviar "
+            "mensajes WhatsApp a cualquier número. Configura la variable antes "
+            "de reintentar el deploy."
+        )
+
+
+_check_inbound_secret()
 
 
 def _secreto() -> bytes:
@@ -61,14 +70,13 @@ def _secreto() -> bytes:
     secret = os.getenv("INBOUND_WEBHOOK_SECRET", "").strip()
     if secret:
         return secret.encode("utf-8")
-    # En producción no debemos llegar aquí (el check de import lo evita).
+    # En entorno estricto no debemos llegar aquí (el check de import lo evita).
     # Defensa en profundidad: si la env var desaparece después del startup,
     # rechazamos con RuntimeError en lugar de caer a fallback inseguro.
-    environment = os.getenv("ENVIRONMENT", "development").lower()
-    if environment == "production":
+    if es_entorno_estricto():
         raise RuntimeError(
-            "[INBOUND] INBOUND_WEBHOOK_SECRET no configurado en producción "
-            "(defensa en profundidad)."
+            "[INBOUND] INBOUND_WEBHOOK_SECRET no configurado en entorno "
+            "estricto (defensa en profundidad)."
         )
     # Fallback dev/test: derivar de ADMIN_TOKEN o literal del repo. Solo no-prod.
     admin = os.getenv("ADMIN_TOKEN", "").strip()

@@ -53,10 +53,12 @@ def _resolver_state_secret() -> bytes:
         or GOOGLE_CLIENT_SECRET
     )
     if not raw:
-        if os.getenv("ENVIRONMENT", "").strip().lower() == "production":
+        from agent.entorno import es_entorno_estricto
+        if es_entorno_estricto():
             raise RuntimeError(
                 "OAUTH_STATE_SECRET (o ENCRYPTION_KEY / GOOGLE_CLIENT_SECRET) es "
-                "obligatorio en producción para firmar el state de OAuth de forma "
+                "obligatorio en entorno estricto (producción o ENVIRONMENT "
+                "desconocido/ausente) para firmar el state de OAuth de forma "
                 "no falsificable. Configúralo antes de desplegar."
             )
         raw = _FALLBACK_STATE_SECRET
