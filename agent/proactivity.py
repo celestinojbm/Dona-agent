@@ -14,6 +14,7 @@ Se ejecuta cada hora via el scheduler.
 """
 
 import os
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from anthropic import AsyncAnthropic
@@ -70,11 +71,54 @@ def es_comando_start_tcpa(texto: str) -> bool:
     return normalizado in COMANDOS_START_TCPA
 
 
-async def manejar_stop_tcpa(telefono: str) -> str:
-    """Desactiva toda proactividad para el usuario. Mensaje compliant con TCPA 47 CFR 64.1200."""
+class TCPAOptOutError(RuntimeError):
+    """No se pudo PERSISTIR de forma durable un opt-out/opt-in TCPA tras
+    reintentos. Un STOP que no se persiste es exposición legal directa (el
+    usuario cree que se dio de baja y Dona le sigue escribiendo). Por eso NO se
+    traga en silencio: se escala a CRITICAL y el caller responde sin confirmar
+    una baja inexistente. Fix C3 (audit 2026-06-09)."""
+
+
+async def _persistir_proactividad_con_retry(
+    telefono: str, *, proactive_enabled: bool, intentos: int = 3
+) -> None:
+    """Persiste el estado de proactividad con reintentos (backoff corto).
+
+    El STOP/START de TCPA debe ser DURABLE: un fallo transitorio de DB no debe
+    perder un opt-out. Reintenta ``intentos`` veces; si TODAS fallan, escala a
+    CRITICAL (requiere intervención manual) y lanza ``TCPAOptOutError``.
+    """
     from agent.memory import guardar_proactividad
-    await guardar_proactividad(telefono, proactive_enabled=False)
-    logger.info(f"[TCPA] Opt-out registrado para {telefono}")
+
+    ultimo_error: Exception | None = None
+    for intento in range(1, intentos + 1):
+        try:
+            await guardar_proactividad(telefono, proactive_enabled=proactive_enabled)
+            return
+        except Exception as e:  # noqa: BLE001 — se reintenta cualquier fallo de persistencia
+            ultimo_error = e
+            logger.warning(
+                f"[TCPA] Persistencia de proactividad falló "
+                f"(intento {intento}/{intentos}): {type(e).__name__}: {e}"
+            )
+            if intento < intentos:
+                await asyncio.sleep(0.5 * intento)  # backoff lineal corto
+
+    logger.critical(
+        f"[TCPA] NO se pudo persistir proactive_enabled={proactive_enabled} para "
+        f"{telefono} tras {intentos} intentos — REQUIERE intervención manual "
+        f"(riesgo de incumplimiento TCPA). Último error: "
+        f"{type(ultimo_error).__name__}: {ultimo_error}"
+    )
+    raise TCPAOptOutError(str(ultimo_error))
+
+
+async def manejar_stop_tcpa(telefono: str) -> str:
+    """Desactiva toda proactividad. Persiste de forma DURABLE (con retry); si la
+    persistencia falla tras reintentos, lanza ``TCPAOptOutError`` en vez de
+    confirmar una baja que no se grabó. Mensaje compliant con TCPA 47 CFR 64.1200."""
+    await _persistir_proactividad_con_retry(telefono, proactive_enabled=False)
+    logger.info(f"[TCPA] Opt-out registrado (durable) para {telefono}")
     return (
         "✅ Has sido dado de baja de mensajes proactivos de Dona.\n\n"
         "No te enviaré recordatorios ni resúmenes automáticos. "
@@ -84,10 +128,10 @@ async def manejar_stop_tcpa(telefono: str) -> str:
 
 
 async def manejar_start_tcpa(telefono: str) -> str:
-    """Reactiva proactividad tras un STOP previo."""
-    from agent.memory import guardar_proactividad
-    await guardar_proactividad(telefono, proactive_enabled=True)
-    logger.info(f"[TCPA] Re-opt-in registrado para {telefono}")
+    """Reactiva proactividad tras un STOP previo. Persiste con retry; lanza
+    ``TCPAOptOutError`` si no se pudo grabar tras reintentos."""
+    await _persistir_proactividad_con_retry(telefono, proactive_enabled=True)
+    logger.info(f"[TCPA] Re-opt-in registrado (durable) para {telefono}")
     return (
         "✅ ¡Bienvenido de vuelta! Los mensajes proactivos están activos nuevamente.\n\n"
         "_Recuerda: siempre puedes enviar *STOP* para desactivarlos._"
