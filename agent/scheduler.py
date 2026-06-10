@@ -10,7 +10,7 @@ Soporta recordatorios únicos y recurrentes (diario, semanal, dias_semana, mensu
 import os
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from agent.memory import (
@@ -22,11 +22,16 @@ from agent.memory import (
     liberar_claim_recordatorio,
     claim_gcal_enviado,
     liberar_claim_gcal,
+    cancelar_recordatorio_por_id,
+    saltar_ocurrencias_atrasadas,
+    fecha_fin_efectiva_recordatorio,
+    obtener_timezone,
+    _tipo_recurrencia,
 )
 from agent.onboarding import iniciar_siguiente_fase
 from agent.proactivity import verificar_proactividad
 from agent.learning import actualizar_perfiles_todos
-from agent.envio_gate import contexto_envio_automatico
+from agent.envio_gate import contexto_envio_automatico, HORA_INICIO_ENVIOS_PROACTIVOS
 
 # Timeout máximo para jobs del scheduler (en segundos).
 # Si un job tarda más que esto, se cancela para no bloquear el event loop.
@@ -36,6 +41,104 @@ logger = logging.getLogger("dona")
 
 # Scheduler global — se inicia en el lifespan de FastAPI
 scheduler = AsyncIOScheduler(timezone="UTC")
+
+# ── Política de recurrencias atrasadas (Fase 0 · 2.4, criterio Hermes) ──────
+# Una ocurrencia atrasada solo se entrega si sigue FRESCA; si no, se sanea
+# avanzando la recurrencia al futuro SIN enviar (nunca catch-up múltiple).
+
+_VENTANA_FRESCURA = {
+    "cada_30_minutos": timedelta(minutes=45),
+    "cada_hora": timedelta(minutes=90),
+    "horario": timedelta(minutes=90),
+}
+_FRESCURA_DEFAULT = timedelta(hours=6)  # diario / semanal / dias_semana / mensual
+
+# Atraso a partir del cual una entrega deja de ser "puntual" y pasa a ser un
+# catch-up: para tipos diarios o mayores, un catch-up no debe caer en quiet
+# hours (la hora de entrega ya NO es la que eligió el usuario).
+_ATRASO_PUNTUAL = timedelta(minutes=15)
+
+# Tope diario de envíos por tarea sub-diaria (hard cap inicial).
+# Contador in-memory per-proceso: best-effort — hoy el scheduler corre en UN
+# proceso (los claims de 2.3 serializan el cross-proceso) y un restart lo
+# resetea acotado por el propio cap. El freno duro de fondo es fecha_fin.
+_CAP_DIARIO_SUB_DIARIO = {"cada_30_minutos": 16, "cada_hora": 12, "horario": 12}
+_envios_recurrentes_hoy: dict[tuple[int, str], int] = {}
+
+
+def _clave_dia(ahora: datetime) -> str:
+    return ahora.strftime("%Y-%m-%d")
+
+
+def _cap_diario_alcanzado(recordatorio_id: int, tipo: str, ahora: datetime) -> bool:
+    cap = _CAP_DIARIO_SUB_DIARIO.get(tipo)
+    if cap is None:
+        return False
+    return _envios_recurrentes_hoy.get((recordatorio_id, _clave_dia(ahora)), 0) >= cap
+
+
+def _registrar_envio_recurrente(recordatorio_id: int, tipo: str, ahora: datetime) -> None:
+    if tipo not in _CAP_DIARIO_SUB_DIARIO:
+        return
+    clave = (recordatorio_id, _clave_dia(ahora))
+    _envios_recurrentes_hoy[clave] = _envios_recurrentes_hoy.get(clave, 0) + 1
+
+
+def _podar_contadores_diarios(ahora: datetime) -> None:
+    hoy = _clave_dia(ahora)
+    for clave in list(_envios_recurrentes_hoy):
+        if clave[1] != hoy:
+            del _envios_recurrentes_hoy[clave]
+
+
+async def _en_quiet_hours_local(telefono: str) -> bool:
+    """True si para el usuario son quiet hours locales. Sin timezone conocida
+    no se aplica (la hora UTC mentiría para usuarios de EEUU); si la LECTURA
+    falla, para un catch-up tardío se asume quiet hours (mejor no enviar)."""
+    try:
+        offset_min = await obtener_timezone(telefono)
+    except Exception:
+        return True
+    if offset_min is None:
+        return False
+    hora_local = (datetime.utcnow() + timedelta(minutes=offset_min)).hour
+    return hora_local < HORA_INICIO_ENVIOS_PROACTIVOS
+
+
+async def _elegibilidad_recordatorio(r, ahora: datetime) -> str:
+    """Decide qué hacer con un recordatorio pendiente:
+      'enviar'   — ocurrencia fresca, flujo normal.
+      'sanear'   — recurrente atrasado / cap diario / catch-up en quiet hours:
+                   avanzar al futuro SIN enviar.
+      'cancelar' — fecha_fin (efectiva) vencida.
+    Los únicos no se sanean: mejor tarde que nunca para un aviso explícito."""
+    if not r.recurrencia:
+        return "enviar"
+
+    fin = fecha_fin_efectiva_recordatorio(r.fecha_fin, r.recurrencia, r.creado)
+    if fin is not None and ahora > fin:
+        return "cancelar"
+
+    tipo = _tipo_recurrencia(r.recurrencia)
+    atraso = ahora - r.fecha_hora
+
+    if atraso > _VENTANA_FRESCURA.get(tipo, _FRESCURA_DEFAULT):
+        return "sanear"
+
+    if _cap_diario_alcanzado(r.id, tipo, ahora):
+        return "sanear"
+
+    # Catch-up de tipos diarios o mayores: no entregar en quiet hours (la
+    # hora ya no es la que el usuario eligió). Las sub-diarias quedan
+    # cubiertas por su ventana de frescura corta.
+    if (
+        tipo not in _VENTANA_FRESCURA
+        and atraso > _ATRASO_PUNTUAL
+        and await _en_quiet_hours_local(r.telefono)
+    ):
+        return "sanear"
+
+    return "enviar"
 
 
 async def _verificar_y_enviar_recordatorios(proveedor):
@@ -69,7 +172,25 @@ async def _verificar_y_enviar_recordatorios_impl(proveedor):
 
     logger.info(f"Scheduler: {len(pendientes)} recordatorio(s) pendiente(s)")
 
+    ahora = datetime.utcnow()
+    _podar_contadores_diarios(ahora)
+
     for r in pendientes:
+        # ── Política de recurrencias (Fase 0 · 2.4): ¿enviar, sanear o cancelar? ──
+        accion = await _elegibilidad_recordatorio(r, ahora)
+        if accion == "cancelar":
+            if await claim_recordatorio_para_envio(r.id):
+                await cancelar_recordatorio_por_id(r.id)
+                logger.info(f"[RECURRENCIA] #{r.id} cancelado: fecha_fin (efectiva) vencida")
+            continue
+        if accion == "sanear":
+            # Atrasado / cap diario / catch-up en quiet hours: avanzar la
+            # recurrencia al futuro SIN enviar (nunca catch-up múltiple).
+            # El claim garantiza que UN solo proceso sanea.
+            if await claim_recordatorio_para_envio(r.id):
+                await saltar_ocurrencias_atrasadas(r.id)
+            continue
+
         # Formato del mensaje que le llega al usuario
         if r.recurrencia:
             encabezado = "🔔 Recordatorio recurrente"
@@ -90,6 +211,7 @@ async def _verificar_y_enviar_recordatorios_impl(proveedor):
 
         if enviado:
             await marcar_recordatorio_enviado(r.id)
+            _registrar_envio_recurrente(r.id, _tipo_recurrencia(r.recurrencia), ahora)
             tipo = "recurrente" if r.recurrencia else "único"
             logger.info(f"Recordatorio #{r.id} ({tipo}) enviado a {r.telefono}: {r.mensaje}")
 
