@@ -837,6 +837,135 @@ async def obtener_historial(telefono: str, limite: int = 20) -> list[dict]:  # n
         return []
 
 
+# ── Recurrencias: topes y saneamiento (Fase 0 · 2.4) ────────────────────────
+# Una recurrencia sub-diaria sin fecha_fin envía mensajes cada 30/60 minutos
+# PARA SIEMPRE (riesgo TCPA + molestia). Y tras un downtime, avanzar la
+# próxima ocurrencia de a UN paso producía un "catch-up storm": un tick por
+# minuto reenviando hasta ponerse al día. Política (confirmada con Hermes):
+# el atraso se SANEA avanzando hasta el futuro, no reenviando.
+
+# Tipos de recurrencia con período menor a un día.
+RECURRENCIAS_SUB_DIARIAS = {"cada_30_minutos", "cada_hora", "horario"}
+
+# fecha_fin default para recurrencias sub-diarias creadas sin límite explícito.
+DIAS_FECHA_FIN_DEFAULT_SUB_DIARIA = 7
+
+# Tope defensivo de iteraciones al avanzar ocurrencias (semanal/mensual con
+# años de atraso). Si se excede, el recordatorio se cancela con ERROR.
+_MAX_SALTOS_AVANCE = 2000
+
+
+def _tipo_recurrencia(recurrencia_json: str | dict | None) -> str:
+    """Extrae el tipo de la recurrencia ('' si no hay o es inválida)."""
+    if not recurrencia_json:
+        return ""
+    try:
+        rec = json.loads(recurrencia_json) if isinstance(recurrencia_json, str) else recurrencia_json
+        return rec.get("tipo", "")
+    except Exception:
+        return ""
+
+
+def fecha_fin_efectiva_recordatorio(
+    fecha_fin: datetime | None, recurrencia_json: str | None, creado: datetime | None
+) -> datetime | None:
+    """fecha_fin a aplicar: la explícita, o —para sub-diarias viejas creadas
+    sin límite (antes del default)— una contención lógica de
+    DIAS_FECHA_FIN_DEFAULT_SUB_DIARIA días desde su creación. Sin migración:
+    las filas no se tocan, el límite se evalúa al despachar."""
+    if fecha_fin is not None:
+        return fecha_fin
+    if _tipo_recurrencia(recurrencia_json) in RECURRENCIAS_SUB_DIARIAS and creado is not None:
+        return creado + timedelta(days=DIAS_FECHA_FIN_DEFAULT_SUB_DIARIA)
+    return None
+
+
+def avanzar_recurrencia_hasta_futuro(
+    fecha_hora: datetime,
+    recurrencia_json: str,
+    offset_tz_minutos: int | None,
+) -> tuple[datetime | None, int]:
+    """Calcula la PRIMERA ocurrencia estrictamente futura desde fecha_hora.
+
+    Retorna (proxima, ocurrencias_saltadas). Nunca produce una fecha en el
+    pasado (eso causaba el catch-up storm: reenvío en cada tick hasta
+    alcanzar el presente). (None, n) si la recurrencia es inválida o el
+    avance excede el tope defensivo — el caller debe cancelar.
+    """
+    ahora = datetime.utcnow()
+    tipo = _tipo_recurrencia(recurrencia_json)
+
+    # Intervalos fijos: salto analítico (un downtime largo no itera miles
+    # de veces).
+    _INTERVALOS_FIJOS = {
+        "cada_30_minutos": timedelta(minutes=30),
+        "cada_hora": timedelta(hours=1),
+        "horario": timedelta(hours=1),
+        "diario": timedelta(days=1),
+    }
+    if tipo in _INTERVALOS_FIJOS:
+        intervalo = _INTERVALOS_FIJOS[tipo]
+        saltos = 1
+        if fecha_hora < ahora:
+            atraso = ahora - fecha_hora
+            saltos = int(atraso / intervalo) + 1
+        proxima = fecha_hora + intervalo * saltos
+        return proxima, saltos - 1
+
+    # Tipos con calendario (semanal, dias_semana, mensual): iterar con tope.
+    proxima = fecha_hora
+    saltadas = -1
+    for _ in range(_MAX_SALTOS_AVANCE):
+        siguiente = _calcular_proxima_ocurrencia(proxima, recurrencia_json, offset_tz_minutos)
+        if siguiente is None:
+            return None, max(saltadas, 0)
+        proxima = siguiente
+        saltadas += 1
+        if proxima > ahora:
+            return proxima, saltadas
+    logger.error(
+        f"avanzar_recurrencia_hasta_futuro excedió {_MAX_SALTOS_AVANCE} saltos "
+        f"(tipo={tipo}) — recurrencia corrupta o atraso absurdo"
+    )
+    return None, saltadas
+
+
+async def saltar_ocurrencias_atrasadas(recordatorio_id: int) -> tuple[datetime | None, int]:
+    """Reagenda un recordatorio recurrente atrasado a su próxima ocurrencia
+    FUTURA sin enviar nada (catch-up suprimido). Cancela si la recurrencia ya
+    no produce fechas válidas o superó su fecha_fin (efectiva).
+
+    Retorna (nueva_fecha | None si canceló, ocurrencias_saltadas)."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Recordatorio).where(Recordatorio.id == recordatorio_id)
+        )
+        r = result.scalar_one_or_none()
+        if not r or not r.recurrencia:
+            return None, 0
+
+        proxima, saltadas = avanzar_recurrencia_hasta_futuro(
+            r.fecha_hora, r.recurrencia, r.offset_tz_minutos
+        )
+        fin = fecha_fin_efectiva_recordatorio(r.fecha_fin, r.recurrencia, r.creado)
+        if proxima is None or (fin is not None and proxima > fin):
+            r.cancelado = True
+            await session.commit()
+            logger.info(
+                f"[CATCHUP] Recordatorio #{r.id} cancelado al sanear atraso "
+                f"(saltadas={saltadas}, fin={fin})"
+            )
+            return None, saltadas
+
+        r.fecha_hora = proxima
+        await session.commit()
+        logger.info(
+            f"[CATCHUP] Recordatorio #{r.id} saneado sin envío: "
+            f"{saltadas} ocurrencia(s) perdida(s) saltada(s), próxima {proxima}"
+        )
+        return proxima, saltadas
+
+
 async def guardar_recordatorio(
     telefono: str,
     mensaje: str,
@@ -845,7 +974,21 @@ async def guardar_recordatorio(
     offset_tz_minutos: int | None = None,
     fecha_fin: datetime | None = None,
 ) -> Recordatorio:
-    """Guarda un recordatorio en la base de datos."""
+    """Guarda un recordatorio en la base de datos.
+
+    Recurrencias sub-diarias sin fecha_fin reciben un límite default de
+    DIAS_FECHA_FIN_DEFAULT_SUB_DIARIA días — "cada 30 minutos para siempre"
+    no es un default aceptable (Fase 0 · 2.4)."""
+    if (
+        fecha_fin is None
+        and recurrencia
+        and recurrencia.get("tipo", "") in RECURRENCIAS_SUB_DIARIAS
+    ):
+        fecha_fin = datetime.utcnow() + timedelta(days=DIAS_FECHA_FIN_DEFAULT_SUB_DIARIA)
+        logger.info(
+            f"Recordatorio sub-diario ({recurrencia.get('tipo')}) sin fecha_fin: "
+            f"se aplica default de {DIAS_FECHA_FIN_DEFAULT_SUB_DIARIA} días → {fecha_fin}"
+        )
     async with async_session() as session:
         recordatorio = Recordatorio(
             telefono=telefono,
@@ -949,13 +1092,19 @@ async def marcar_recordatorio_enviado(recordatorio_id: int):
         r.intentos_fallidos = 0
 
         if r.recurrencia:
-            # Recurrente: calcular próxima ocurrencia
-            proxima = _calcular_proxima_ocurrencia(r.fecha_hora, r.recurrencia, r.offset_tz_minutos)
-            if proxima and (r.fecha_fin is None or proxima <= r.fecha_fin):
+            # Recurrente: reagendar SIEMPRE a una ocurrencia futura. Avanzar
+            # de a un paso dejaba fecha_hora en el pasado tras un downtime y
+            # cada tick reenviaba hasta ponerse al día (catch-up storm, 2.4).
+            proxima, saltadas = avanzar_recurrencia_hasta_futuro(
+                r.fecha_hora, r.recurrencia, r.offset_tz_minutos
+            )
+            fin = fecha_fin_efectiva_recordatorio(r.fecha_fin, r.recurrencia, r.creado)
+            if proxima and (fin is None or proxima <= fin):
                 r.fecha_hora = proxima
-                logger.info(f"Recordatorio #{r.id} reagendado para {proxima}")
+                extra = f" ({saltadas} ocurrencia(s) atrasada(s) saltada(s))" if saltadas else ""
+                logger.info(f"Recordatorio #{r.id} reagendado para {proxima}{extra}")
             else:
-                # Se acabó la recurrencia (llegó fecha_fin)
+                # Se acabó la recurrencia (llegó fecha_fin o ya no hay fechas)
                 r.cancelado = True
                 logger.info(f"Recordatorio #{r.id} recurrente finalizado (fecha_fin alcanzada)")
         else:
