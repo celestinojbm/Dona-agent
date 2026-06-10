@@ -7,7 +7,7 @@ Todas las funciones reciben telefono (del dueño del negocio) para aislar datos.
 
 import logging
 from datetime import datetime
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, update
 
 from agent.memory import async_session
 from agent.business.models import ClienteNegocio, Seguimiento
@@ -177,3 +177,32 @@ async def completar_seguimiento(telefono: str, seguimiento_id: int) -> bool:
             await session.commit()
             return True
         return False
+
+
+async def claim_seguimiento_para_envio(seguimiento_id: int) -> bool:
+    """Reclama atómicamente un seguimiento vencido ANTES de enviarlo
+    (Fase 0 · 2.3): UPDATE completado false→true, el rowcount decide UN
+    ganador entre procesos concurrentes del scheduler. True = enviar."""
+    async with async_session() as session:
+        result = await session.execute(
+            update(Seguimiento)
+            .where(
+                Seguimiento.id == seguimiento_id,
+                Seguimiento.completado == False,
+            )
+            .values(completado=True)
+        )
+        await session.commit()
+        return result.rowcount == 1
+
+
+async def revertir_claim_seguimiento(seguimiento_id: int) -> None:
+    """Revierte el claim tras un envío FALLIDO para que el próximo ciclo lo
+    reintente. Solo la llama el proceso dueño del claim."""
+    async with async_session() as session:
+        await session.execute(
+            update(Seguimiento)
+            .where(Seguimiento.id == seguimiento_id)
+            .values(completado=False)
+        )
+        await session.commit()

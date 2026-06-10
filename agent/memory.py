@@ -100,7 +100,9 @@ class Recordatorio(Base):
     # Cuántas veces falló el envío consecutivamente (reset al enviar exitosamente)
     intentos_fallidos: Mapped[int] = mapped_column(Integer, default=0)
 
-    # Cuándo se envió por última vez (UTC)
+    # Último INTENTO de envío (UTC). Además de informativo, funciona como
+    # marcador de claim del scheduler (Fase 0 · 2.3): un recordatorio con
+    # ultimo_envio reciente está "reclamado" y otro proceso no debe enviarlo.
     ultimo_envio: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
 
@@ -975,6 +977,90 @@ async def registrar_fallo_recordatorio(recordatorio_id: int):
         await session.commit()
         if r.intentos_fallidos >= 3:
             logger.warning(f"Recordatorio #{r.id} pausado por 3 fallos consecutivos")
+
+
+# ── Claims atómicos del scheduler (Fase 0 · 2.3) ────────────────────────────
+# Con >1 proceso corriendo el scheduler (gunicorn --workers N, segunda
+# instancia), el flujo SELECT pendientes → enviar → marcar enviado duplica
+# envíos: todos los procesos pasan el SELECT antes de que alguno marque.
+# El claim es un UPDATE condicional cuyo rowcount decide UN solo ganador
+# (misma familia que el dedup atómico de C9). Sin migración: reutiliza
+# ultimo_envio como marcador, con ventana de expiración para autosanar si
+# un proceso muere después de reclamar y antes de enviar.
+
+# Minutos durante los cuales un claim bloquea re-claims. Debe ser mayor que
+# lo que tarda un tick del scheduler (timeout 30s) y menor que la recurrencia
+# más corta soportada (30 min).
+VENTANA_CLAIM_RECORDATORIO_MIN = 5
+
+
+async def claim_recordatorio_para_envio(
+    recordatorio_id: int, ventana_minutos: int = VENTANA_CLAIM_RECORDATORIO_MIN
+) -> bool:
+    """Reclama atómicamente un recordatorio para enviarlo. True = este proceso
+    ganó la fila y debe enviar; False = otro proceso la tiene (o ya no está
+    pendiente). El claim expira tras `ventana_minutos` (crash mid-send →
+    la ocurrencia se reintenta en el siguiente tick pasada la ventana)."""
+    ahora = datetime.utcnow()
+    corte = ahora - timedelta(minutes=ventana_minutos)
+    async with async_session() as session:
+        result = await session.execute(
+            update(Recordatorio)
+            .where(
+                Recordatorio.id == recordatorio_id,
+                Recordatorio.cancelado == False,
+                Recordatorio.enviado == False,
+                (Recordatorio.ultimo_envio.is_(None)) | (Recordatorio.ultimo_envio <= corte),
+            )
+            .values(ultimo_envio=ahora)
+        )
+        await session.commit()
+        return result.rowcount == 1
+
+
+async def liberar_claim_recordatorio(recordatorio_id: int) -> None:
+    """Libera el claim tras un envío FALLIDO para conservar la cadencia de
+    reintento por tick (sin esto, el reintento esperaría la ventana entera).
+    Solo la llama el proceso dueño del claim."""
+    async with async_session() as session:
+        await session.execute(
+            update(Recordatorio)
+            .where(Recordatorio.id == recordatorio_id)
+            .values(ultimo_envio=None)
+        )
+        await session.commit()
+
+
+async def claim_gcal_enviado(clave: str) -> bool:
+    """Reclama atómicamente un recordatorio de Google Calendar ANTES de
+    enviarlo: INSERT ... ON CONFLICT DO NOTHING sobre la PK `clave`, el
+    rowcount decide (patrón del dedup C9). True = ganador, enviar."""
+    if _ES_POSTGRES:
+        from sqlalchemy.dialects.postgresql import insert as _insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert as _insert
+
+    stmt = (
+        _insert(RecordatorioGCalEnviado)
+        .values(clave=clave)
+        .on_conflict_do_nothing(index_elements=["clave"])
+    )
+    async with async_session() as session:
+        result = await session.execute(stmt)
+        await session.commit()
+        return result.rowcount == 1
+
+
+async def liberar_claim_gcal(clave: str) -> None:
+    """Borra el claim de GCal tras un envío FALLIDO (best-effort) para que el
+    siguiente ciclo lo reintente. Solo la llama el proceso dueño del claim."""
+    from sqlalchemy import delete as _delete
+
+    async with async_session() as session:
+        await session.execute(
+            _delete(RecordatorioGCalEnviado).where(RecordatorioGCalEnviado.clave == clave)
+        )
+        await session.commit()
 
 
 async def cancelar_recordatorio_por_id(recordatorio_id: int):
