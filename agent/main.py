@@ -90,6 +90,9 @@ from agent.memory_summary import actualizar_resumen_si_necesario
 
 logger = logging.getLogger("dona")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+# Fail-closed (C8): decisiones de seguridad por entorno usan el helper único
+# (agent/entorno.py), NUNCA comparaciones locales con "production".
+from agent.entorno import es_entorno_permisivo as _es_entorno_permisivo  # noqa: E402
 
 # Proveedor de WhatsApp (se configura en .env con WHATSAPP_PROVIDER)
 proveedor = obtener_proveedor()
@@ -282,8 +285,10 @@ app = FastAPI(
     title="Dona — Asistente Personal en WhatsApp",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url=None if ENVIRONMENT == "production" else "/docs",
-    redoc_url=None if ENVIRONMENT == "production" else "/redoc",
+    # Fail-closed (C8): docs solo en dev/test explícitos (un typo en
+    # ENVIRONMENT ya no expone /docs en un entorno productivo).
+    docs_url="/docs" if _es_entorno_permisivo() else None,
+    redoc_url="/redoc" if _es_entorno_permisivo() else None,
 )
 
 # Registrar middleware (orden importa: el último agregado se ejecuta primero)
@@ -838,8 +843,13 @@ async def _notificar_google_conectado(telefono: str, email: str):
 
 @app.post("/debug")
 async def debug_handler(request: Request):
-    """Captura el body crudo de cualquier request — para diagnosticar Whapi. Solo en dev."""
-    if ENVIRONMENT == "production":
+    """Captura el body crudo de cualquier request — para diagnosticar Whapi. Solo en dev.
+
+    Fail-closed (C8): se evalúa por request con es_entorno_estricto(), así un
+    typo en ENVIRONMENT ya no deja este endpoint (que ecoa bodies y headers
+    crudos, incluidos tokens) activo en un entorno productivo."""
+    from agent.entorno import es_entorno_estricto
+    if es_entorno_estricto():
         raise HTTPException(status_code=404, detail="Not found")
     body = await request.body()
     headers = dict(request.headers)

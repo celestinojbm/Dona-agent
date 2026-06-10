@@ -12,6 +12,8 @@ habilitan paths permisivos; todo lo demás es estricto (fail-closed).
 """
 
 import json
+from unittest.mock import MagicMock
+
 import pytest
 
 from agent.entorno import es_entorno_estricto, es_entorno_permisivo
@@ -202,3 +204,36 @@ class TestBridgeFailClosed:
         assert len(h) == 64
         # Determinístico y normalizado
         assert h == _hash_email("  A@TEST.com ")
+
+
+# ── Superficie de diagnóstico (logging y /debug) ─────────────────────────────
+
+class TestSuperficieDiagnosticoFailClosed:
+    def test_logging_typo_de_entorno_activa_modo_produccion(self, monkeypatch):
+        """REGRESIÓN C8: con ENVIRONMENT="prod" (typo), ANTES el logging quedaba
+        en modo dev (DEBUG, sin redaction de PII). Ahora entra en modo
+        producción (INFO + JSON + redaction)."""
+        import logging as _logging
+        from agent.logging_config import configurar_logging
+        root = _logging.getLogger()
+        nivel_orig, handlers_orig = root.level, list(root.handlers)
+        try:
+            monkeypatch.setenv("ENVIRONMENT", "prod")
+            monkeypatch.delenv("LOG_LEVEL", raising=False)
+            configurar_logging()
+            assert root.level == _logging.INFO  # producción; en dev sería DEBUG
+        finally:
+            root.setLevel(nivel_orig)
+            root.handlers[:] = handlers_orig
+
+    @pytest.mark.asyncio
+    async def test_debug_endpoint_404_en_entorno_estricto(self, monkeypatch):
+        """REGRESIÓN C8: /debug (ecoa bodies/headers crudos, incluidos tokens)
+        quedaba ACTIVO con un typo de entorno. Ahora responde 404 en todo
+        entorno estricto, evaluado por request."""
+        from fastapi import HTTPException
+        from agent.main import debug_handler
+        monkeypatch.setenv("ENVIRONMENT", "prod")
+        with pytest.raises(HTTPException) as exc:
+            await debug_handler(MagicMock())
+        assert exc.value.status_code == 404
