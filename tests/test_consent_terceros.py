@@ -166,20 +166,34 @@ class TestEjecutorDefensaProfundidad:
 
     async def test_consentimiento_viejo_no_sirve(self, entorno, ejecutor_aislado):
         """El consentimiento expira (ventana de frescura): uno registrado
-        hace una hora no habilita un envío de otro camino."""
+        hace una hora no habilita un envío de otro camino — aunque sea de
+        la MISMA acción."""
         memoria, consent = entorno
         sm, fake = ejecutor_aislado
 
         from agent.automation.models import ConsentimientoTerceroAutomation
         async with memoria.async_session() as session:
             session.add(ConsentimientoTerceroAutomation(
-                telefono_owner=OWNER, destino=FRIO,
+                telefono_owner=OWNER, destino=FRIO, source_accion_id=13,
                 creado=datetime.utcnow() - timedelta(hours=1),
             ))
             await session.commit()
 
         with pytest.raises(RuntimeError, match="consent_no_registrado"):
             await sm.ejecutor_enviar_mensaje_whatsapp(_accion_dict(13, FRIO), None)
+        assert fake.enviados == []
+
+    async def test_consentimiento_de_otra_accion_no_sirve(self, entorno, ejecutor_aislado):
+        """Invariante Hermes (visto bueno 2.5, condición #6): el consent
+        scope=este_mensaje está atado a SU accion_id — uno fresco de la
+        acción 21 NO habilita la acción 22 al mismo destino."""
+        _, consent = entorno
+        sm, fake = ejecutor_aislado
+
+        await consent.registrar_consentimiento(OWNER, FRIO, 21)
+
+        with pytest.raises(RuntimeError, match="consent_no_registrado"):
+            await sm.ejecutor_enviar_mensaje_whatsapp(_accion_dict(22, FRIO), None)
         assert fake.enviados == []
 
     async def test_destino_conocido_pasa_sin_consentimiento(self, entorno, ejecutor_aislado):

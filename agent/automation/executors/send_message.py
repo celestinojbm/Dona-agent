@@ -621,7 +621,9 @@ async def ejecutor_enviar_mensaje_whatsapp(
             telefono_owner_accion, numero_destino
         )
         consentido = (not politica["requiere_consentimiento"]) or (
-            await tiene_consentimiento_fresco(telefono_owner_accion, numero_destino)
+            await tiene_consentimiento_fresco(
+                telefono_owner_accion, numero_destino, accion_id
+            )
         )
     except RuntimeError:
         raise
