@@ -35,6 +35,8 @@ _claude = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 COMANDOS_STOP_TCPA = {
     "stop", "unsubscribe", "cancel", "end", "quit",
     "baja", "dar de baja", "no molestar",
+    # 2.5 — el copy de primer contacto a terceros ofrece "responde PARAR"
+    "parar",
 }
 
 # Palabras para reactivar tras STOP (TCPA-compliant re-opt-in)

@@ -122,6 +122,47 @@ class AuditLogAutomatizacion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class ConsentimientoTerceroAutomation(Base):
+    """Consentimiento afirmativo del OWNER para contactar a un TERCERO
+    (Fase 0 · 2.5 — política Hermes: block-until-consent por destino).
+
+    Append-only: cada confirmación dedicada (ENVIAR tras un preview que
+    muestra el texto de permiso) inserta una fila. Sirve como registro de
+    consentimiento (quién, cuándo, con qué texto, para qué acción) y la
+    existencia de una fila reciente es lo que el ejecutor exige antes de
+    enviar a un destino frío. Guarda teléfonos completos: es estado
+    operativo de la política (como acciones_automatizacion), no audit log.
+    """
+    __tablename__ = "automation_consentimientos_tercero"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono_owner: Mapped[str] = mapped_column(String(50), index=True)
+    # Destino normalizado (solo dígitos) — clave de lookup de la política
+    destino: Mapped[str] = mapped_column(String(50), index=True)
+    # Alcance del consentimiento · v1: "este_mensaje" (cada envío re-confirma)
+    scope: Mapped[str] = mapped_column(String(40), default="este_mensaje")
+    # Texto de permiso que el owner vio al confirmar (evidencia)
+    texto_confirmacion: Mapped[str] = mapped_column(Text, default="")
+    source_accion_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class EnvioTerceroAutomation(Base):
+    """Log de envíos HIGH efectivamente realizados a terceros (2.5).
+
+    Una fila por envío exitoso. Base de los límites de la política:
+    primer contacto (cero filas previas del destino), mensajes por
+    destino/día y /7 días, y terceros nuevos por owner/día y /7 días.
+    """
+    __tablename__ = "automation_envios_tercero"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono_owner: Mapped[str] = mapped_column(String(50), index=True)
+    destino: Mapped[str] = mapped_column(String(50), index=True)
+    accion_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    enviado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 # ── SQL de migración para PostgreSQL · todo aditivo, idempotente ────────────
 
 MIGRACIONES_AUTOMATION = [
@@ -186,4 +227,32 @@ MIGRACIONES_AUTOMATION = [
     "CREATE INDEX IF NOT EXISTS ix_aut_reserva_accion ON automation_reservas_credito (accion_id)",
     "CREATE INDEX IF NOT EXISTS ix_aut_reserva_tel ON automation_reservas_credito (telefono)",
     "CREATE INDEX IF NOT EXISTS ix_aut_reserva_estado ON automation_reservas_credito (estado)",
+    # 2.5 — Consentimiento de terceros + log de envíos (política Hermes).
+    """
+    CREATE TABLE IF NOT EXISTS automation_consentimientos_tercero (
+        id                  SERIAL PRIMARY KEY,
+        telefono_owner      VARCHAR(50)  NOT NULL,
+        destino             VARCHAR(50)  NOT NULL,
+        scope               VARCHAR(40)  NOT NULL DEFAULT 'este_mensaje',
+        texto_confirmacion  TEXT         NOT NULL DEFAULT '',
+        source_accion_id    INTEGER,
+        creado              TIMESTAMP    NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_aut_consent_owner ON automation_consentimientos_tercero (telefono_owner)",
+    "CREATE INDEX IF NOT EXISTS ix_aut_consent_destino ON automation_consentimientos_tercero (destino)",
+    "CREATE INDEX IF NOT EXISTS ix_aut_consent_accion ON automation_consentimientos_tercero (source_accion_id)",
+    "CREATE INDEX IF NOT EXISTS ix_aut_consent_creado ON automation_consentimientos_tercero (creado)",
+    """
+    CREATE TABLE IF NOT EXISTS automation_envios_tercero (
+        id              SERIAL PRIMARY KEY,
+        telefono_owner  VARCHAR(50)  NOT NULL,
+        destino         VARCHAR(50)  NOT NULL,
+        accion_id       INTEGER,
+        enviado_en      TIMESTAMP    NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_aut_envio3_owner ON automation_envios_tercero (telefono_owner)",
+    "CREATE INDEX IF NOT EXISTS ix_aut_envio3_destino ON automation_envios_tercero (destino)",
+    "CREATE INDEX IF NOT EXISTS ix_aut_envio3_fecha ON automation_envios_tercero (enviado_en)",
 ]

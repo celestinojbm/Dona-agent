@@ -166,6 +166,43 @@ async def preview_confirmacion_high_whatsapp(
             "accion_id": accion_id,
         }
 
+    # ── Política de terceros (2.5) · límites + consentimiento ───────────
+    # El preview evalúa la política ANTES de mostrar nada accionable: si
+    # los límites bloquean, el owner lo ve aquí (y confirmar rechazaría
+    # igual). Fail-closed: error evaluando → no hay preview accionable.
+    from agent.automation.consent_terceros import (
+        evaluar_politica_envio_tercero,
+        componer_mensaje_primer_contacto,
+        obtener_nombre_owner,
+        TEXTO_CONSENTIMIENTO_OWNER,
+    )
+
+    try:
+        politica = await evaluar_politica_envio_tercero(telefono_owner, numero_destino)
+    except Exception as e:
+        logger.critical(
+            f"[CONSENT-2.5] FAIL-CLOSED: error evaluando política en preview "
+            f"accion_id={accion_id} ({type(e).__name__}: {e})"
+        )
+        return {"ok": False, "error": "politica_terceros_error", "accion_id": accion_id}
+
+    if not politica["permitido"]:
+        await _audit(
+            evento="high_send_blocked_policy",
+            telefono=telefono_owner,
+            accion_id=accion_id,
+            riesgo=riesgo_owner,
+            payload={"fase": "preview", "motivo": politica["motivo"]},
+        )
+        return {"ok": False, "error": politica["motivo"], "accion_id": accion_id}
+
+    # El preview muestra el mensaje FINAL que saldría: con identificación
+    # y opt-out PARAR si es el primer contacto con este destino.
+    mensaje_final = mensaje
+    if politica["es_primer_contacto"]:
+        nombre_owner = await obtener_nombre_owner(telefono_owner)
+        mensaje_final = componer_mensaje_primer_contacto(nombre_owner, mensaje)
+
     await _audit(
         evento="high_preview_rendered",
         telefono=telefono_owner,
@@ -174,10 +211,12 @@ async def preview_confirmacion_high_whatsapp(
         payload={
             "tipo_accion": tipo_accion,
             "destino_short": _short_num(numero_destino),
-            "longitud_mensaje": len(mensaje),
+            "longitud_mensaje": len(mensaje_final),
             "costo_creditos_estimado": int(
                 accion.get("costo_creditos_estimado", 0) or 0
             ),
+            "es_primer_contacto": politica["es_primer_contacto"],
+            "requiere_consentimiento": politica["requiere_consentimiento"],
         },
     )
 
@@ -194,9 +233,15 @@ async def preview_confirmacion_high_whatsapp(
         # El número completo y mensaje sólo se exponen al dueño autenticado
         # vía endpoint dedicado; nunca se logean en este helper.
         "numero_destino": numero_destino,
-        "mensaje_preview": mensaje,
-        "longitud_mensaje": len(mensaje),
+        "mensaje_preview": mensaje_final,
+        "longitud_mensaje": len(mensaje_final),
         "confirmacion_requerida": "ENVIAR",
+        # 2.5 · el ENVIAR tras ver este texto ES el consentimiento afirmativo
+        "es_primer_contacto": politica["es_primer_contacto"],
+        "requiere_consentimiento": politica["requiere_consentimiento"],
+        "texto_consentimiento": (
+            TEXTO_CONSENTIMIENTO_OWNER if politica["requiere_consentimiento"] else ""
+        ),
     }
 
 
@@ -339,7 +384,74 @@ async def confirmar_high_whatsapp_dedicado(
         }
 
     payload_accion = _parse_json(accion.get("payload_json")) or {}
-    destino_short_seguro = _short_num(str(payload_accion.get("numero_destino") or ""))
+    numero_destino_payload = str(payload_accion.get("numero_destino") or "")
+    destino_short_seguro = _short_num(numero_destino_payload)
+
+    # ── Política de terceros (2.5) · evaluar límites y REGISTRAR el
+    # consentimiento afirmativo. El ENVIAR que acaba de validar este flujo
+    # llegó tras un preview que mostró el texto de permiso — ese acto es el
+    # consentimiento del owner y queda registrado ANTES de ejecutar.
+    # Fail-closed: si la política no se puede evaluar/registrar, NO se envía.
+    from agent.automation.consent_terceros import (
+        evaluar_politica_envio_tercero,
+        registrar_consentimiento,
+        TEXTO_CONSENTIMIENTO_OWNER,
+    )
+
+    try:
+        politica = await evaluar_politica_envio_tercero(
+            telefono_owner, numero_destino_payload
+        )
+        if politica["permitido"] and politica["requiere_consentimiento"]:
+            await registrar_consentimiento(
+                telefono_owner,
+                numero_destino_payload,
+                accion_id,
+                TEXTO_CONSENTIMIENTO_OWNER,
+            )
+            await _audit(
+                evento="high_consent_registered",
+                telefono=telefono_owner,
+                accion_id=accion_id,
+                riesgo=riesgo_owner,
+                payload={
+                    "destino_short": destino_short_seguro,
+                    "es_primer_contacto": politica["es_primer_contacto"],
+                    "scope": "este_mensaje",
+                },
+            )
+    except Exception as e:
+        logger.critical(
+            f"[CONSENT-2.5] FAIL-CLOSED: error evaluando/registrando política "
+            f"en confirmación accion_id={accion_id} ({type(e).__name__}: {e}) "
+            f"— confirmación BLOQUEADA"
+        )
+        await _audit(
+            evento="high_send_blocked_policy",
+            telefono=telefono_owner,
+            accion_id=accion_id,
+            riesgo=riesgo_owner,
+            payload={"fase": "confirmar", "motivo": "politica_error"},
+        )
+        return {
+            "estado_final": "failed",
+            "error": "politica_terceros_error",
+            "accion_id": accion_id,
+        }
+
+    if not politica["permitido"]:
+        await _audit(
+            evento="high_send_blocked_policy",
+            telefono=telefono_owner,
+            accion_id=accion_id,
+            riesgo=riesgo_owner,
+            payload={"fase": "confirmar", "motivo": politica["motivo"]},
+        )
+        return {
+            "estado_final": "failed",
+            "error": politica["motivo"],
+            "accion_id": accion_id,
+        }
 
     from agent.automation.execution import ejecutar_accion
     resultado = await ejecutar_accion(accion, audit_high_dedicado=True)
@@ -489,6 +601,53 @@ async def ejecutor_enviar_mensaje_whatsapp(
         )
         return {**fresh_result, "idempotent": True}
 
+    # ── Política de terceros (2.5) · DEFENSA EN PROFUNDIDAD ─────────────
+    # El camino dedicado (confirmar_high_whatsapp_dedicado) ya evaluó la
+    # política y registró el consentimiento. Este check garantiza el
+    # invariante aunque un caller futuro llegue al ejecutor por otro
+    # camino: destino frío sin consentimiento FRESCO → no se envía.
+    # Fail-closed: error evaluando → RuntimeError (libera la reserva).
+    telefono_owner_accion = str(accion.get("telefono") or "")
+    from agent.automation.consent_terceros import (
+        evaluar_politica_envio_tercero,
+        tiene_consentimiento_fresco,
+        componer_mensaje_primer_contacto,
+        obtener_nombre_owner,
+        registrar_envio_tercero,
+    )
+
+    try:
+        politica = await evaluar_politica_envio_tercero(
+            telefono_owner_accion, numero_destino
+        )
+        consentido = (not politica["requiere_consentimiento"]) or (
+            await tiene_consentimiento_fresco(telefono_owner_accion, numero_destino)
+        )
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logger.critical(
+            f"[CONSENT-2.5] FAIL-CLOSED: error evaluando política en ejecutor "
+            f"accion_id={accion_id} ({type(e).__name__}: {e}) — envío BLOQUEADO"
+        )
+        raise RuntimeError("politica_terceros_error") from e
+
+    if not politica["permitido"]:
+        raise RuntimeError(f"politica_terceros_bloqueada:{politica['motivo']}")
+    if not consentido:
+        logger.critical(
+            f"[CONSENT-2.5] Envío HIGH a destino frío SIN consentimiento "
+            f"registrado accion_id={accion_id} "
+            f"destino_short={_short_num(numero_destino)} — BLOQUEADO"
+        )
+        raise RuntimeError("consent_no_registrado")
+
+    # Primer contacto: el mensaje sale con identificación + opt-out PARAR.
+    mensaje_envio = mensaje
+    if politica["es_primer_contacto"]:
+        nombre_owner = await obtener_nombre_owner(telefono_owner_accion)
+        mensaje_envio = componer_mensaje_primer_contacto(nombre_owner, mensaje)
+
     # ── Envío real via proveedor
     proveedor = _obtener_proveedor()
     nombre_proveedor = proveedor.__class__.__name__
@@ -501,7 +660,7 @@ async def ejecutor_enviar_mensaje_whatsapp(
         # usuario con confirmación dedicada HIGH.
         from agent.envio_gate import contexto_envio_automatico
         with contexto_envio_automatico():
-            ok = await proveedor.enviar_mensaje(numero_destino, mensaje)
+            ok = await proveedor.enviar_mensaje(numero_destino, mensaje_envio)
     except Exception as e:
         # Provider lanzó · propagamos como RuntimeError uniforme · la
         # ejecutar_accion catch atrapará y liberará la reserva.
@@ -525,16 +684,33 @@ async def ejecutor_enviar_mensaje_whatsapp(
         "estado_envio": "sent",
         "mensaje_id": mensaje_id,
         "destino_short": _short_num(numero_destino),
-        "longitud_mensaje": len(mensaje),
+        "longitud_mensaje": len(mensaje_envio),
         "modo": "provider",
         "provider": nombre_proveedor,
         "enviado_en": datetime.utcnow().isoformat(),
+        "primer_contacto": politica["es_primer_contacto"],
     }
 
     # ── Persistir result_json INMEDIATAMENTE para dedupe en retries
     # (antes de que ejecutar_accion llame marcar_completada · si crash,
     # cualquier retry verá estado_envio=sent y no re-enviará)
     await _persistir_result_inline(accion_id, resultado)
+
+    # ── Log de envíos a terceros (2.5) · base de los límites de la
+    # política. Best-effort POST-envío: el mensaje ya salió — fallar acá
+    # marcaría la acción failed y liberaría la reserva de un trabajo ya
+    # entregado (patrón C5). Un hiccup deja el límite sub-contado y queda
+    # en ERROR para observabilidad.
+    try:
+        await registrar_envio_tercero(
+            telefono_owner_accion, numero_destino, accion_id
+        )
+    except Exception as e:
+        logger.error(
+            f"[CONSENT-2.5] No se pudo registrar el envío a tercero "
+            f"accion_id={accion_id} ({type(e).__name__}: {e}) — límites "
+            f"quedarán sub-contados para este envío"
+        )
 
     logger.info(
         f"[EXEC-HIGH] enviar_mensaje_whatsapp accion_id={accion_id} "
@@ -594,6 +770,10 @@ def _audit_error_code(error: str) -> str:
         "critical_blocked_t21a": "critical_blocked_t21a",
         "accion_ya_en_ejecucion_o_no_aprobada": "claim_lost",
         "ejecutor_no_disponible": "executor_unavailable",
+        # 2.5 · política de terceros
+        "consent_no_registrado": "consent_missing",
+        "politica_terceros_bloqueada": "third_party_policy_blocked",
+        "politica_terceros_error": "third_party_policy_error",
     }
     for needle, code in codigos.items():
         if needle in error:

@@ -75,6 +75,12 @@ async def db(tmp_path, monkeypatch):
     importlib.reload(_sm)
     importlib.reload(_ex)
     await agent.memory.inicializar_db()
+    # 2.5: estos tests cubren transporte/idempotencia/créditos del flujo
+    # HIGH, no la política de terceros. Los destinos compartidos se siembran
+    # como "conocidos" (ya hablaron con Dona) para tomar el camino best-effort;
+    # la política block-until-consent se cubre en tests/test_consent_terceros.py.
+    await agent.memory.guardar_mensaje("5215512345678", "user", "hola")
+    await agent.memory.guardar_mensaje("5215551234567", "user", "hola")
     return _ac, _cr, _ex, _bi, _sm
 
 
