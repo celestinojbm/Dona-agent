@@ -277,10 +277,17 @@ async def registrar_consentimiento(
 async def tiene_consentimiento_fresco(
     telefono_owner: str,
     numero_destino: str,
+    accion_id: int,
     max_minutos: int = MINUTOS_CONSENTIMIENTO_FRESCO,
 ) -> bool:
-    """True si el owner registró consentimiento para este destino dentro de
-    la ventana de frescura. Lo exige el ejecutor para destinos fríos."""
+    """True si el owner registró consentimiento para este destino, PARA ESTA
+    ACCIÓN, dentro de la ventana de frescura. Lo exige el ejecutor para
+    destinos fríos.
+
+    Invariante Hermes (visto bueno 2.5, condición #6): el consentimiento
+    scope=este_mensaje NO se reutiliza entre mensajes — atarlo al accion_id
+    impide que el consent de una acción habilite otra acción al mismo
+    destino dentro de la ventana por un camino no dedicado."""
     from sqlalchemy import select, exists
     from agent.memory import async_session
     from agent.automation.models import ConsentimientoTerceroAutomation
@@ -292,6 +299,7 @@ async def tiene_consentimiento_fresco(
                 exists().where(
                     ConsentimientoTerceroAutomation.telefono_owner == telefono_owner,
                     ConsentimientoTerceroAutomation.destino == normalizar_destino(numero_destino),
+                    ConsentimientoTerceroAutomation.source_accion_id == accion_id,
                     ConsentimientoTerceroAutomation.creado >= corte,
                 )
             )
