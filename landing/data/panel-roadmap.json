@@ -41,12 +41,14 @@
     {
       "id": "2.4",
       "nombre": "Tope de recurrencias sub-diarias + catch-up storm",
-      "estado": "siguiente"
+      "estado": "hecho",
+      "detalle": "#78 mergeado + live"
     },
     {
       "id": "2.5",
-      "nombre": "Opt-out de terceros completo en ejecutor HIGH",
-      "estado": "pendiente"
+      "nombre": "Opt-out/consentimiento de terceros en ejecutor HIGH",
+      "estado": "siguiente",
+      "detalle": "política de Hermes lista"
     },
     {
       "id": "4.1/4.2",
