@@ -7,17 +7,21 @@
 // (mismo principio que internal-bridge.ts).
 //
 // Estrategia best-effort: cada sección (repo, velocity, CI, deploys, PRs,
-// commits) se consulta en paralelo; si una falla, se anota en `errores` y el
-// resto del panel sigue vivo. Un poll cada ~60s hace ~9 requests a GitHub
-// (límite autenticado: 5000/h — sobra margen).
+// commits, lenguajes, actividad) se consulta en paralelo; si una falla, se
+// anota en `errores` y el resto del panel sigue vivo. Un poll cada ~60s hace
+// ~12 requests a GitHub (límite autenticado: 5000/h — sobra margen).
 import "server-only";
 
 import type {
   CIRun,
   CommitInfo,
   DeployInfo,
+  DeploysServicio,
+  Lenguaje,
   PanelData,
+  PasoCI,
   PRInfo,
+  PuntoDiario,
   RepoStats,
 } from "./panel-types";
 
@@ -67,6 +71,101 @@ export function primeraLinea(mensaje: string, max = 90): string {
   return linea.length > max ? linea.slice(0, max - 1) + "…" : linea;
 }
 
+/** Semana cruda de GET /stats/commit_activity. */
+export type SemanaActividad = {
+  /** Unix seconds del domingo que abre la semana. */
+  week: number;
+  /** Commits por día, domingo→sábado. */
+  days: number[];
+  total: number;
+};
+
+/**
+ * Serie diaria de commits a partir de commit_activity: aplana las semanas en
+ * días con fecha ISO, descarta días futuros (la semana actual viene con ceros
+ * para los días que no pasaron) y devuelve los últimos `n`.
+ */
+export function serieDiaria(
+  semanas: SemanaActividad[],
+  ahoraMs: number,
+  n = 30,
+): PuntoDiario[] {
+  const puntos: PuntoDiario[] = [];
+  for (const s of semanas) {
+    if (!Array.isArray(s.days)) continue;
+    for (let i = 0; i < s.days.length; i++) {
+      const fechaMs = (s.week + i * 86_400) * 1000;
+      if (fechaMs > ahoraMs) continue;
+      puntos.push({
+        fecha: new Date(fechaMs).toISOString().slice(0, 10),
+        commits: s.days[i],
+      });
+    }
+  }
+  return puntos.slice(-n);
+}
+
+/**
+ * Commits por día de la semana a partir de GET /stats/punch_card
+ * (filas [dia(0=domingo), hora, commits]). Devuelve [Lun..Dom].
+ */
+export function actividadPorDia(
+  filas: number[][] | null | undefined,
+): number[] | null {
+  if (!Array.isArray(filas) || filas.length === 0) return null;
+  const porDiaGH = new Array(7).fill(0); // índice GitHub: 0=domingo
+  for (const fila of filas) {
+    if (!Array.isArray(fila) || fila.length < 3) continue;
+    const [dia, , commits] = fila;
+    if (dia >= 0 && dia <= 6) porDiaGH[dia] += commits;
+  }
+  // Reordenar a [Lun..Dom] para el panel.
+  return [...porDiaGH.slice(1), porDiaGH[0]];
+}
+
+/**
+ * Promedio de horas entre apertura y merge. Se calcula sobre TODA la muestra
+ * (no sobre la lista recortada para UI): con slice(0,8) el promedio quedaba
+ * sesgado por los 8 con actividad más reciente.
+ */
+export function promedioHorasMerge(
+  prs: { created_at: string; merged_at: string | null }[],
+): number | null {
+  const horas = prs
+    .filter((p) => p.merged_at)
+    .map((p) => (Date.parse(p.merged_at!) - Date.parse(p.created_at)) / 3_600_000)
+    .filter((h) => Number.isFinite(h) && h >= 0);
+  if (horas.length === 0) return null;
+  return horas.reduce((a, b) => a + b, 0) / horas.length;
+}
+
+/**
+ * Top de lenguajes con porcentaje (1 decimal) a partir de GET /languages
+ * (mapa nombre→bytes). Agrupa el resto en "Otros".
+ */
+export function topLenguajes(
+  mapa: Record<string, number> | null | undefined,
+  max = 5,
+): Lenguaje[] | null {
+  if (!mapa) return null;
+  const entradas = Object.entries(mapa).filter(([, b]) => b > 0);
+  const total = entradas.reduce((acc, [, b]) => acc + b, 0);
+  if (total <= 0) return null;
+  const orden = entradas.sort((a, b) => b[1] - a[1]);
+  const top = orden.slice(0, max).map(([nombre, bytes]) => ({
+    nombre,
+    porcentaje: Math.round((bytes / total) * 1000) / 10,
+  }));
+  const restoBytes = orden.slice(max).reduce((acc, [, b]) => acc + b, 0);
+  if (restoBytes > 0) {
+    top.push({
+      nombre: "Otros",
+      porcentaje: Math.round((restoBytes / total) * 1000) / 10,
+    });
+  }
+  return top;
+}
+
 // ── Fetch con timeout ──────────────────────────────────────────────────────
 
 async function fetchJson<T>(
@@ -100,6 +199,7 @@ function githubHeaders(token: string): Record<string, string> {
 
 // Formas mínimas de las respuestas de la API de GitHub que consumimos.
 type GHRepo = { open_issues_count: number };
+type GHBranch = { name: string };
 type GHCommit = {
   sha: string;
   html_url: string;
@@ -128,7 +228,14 @@ type GHRun = {
   updated_at: string;
   html_url: string;
 };
-type GHParticipation = { all: number[] };
+type GHStep = {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+};
+type GHJob = { steps?: GHStep[] };
 
 function mapPR(p: GHPull): PRInfo {
   return {
@@ -170,16 +277,25 @@ export function mapRenderDeploy(raw: RenderDeployWrapper): DeployInfo | null {
   };
 }
 
-async function fetchDeploy(
+async function fetchDeploysServicio(
   serviceId: string,
   apiKey: string,
-): Promise<DeployInfo | null> {
+): Promise<DeploysServicio | null> {
   const { data } = await fetchJson<RenderDeployWrapper[]>(
-    `https://api.render.com/v1/services/${serviceId}/deploys?limit=1`,
+    `https://api.render.com/v1/services/${serviceId}/deploys?limit=10`,
     { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
   );
   if (!Array.isArray(data) || data.length === 0) return null;
-  return mapRenderDeploy(data[0]);
+  // Render lista del más nuevo al más viejo.
+  const deploys = data
+    .map(mapRenderDeploy)
+    .filter((d): d is DeployInfo => d !== null);
+  if (deploys.length === 0) return null;
+  const duraciones = deploys
+    .map((d) => d.duracion_segundos)
+    .filter((s): s is number => s !== null)
+    .reverse(); // viejo → nuevo para la sparkline
+  return { actual: deploys[0], duraciones };
 }
 
 // ── Orquestación ───────────────────────────────────────────────────────────
@@ -229,10 +345,13 @@ export async function fetchPanelData(): Promise<PanelData> {
     commitsRecientes,
     prsAbiertosRaw,
     prsCerradosRaw,
-    participation,
-    runsRaw,
-    deployWeb,
-    deployWorker,
+    merged7d,
+    commitActivity,
+    punchCard,
+    lenguajesRaw,
+    ciCompleto,
+    deploysWeb,
+    deploysWorker,
   ] = await Promise.all([
     seccion("repo", async () => (await fetchJson<GHRepo>(gh, h)).data),
     seccion("total_commits", async () => {
@@ -245,8 +364,7 @@ export async function fetchPanelData(): Promise<PanelData> {
     seccion(
       "ramas",
       async () =>
-        (await fetchJson<unknown[]>(`${gh}/branches?per_page=100`, h)).data
-          .length,
+        (await fetchJson<GHBranch[]>(`${gh}/branches?per_page=100`, h)).data,
     ),
     seccion(
       "commits",
@@ -262,34 +380,87 @@ export async function fetchPanelData(): Promise<PanelData> {
     seccion(
       "prs_merged",
       async () =>
+        // per_page alto y reordenado por merged_at en código: /pulls solo
+        // ordena por updated (cualquier comentario en un PR viejo lo sube
+        // y desplaza merges recientes de la muestra).
         (
           await fetchJson<GHPull[]>(
-            `${gh}/pulls?state=closed&sort=updated&direction=desc&per_page=15`,
+            `${gh}/pulls?state=closed&sort=updated&direction=desc&per_page=50`,
             h,
           )
         ).data,
     ),
+    seccion("merged_7d", async () => {
+      // Search API: el único endpoint que filtra por fecha de merge exacta.
+      const fecha = new Date(Date.now() - 7 * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const q = encodeURIComponent(
+        `repo:${repo} is:pr is:merged merged:>=${fecha}`,
+      );
+      return (
+        await fetchJson<{ total_count: number }>(
+          `https://api.github.com/search/issues?q=${q}`,
+          h,
+        )
+      ).data.total_count;
+    }),
     seccion(
       "velocity",
       async () =>
-        (await fetchJson<GHParticipation>(`${gh}/stats/participation`, h))
+        (await fetchJson<SemanaActividad[]>(`${gh}/stats/commit_activity`, h))
           .data,
     ),
     seccion(
-      "ci",
+      "actividad",
       async () =>
-        (
-          await fetchJson<{ workflow_runs: GHRun[] }>(
-            `${gh}/actions/runs?per_page=10`,
-            h,
-          )
-        ).data.workflow_runs,
+        (await fetchJson<number[][]>(`${gh}/stats/punch_card`, h)).data,
     ),
-    seccion("render_web", () => fetchDeploy(webId, renderKey)),
-    seccion("render_worker", () => fetchDeploy(workerId, renderKey)),
+    seccion(
+      "lenguajes",
+      async () =>
+        (await fetchJson<Record<string, number>>(`${gh}/languages`, h)).data,
+    ),
+    seccion("ci", async () => {
+      const runs = (
+        await fetchJson<{ workflow_runs: GHRun[] }>(
+          `${gh}/actions/runs?per_page=20`,
+          h,
+        )
+      ).data.workflow_runs;
+      // Steps del run más reciente (1 fetch extra, secuencial a propósito).
+      let pasos: PasoCI[] | null = null;
+      if (runs.length > 0) {
+        try {
+          const jobs = (
+            await fetchJson<{ jobs: GHJob[] }>(
+              `${gh}/actions/runs/${runs[0].id}/jobs?per_page=5`,
+              h,
+            )
+          ).data.jobs;
+          const steps = jobs.flatMap((j) => j.steps ?? []);
+          if (steps.length > 0) {
+            pasos = steps.map((s) => ({
+              nombre: s.name,
+              conclusion: s.status === "completed" ? s.conclusion : null,
+              iniciado_en: s.started_at,
+              duracion_segundos: duracionSegundos(s.started_at, s.completed_at),
+            }));
+          }
+        } catch (err) {
+          // Los steps son decorativos: si fallan, el resto de CI sigue.
+          const msg = err instanceof Error ? err.message : "unknown";
+          console.error(`[PANEL] steps del último run fallaron: ${msg}`);
+        }
+      }
+      return { runs, pasos };
+    }),
+    seccion("render_web", () => fetchDeploysServicio(webId, renderKey)),
+    seccion("render_worker", () => fetchDeploysServicio(workerId, renderKey)),
   ]);
 
   const prsAbiertos = prsAbiertosRaw?.map(mapPR) ?? null;
+  const nombresRamas = ramas?.map((r) => r.name) ?? [];
 
   const repoStats: RepoStats | null = repoInfo
     ? {
@@ -302,7 +473,8 @@ export async function fetchPanelData(): Promise<PanelData> {
           0,
           repoInfo.open_issues_count - (prsAbiertos?.length ?? 0),
         ),
-        ramas: ramas ?? 0,
+        ramas: nombresRamas.length,
+        nombres_ramas: nombresRamas.slice(0, 12),
       }
     : null;
 
@@ -316,7 +488,7 @@ export async function fetchPanelData(): Promise<PanelData> {
     })) ?? null;
 
   const ci: CIRun[] | null =
-    runsRaw?.map((r) => ({
+    ciCompleto?.runs.map((r) => ({
       id: r.id,
       nombre: r.name,
       rama: r.head_branch,
@@ -330,32 +502,49 @@ export async function fetchPanelData(): Promise<PanelData> {
       url: r.html_url,
     })) ?? null;
 
-  // participation.all = 52 semanas (la última es la actual). Tomamos 12.
-  // El endpoint /stats puede devolver 202 con body vacío mientras GitHub
-  // computa; en ese caso `all` no existe y dejamos la sección en null.
+  // commit_activity = 52 semanas con días (la última es la actual, con ceros
+  // en los días futuros). El endpoint /stats puede devolver 202 con body no
+  // listo mientras GitHub computa; en ese caso dejamos la sección en null.
+  const semanasValidas = Array.isArray(commitActivity)
+    ? commitActivity.filter((s) => Array.isArray(s.days))
+    : [];
   const velocity =
-    participation && Array.isArray(participation.all)
-      ? participation.all.slice(-12)
+    semanasValidas.length > 0
+      ? semanasValidas.slice(-12).map((s) => s.total)
       : null;
+  const velocityDiaria =
+    semanasValidas.length > 0 ? serieDiaria(semanasValidas, Date.now()) : null;
 
-  const prsMerged =
+  // Mergeados reordenados por merged_at desc; el promedio se calcula sobre
+  // TODA la muestra y el slice(0,8) queda solo para la lista visual.
+  const mergedOrdenados =
     prsCerradosRaw
       ?.filter((p) => p.merged_at)
-      .slice(0, 8)
-      .map(mapPR) ?? null;
+      .sort((a, b) => Date.parse(b.merged_at!) - Date.parse(a.merged_at!)) ??
+    null;
+  const prsMerged = mergedOrdenados?.slice(0, 8).map(mapPR) ?? null;
+  const mergeHorasProm = mergedOrdenados
+    ? promedioHorasMerge(mergedOrdenados)
+    : null;
 
   return {
     generado_en: new Date().toISOString(),
     errores,
     repo: repoStats,
     velocity,
+    velocity_diaria: velocityDiaria,
+    actividad_semanal: actividadPorDia(punchCard),
+    lenguajes: topLenguajes(lenguajesRaw),
     ci,
+    ci_pasos: ciCompleto?.pasos ?? null,
     deploys:
-      deployWeb !== null || deployWorker !== null
-        ? { web: deployWeb, worker: deployWorker }
+      deploysWeb !== null || deploysWorker !== null
+        ? { web: deploysWeb, worker: deploysWorker }
         : null,
     prs_abiertos: prsAbiertos,
     prs_merged: prsMerged,
+    prs_merged_7d: merged7d,
+    merge_horas_prom: mergeHorasProm,
     commits,
   };
 }

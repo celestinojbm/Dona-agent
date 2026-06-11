@@ -17,6 +17,15 @@ export type CIRun = {
   url: string;
 };
 
+/** Paso del run de CI más reciente (card estilo build log). */
+export type PasoCI = {
+  nombre: string;
+  /** success | failure | skipped | cancelled | null (en curso/encolado) */
+  conclusion: string | null;
+  iniciado_en: string | null;
+  duracion_segundos: number | null;
+};
+
 /** Deploy de Render (web o worker). */
 export type DeployInfo = {
   /** live | build_in_progress | update_failed | ... (estados de Render) */
@@ -26,6 +35,13 @@ export type DeployInfo = {
   creado_en: string;
   finalizado_en: string | null;
   duracion_segundos: number | null;
+};
+
+/** Servicio de Render: deploy actual + historial de duraciones (sparkline). */
+export type DeploysServicio = {
+  actual: DeployInfo | null;
+  /** Duraciones (s) de los últimos deploys, del más viejo al más nuevo. */
+  duraciones: number[];
 };
 
 /** Pull request (abierto o mergeado). */
@@ -56,7 +72,15 @@ export type RepoStats = {
   prs_abiertos: number;
   issues_abiertos: number;
   ramas: number;
+  /** Nombres de ramas (hasta 12, para el sidebar). */
+  nombres_ramas: string[];
 };
+
+/** Punto de la serie diaria de commits (gráfico de área). */
+export type PuntoDiario = { fecha: string; commits: number };
+
+/** Lenguaje del repo con su porcentaje del código (donut). */
+export type Lenguaje = { nombre: string; porcentaje: number };
 
 /** Payload completo que devuelve GET /api/engineering/data. */
 export type PanelData = {
@@ -66,13 +90,24 @@ export type PanelData = {
   repo: RepoStats | null;
   /** Commits por semana, de la más vieja a la actual (hasta 12). */
   velocity: number[] | null;
+  /** Commits por día, últimos ~30 días (sin días futuros). */
+  velocity_diaria: PuntoDiario[] | null;
+  /** Commits por día de la semana [Lun..Dom], acumulado del último año. */
+  actividad_semanal: number[] | null;
+  lenguajes: Lenguaje[] | null;
   ci: CIRun[] | null;
+  /** Steps del run de CI más reciente (estilo build log). */
+  ci_pasos: PasoCI[] | null;
   deploys: {
-    web: DeployInfo | null;
-    worker: DeployInfo | null;
+    web: DeploysServicio | null;
+    worker: DeploysServicio | null;
   } | null;
   prs_abiertos: PRInfo[] | null;
   prs_merged: PRInfo[] | null;
+  /** Total exacto de PRs mergeados en los últimos 7 días (Search API). */
+  prs_merged_7d: number | null;
+  /** Promedio de horas apertura→merge sobre los últimos ~50 PRs mergeados. */
+  merge_horas_prom: number | null;
   commits: CommitInfo[] | null;
 };
 

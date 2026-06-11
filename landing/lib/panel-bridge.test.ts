@@ -9,7 +9,12 @@ import {
   duracionSegundos,
   primeraLinea,
   mapRenderDeploy,
+  serieDiaria,
+  actividadPorDia,
+  topLenguajes,
+  promedioHorasMerge,
   fetchPanelData,
+  type SemanaActividad,
 } from "./panel-bridge";
 
 const ENV_ORIGINAL = { ...process.env };
@@ -79,6 +84,96 @@ describe("primeraLinea", () => {
   });
 });
 
+describe("serieDiaria", () => {
+  // Dos semanas: la segunda es "la actual" con días futuros en cero.
+  const lunes9jun = Date.UTC(2026, 5, 9) / 1000; // no real, solo offsets
+  const semanas: SemanaActividad[] = [
+    { week: lunes9jun - 7 * 86_400, days: [1, 2, 3, 4, 5, 6, 7], total: 28 },
+    { week: lunes9jun, days: [8, 9, 0, 0, 0, 0, 0], total: 17 },
+  ];
+
+  it("aplana semanas en días y descarta los futuros", () => {
+    // "ahora" = segundo día de la semana actual al mediodía.
+    const ahora = (lunes9jun + 1 * 86_400) * 1000 + 12 * 3_600_000;
+    const serie = serieDiaria(semanas, ahora, 30);
+    // 7 días de la semana vieja + 2 de la actual (días 3..7 son futuros).
+    expect(serie).toHaveLength(9);
+    expect(serie[serie.length - 1].commits).toBe(9);
+    expect(serie[0].commits).toBe(1);
+  });
+
+  it("recorta a los últimos n puntos", () => {
+    const ahora = (lunes9jun + 6 * 86_400) * 1000;
+    const serie = serieDiaria(semanas, ahora, 5);
+    expect(serie).toHaveLength(5);
+  });
+
+  it("ignora semanas sin days (respuesta 202 parcial)", () => {
+    const rotas = [{ week: lunes9jun, total: 0 } as SemanaActividad];
+    expect(serieDiaria(rotas, lunes9jun * 1000 + 1)).toHaveLength(0);
+  });
+});
+
+describe("actividadPorDia", () => {
+  it("agrega commits por día y reordena a [Lun..Dom]", () => {
+    // punch_card: [dia(0=domingo), hora, commits]
+    const filas = [
+      [0, 10, 5], // domingo
+      [0, 11, 2], // domingo
+      [1, 9, 7], // lunes
+      [6, 22, 3], // sábado
+    ];
+    const r = actividadPorDia(filas);
+    // [Lun, Mar, Mié, Jue, Vie, Sáb, Dom]
+    expect(r).toEqual([7, 0, 0, 0, 0, 3, 7]);
+  });
+
+  it("null con entrada vacía o ausente (202 de GitHub)", () => {
+    expect(actividadPorDia([])).toBeNull();
+    expect(actividadPorDia(null)).toBeNull();
+    expect(actividadPorDia(undefined)).toBeNull();
+  });
+});
+
+describe("topLenguajes", () => {
+  it("calcula porcentajes y agrupa el resto en Otros", () => {
+    const r = topLenguajes(
+      { Python: 700, TypeScript: 200, CSS: 50, HTML: 30, Shell: 15, Vim: 5 },
+      3,
+    );
+    expect(r?.[0]).toEqual({ nombre: "Python", porcentaje: 70 });
+    expect(r?.[1].nombre).toBe("TypeScript");
+    expect(r?.[3].nombre).toBe("Otros");
+    expect(r?.[3].porcentaje).toBe(5);
+    // Los porcentajes suman ~100.
+    const suma = r!.reduce((a, l) => a + l.porcentaje, 0);
+    expect(Math.abs(suma - 100)).toBeLessThan(0.5);
+  });
+
+  it("null sin datos", () => {
+    expect(topLenguajes(null)).toBeNull();
+    expect(topLenguajes({})).toBeNull();
+  });
+});
+
+describe("promedioHorasMerge", () => {
+  it("promedia horas apertura→merge sobre toda la muestra", () => {
+    const prs = [
+      { created_at: "2026-06-09T08:00:00Z", merged_at: "2026-06-10T09:00:00Z" }, // 25h
+      { created_at: "2026-06-08T08:00:00Z", merged_at: "2026-06-08T11:00:00Z" }, // 3h
+      { created_at: "2026-06-01T08:00:00Z", merged_at: null }, // cerrado sin merge: fuera
+    ];
+    expect(promedioHorasMerge(prs)).toBe(14);
+  });
+
+  it("null sin PRs mergeados", () => {
+    expect(promedioHorasMerge([])).toBeNull();
+    expect(
+      promedioHorasMerge([{ created_at: "2026-06-01T08:00:00Z", merged_at: null }]),
+    ).toBeNull();
+  });
+});
+
 describe("mapRenderDeploy", () => {
   const deploy = {
     id: "dep-123",
@@ -119,17 +214,32 @@ function respuesta(data: unknown, link: string | null = null) {
 
 /** Mock de fetch que rutea por URL las APIs de GitHub y Render. */
 function mockApisOk() {
-  return vi.fn(async (url: string) => {
+  // El segundo parámetro va tipado para que `mock.calls` sea una tupla de
+  // largo 2 y el test de headers compile con tsc --noEmit.
+  return vi.fn(async (url: string, init?: { headers: Record<string, string> }) => {
+    void init;
     const u = String(url);
+    if (u.includes("/search/issues")) {
+      return respuesta({ total_count: 5 });
+    }
     if (u.includes("api.render.com")) {
       return respuesta([
         {
           deploy: {
-            id: "dep-1",
+            id: "dep-2",
             status: "live",
             createdAt: "2026-06-10T10:00:00Z",
             finishedAt: "2026-06-10T10:04:00Z",
             commit: { id: "659977cff", message: "Merge #75" },
+          },
+        },
+        {
+          deploy: {
+            id: "dep-1",
+            status: "deactivated",
+            createdAt: "2026-06-09T10:00:00Z",
+            finishedAt: "2026-06-09T10:01:30Z",
+            commit: { id: "aaa977cff", message: "Merge #74" },
           },
         },
       ]);
@@ -154,7 +264,7 @@ function mockApisOk() {
       );
     }
     if (u.includes("/branches")) {
-      return respuesta([{}, {}, {}]);
+      return respuesta([{ name: "main" }, { name: "dev" }, { name: "feat/x" }]);
     }
     if (u.includes("state=open")) {
       return respuesta([
@@ -194,8 +304,49 @@ function mockApisOk() {
         },
       ]);
     }
-    if (u.includes("/stats/participation")) {
-      return respuesta({ all: Array.from({ length: 52 }, (_, i) => i) });
+    if (u.includes("/stats/commit_activity")) {
+      // 52 semanas; total = índice para poder asertar slice(-12).
+      const base = Math.floor(Date.now() / 1000) - 52 * 7 * 86_400;
+      return respuesta(
+        Array.from({ length: 52 }, (_, i) => ({
+          week: base + i * 7 * 86_400,
+          days: [i, 0, 0, 0, 0, 0, 0],
+          total: i,
+        })),
+      );
+    }
+    if (u.includes("/stats/punch_card")) {
+      return respuesta([
+        [0, 10, 4],
+        [1, 9, 6],
+      ]);
+    }
+    if (u.includes("/languages")) {
+      return respuesta({ Python: 800, TypeScript: 200 });
+    }
+    if (u.match(/\/actions\/runs\/\d+\/jobs/)) {
+      return respuesta({
+        jobs: [
+          {
+            steps: [
+              {
+                name: "Set up job",
+                status: "completed",
+                conclusion: "success",
+                started_at: "2026-06-10T10:00:00Z",
+                completed_at: "2026-06-10T10:00:05Z",
+              },
+              {
+                name: "Correr pytest",
+                status: "completed",
+                conclusion: "success",
+                started_at: "2026-06-10T10:00:05Z",
+                completed_at: "2026-06-10T10:02:35Z",
+              },
+            ],
+          },
+        ],
+      });
     }
     if (u.includes("/actions/runs")) {
       return respuesta({
@@ -229,19 +380,32 @@ describe("fetchPanelData — camino feliz", () => {
     // open_issues_count (4) incluye el PR abierto → issues reales = 3
     expect(data.repo?.issues_abiertos).toBe(3);
     expect(data.repo?.ramas).toBe(3);
+    expect(data.repo?.nombres_ramas).toContain("main");
+    // velocity = totales de las últimas 12 semanas (índices 40..51)
     expect(data.velocity).toHaveLength(12);
     expect(data.velocity?.[11]).toBe(51);
+    // serie diaria presente y sin días futuros
+    expect(data.velocity_diaria?.length).toBeGreaterThan(0);
+    expect(data.velocity_diaria!.length).toBeLessThanOrEqual(30);
+    // actividad por día [Lun..Dom]: lunes=6, domingo=4
+    expect(data.actividad_semanal).toEqual([6, 0, 0, 0, 0, 0, 4]);
+    expect(data.lenguajes?.[0]).toEqual({ nombre: "Python", porcentaje: 80 });
     expect(data.ci?.[0].conclusion).toBe("success");
     expect(data.ci?.[0].duracion_segundos).toBe(180);
-    expect(data.deploys?.web?.estado).toBe("live");
-    expect(data.deploys?.worker?.estado).toBe("live");
+    expect(data.ci_pasos?.[1].nombre).toBe("Correr pytest");
+    expect(data.ci_pasos?.[1].duracion_segundos).toBe(150);
+    expect(data.deploys?.web?.actual?.estado).toBe("live");
+    // duraciones viejo→nuevo: [90s (dep-1), 240s (dep-2)]
+    expect(data.deploys?.web?.duraciones).toEqual([90, 240]);
     expect(data.prs_abiertos?.[0].numero).toBe(76);
     // Solo PRs con merged_at cuentan como mergeados
     expect(data.prs_merged?.map((p) => p.numero)).toEqual([75]);
+    // Conteo 7d exacto desde la Search API
+    expect(data.prs_merged_7d).toBe(5);
+    // PR 75: abierto 06-09T08, mergeado 06-10T09 → 25h de promedio
+    expect(data.merge_horas_prom).toBe(25);
     expect(data.commits?.[0].sha_corto).toBe("c575878");
-    expect(data.commits?.[0].mensaje).toBe(
-      "feat(automation): ejecutor HIGH",
-    );
+    expect(data.commits?.[0].mensaje).toBe("feat(automation): ejecutor HIGH");
   });
 
   it("manda el token de GitHub en Authorization y nunca en el payload", async () => {
@@ -253,9 +417,8 @@ describe("fetchPanelData — camino feliz", () => {
       String(u).includes("api.github.com"),
     );
     expect(llamadaGitHub).toBeDefined();
-    const headers = (llamadaGitHub![1] as { headers: Record<string, string> })
-      .headers;
-    expect(headers.Authorization).toBe("Bearer gh-token-test");
+    const headers = llamadaGitHub![1]?.headers;
+    expect(headers?.Authorization).toBe("Bearer gh-token-test");
 
     // El payload serializado no contiene ningún token.
     const json = JSON.stringify(data);
@@ -275,6 +438,7 @@ describe("fetchPanelData — best-effort", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(data.repo).toBeNull();
     expect(data.deploys).toBeNull();
+    expect(data.lenguajes).toBeNull();
     expect(data.errores.length).toBeGreaterThan(0);
   });
 
@@ -294,23 +458,29 @@ describe("fetchPanelData — best-effort", () => {
             },
           ]);
         }
-        return { ok: false, status: 500, json: async () => ({}), headers: { get: () => null } };
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({}),
+          headers: { get: () => null },
+        };
       }),
     );
 
     const data = await fetchPanelData();
     expect(data.repo).toBeNull();
     expect(data.ci).toBeNull();
-    expect(data.deploys?.web?.estado).toBe("live");
+    expect(data.deploys?.web?.actual?.estado).toBe("live");
     expect(data.errores.some((e) => e.includes("HTTP 500"))).toBe(true);
   });
 
-  it("participation en 202 (sin body computado) deja velocity en null", async () => {
+  it("stats en 202 (sin body computado) dejan velocity/actividad en null", async () => {
     const base = mockApisOk();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
-        if (String(url).includes("/stats/participation")) {
+        const u = String(url);
+        if (u.includes("/stats/commit_activity") || u.includes("/stats/punch_card")) {
           return respuesta({}); // GitHub computando: body vacío
         }
         return base(url);
@@ -318,6 +488,31 @@ describe("fetchPanelData — best-effort", () => {
     );
     const data = await fetchPanelData();
     expect(data.velocity).toBeNull();
+    expect(data.velocity_diaria).toBeNull();
+    expect(data.actividad_semanal).toBeNull();
     expect(data.repo?.total_commits).toBe(512);
+  });
+
+  it("fallo en los jobs del último run no tumba la sección CI", async () => {
+    const base = mockApisOk();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).match(/\/actions\/runs\/\d+\/jobs/)) {
+          return {
+            ok: false,
+            status: 500,
+            json: async () => ({}),
+            headers: { get: () => null },
+          };
+        }
+        return base(url);
+      }),
+    );
+    const data = await fetchPanelData();
+    expect(data.ci?.[0].conclusion).toBe("success");
+    expect(data.ci_pasos).toBeNull();
+    // El fallo de steps no cuenta como error de sección (decorativo).
+    expect(data.errores).toEqual([]);
   });
 });
