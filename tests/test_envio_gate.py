@@ -42,7 +42,14 @@ async def memoria(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
 
     import agent.memory
+    import agent.business.models as _bm
+    import agent.automation.models as _am
     importlib.reload(agent.memory)
+    # Re-bindear los modelos al Base recargado: los tests del ejecutor HIGH
+    # tocan las tablas de automation (consentimiento 2.5) y deben existir
+    # en esta DB temporal.
+    importlib.reload(_bm)
+    importlib.reload(_am)
     await agent.memory.inicializar_db()
 
     # scheduler importa funciones de memory a nivel de módulo — re-bindear.
@@ -367,10 +374,13 @@ class TestSupresionEmergencia:
 class TestEjecutorHighOptOutTercero:
     async def test_destino_con_stop_no_recibe(self, memoria, monkeypatch):
         """REGRESIÓN: el ejecutor HIGH enviaba al tercero sin consultar si
-        ese número había hecho opt-out de Dona."""
+        ese número había hecho opt-out de Dona. (El destino se siembra como
+        "conocido" para aislar el GATE de la política de consentimiento 2.5,
+        que tiene tests propios en test_consent_terceros.py.)"""
         import json
         import agent.automation.executors.send_message as sm
 
+        await memoria.guardar_mensaje(TEL_OTRO, "user", "hola dona")
         await memoria.guardar_proactividad(TEL_OTRO, proactive_enabled=False)
 
         fake = _proveedor_fake()
@@ -394,9 +404,13 @@ class TestEjecutorHighOptOutTercero:
         assert fake.enviados == []
 
     async def test_destino_sin_optout_recibe(self, memoria, monkeypatch):
-        """Control: tercero sin registro de opt-out → el envío HIGH procede."""
+        """Control: tercero CONOCIDO sin registro de opt-out → el envío HIGH
+        procede (best-effort). El caso de destino frío sin consentimiento se
+        pina en test_consent_terceros.py."""
         import json
         import agent.automation.executors.send_message as sm
+
+        await memoria.guardar_mensaje(TEL_OTRO, "user", "hola dona")
 
         fake = _proveedor_fake()
         monkeypatch.setattr(sm, "_obtener_proveedor", lambda: fake)

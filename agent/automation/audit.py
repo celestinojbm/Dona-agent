@@ -57,6 +57,9 @@ EVENTOS_VALIDOS = {
     "high_execution_succeeded",
     "high_execution_failed",
     "high_execution_duplicate_blocked",
+    # 2.5 · consentimiento de terceros (política Hermes block-until-consent)
+    "high_consent_registered",
+    "high_send_blocked_policy",
 }
 
 

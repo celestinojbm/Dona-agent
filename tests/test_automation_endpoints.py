@@ -59,6 +59,9 @@ async def app(tmp_path, monkeypatch):
     import agent.main as _main
     importlib.reload(_main)
     await agent.memory.inicializar_db()
+    # 2.5: el destino compartido de estos tests se siembra como "conocido"
+    # (camino best-effort); la política de terceros tiene tests propios.
+    await agent.memory.guardar_mensaje("5215551234567", "user", "hola")
     return _main.app
 
 
