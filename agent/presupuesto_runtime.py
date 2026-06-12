@@ -408,8 +408,28 @@ def presupuesto_de_mensaje(telefono: str):
         _presupuesto_actual.reset(token)
 
 
+def abrir_presupuesto_mensaje(telefono: str):
+    """Variante imperativa de `presupuesto_de_mensaje` para el loop del webhook
+    (donde un `with` obligaría a re-indentar cientos de líneas). Devuelve el
+    token; cerrar con `cerrar_presupuesto_mensaje(token)`."""
+    return _presupuesto_actual.set(PresupuestoMensaje(telefono=telefono))
+
+
+def cerrar_presupuesto_mensaje(token) -> None:
+    _presupuesto_actual.reset(token)
+
+
 def presupuesto_actual() -> PresupuestoMensaje | None:
     return _presupuesto_actual.get()
+
+
+def consumir_llm(costo_usd: float, modelo: str = "") -> None:
+    """Registra el costo real de una llamada LLM contra el presupuesto del
+    mensaje activo (post-llamada). No-op fuera de un contexto de mensaje —
+    el costo per-owner se acumula solo dentro del presupuesto del mensaje."""
+    pres = presupuesto_actual()
+    if pres is not None:
+        pres.consumir_llm(costo_usd, modelo)
 
 
 def reservar_llm(telefono: str = "") -> DecisionPresupuesto:
