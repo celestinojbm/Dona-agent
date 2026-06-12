@@ -1387,6 +1387,28 @@ def _mensaje_limite_presupuesto(razon: str) -> str:
     )
 
 
+# Errores de red (clase, no código HTTP) que ameritan reintento: el request
+# pudo no llegar nunca al proveedor.
+_ERRORES_RED_LLM = frozenset({
+    "APIConnectionError", "APITimeoutError",          # anthropic SDK
+    "ConnectError", "ConnectTimeout", "ReadTimeout",  # httpx
+    "ReadError", "RemoteProtocolError", "PoolTimeout",
+})
+
+
+def _es_error_llm_transitorio(e: Exception) -> bool:
+    """Solo 429/5xx/red amerita reintento (spec Hermes 4.1/4.2). Un 4xx de
+    request inválido NO es transitorio: reintentarlo multiplica costo sin
+    posibilidad de éxito."""
+    if type(e).__name__ in _ERRORES_RED_LLM:
+        return True
+    error_str = str(e)
+    return any(
+        codigo in error_str
+        for codigo in ("429", "500", "502", "503", "504", "529", "overloaded", "rate_limit")
+    )
+
+
 async def _invocar_claude_gateado(api_kwargs: dict, telefono: str):
     """Llama a client.messages.create bajo el RuntimeBudgetGuard.
 
@@ -1555,10 +1577,20 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     if tools_para_request:
         _api_kwargs["tools"] = tools_para_request
 
-    # Retry con backoff para errores transitorios (529 Overloaded, 500, etc.)
+    # Retry para errores transitorios — apretado a máx 1 reintento (4.1/4.2
+    # · PR 4, spec Hermes: el retry es multiplicador de costo). Solo
+    # 429/5xx/red reintenta (config llm_max_reintentos, default 1), y solo
+    # si queda presupuesto global del mensaje. Error no transitorio → corta
+    # directo al fallback (reintentar un request inválido nunca tiene éxito).
     import asyncio as _asyncio
-    _max_reintentos = 3
-    for _intento in range(_max_reintentos):
+    from agent.presupuesto_runtime import (
+        presupuesto_actual as _presupuesto_vigente,
+        cargar_config as _cargar_config_presupuesto,
+    )
+    _pres_retry = _presupuesto_vigente()
+    _config_retry = _pres_retry.config if _pres_retry is not None else _cargar_config_presupuesto()
+    _max_intentos = 1 + max(int(_config_retry.llm_max_reintentos), 0)
+    for _intento in range(_max_intentos):
         try:
             # Gateo de presupuesto (4.1/4.2 · PR 2): reserva + timeout +
             # consumo. Un bloqueo del guard NO es transitorio → corta el
@@ -1585,14 +1617,24 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
             return _mensaje_limite_presupuesto(_pb.razon)
 
         except Exception as e:
-            error_str = str(e)
-            es_transitorio = any(code in error_str for code in ("529", "500", "502", "503", "overloaded"))
-            if es_transitorio and _intento < _max_reintentos - 1:
-                espera = 2 ** (_intento + 1)  # 2s, 4s
-                logger.warning(f"Claude API error transitorio (intento {_intento + 1}/{_max_reintentos}), reintentando en {espera}s: {e}")
+            if _es_error_llm_transitorio(e) and _intento < _max_intentos - 1:
+                espera = 2 ** (_intento + 1)  # 2s
+                _pres = _presupuesto_vigente()
+                if _pres is not None and (
+                    _pres.tiempo_restante() <= espera
+                    or _pres.llm_calls >= _pres.config.max_llm_calls
+                ):
+                    # Sin presupuesto global (tiempo o cupo) para reintentar:
+                    # no dormir ni quemar otra llamada — directo al fallback.
+                    logger.warning(f"Claude API error transitorio SIN presupuesto para reintento: {e}")
+                    break
+                logger.warning(f"Claude API error transitorio (intento {_intento + 1}/{_max_intentos}), reintentando en {espera}s: {e}")
                 await _asyncio.sleep(espera)
                 continue
-            logger.error(f"Error Claude API (todos los reintentos fallaron): {e}")
+            # No transitorio o reintentos agotados: sin retry oculto (contra
+            # el código viejo, que volvía a iterar también con errores 4xx).
+            logger.error(f"Error Claude API (sin reintento): {e}")
+            break
 
     # ── Fallback: DeepSeek → GPT-4o ─────────────────────────────────────────
     # Claude no disponible — responder con modelo alternativo (sin tool use)
@@ -3257,6 +3299,21 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
             except Exception as e:
                 resultado = f"Error configurando negocio: {e}"
             resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
+
+        else:
+            # Tool desconocida/spoofing (4.1/4.2 · PR 4, caso adversarial de
+            # Hermes): nunca ejecutar por nombre no registrado, y SIEMPRE
+            # responder el tool_use — sin este tool_result el API rechaza la
+            # siguiente llamada (400) por bloque sin respuesta.
+            logger.warning(f"Tool desconocida solicitada por el modelo: '{bloque.name}'")
+            resultados_herramientas.append({
+                "type": "tool_result",
+                "tool_use_id": bloque.id,
+                "content": (
+                    f"ERROR: la herramienta '{bloque.name}' no existe. No vuelvas "
+                    "a pedirla: responde al usuario con lo que ya tienes."
+                ),
+            })
 
     # Siguiente llamada a Claude con los resultados de las herramientas
     mensajes_con_tool = mensajes + [
