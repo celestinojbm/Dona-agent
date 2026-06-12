@@ -97,3 +97,20 @@ def test_falla_si_falta_campo_requerido_en_index(tmp_path: Path) -> None:
 
     assert resultado.ok is False
     assert any("proxima_accion" in error for error in resultado.errores)
+
+
+def test_falla_si_hay_run_id_duplicado(tmp_path: Path) -> None:
+    """Dos entradas con el mismo run_id corrompen el ledger (evidencia
+    ambigua). Propuesto por el scout autónomo de Phase 4 (2026-06-12)."""
+    agent_runs = copiar_agent_runs(tmp_path)
+    index_path = agent_runs / "index.json"
+    data = json.loads(index_path.read_text(encoding="utf-8"))
+    # Duplicar un run EXISTENTE: su carpeta/ledgers ya existen, así que el
+    # único error nuevo posible es el run_id duplicado.
+    data["runs"].append(dict(data["runs"][0]))
+    index_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    resultado = validar_agent_runs(agent_runs)
+
+    assert resultado.ok is False
+    assert any("run_id duplicado" in error for error in resultado.errores)

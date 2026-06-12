@@ -139,7 +139,17 @@ def validar_agent_runs(agent_runs_dir: Path | str = Path("docs/ops/agent-runs"))
             errores.append("runs debe ser una lista no vacía")
             runs = []
 
+    # run_id duplicado: dos entradas con el mismo id corrompen el ledger
+    # (evidencia ambigua, lookups no determinísticos). Propuesto por el
+    # scout autónomo de Phase 4 (corrida 2026-06-12).
+    run_ids_vistos: set[str] = set()
     for indice, run in enumerate(runs):
+        if isinstance(run, dict) and isinstance(run.get("run_id"), str):
+            run_id = run["run_id"]
+            if run_id in run_ids_vistos:
+                errores.append(f"{run_id}: run_id duplicado")
+            else:
+                run_ids_vistos.add(run_id)
         _validar_run(run, indice, agent_runs_path, errores)
 
     _validar_secretos(agent_runs_path, errores)
