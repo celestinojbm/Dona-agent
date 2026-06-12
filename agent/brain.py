@@ -1681,9 +1681,36 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
 
     resultados_herramientas = []
 
+    from agent.presupuesto_runtime import presupuesto_actual as _presupuesto_actual
+
     for bloque in response.content:
         if bloque.type != "tool_use":
             continue
+
+        # ── RuntimeBudgetGuard (4.1/4.2 · PR 3): cada ejecución de tool
+        # reserva cupo del presupuesto del mensaje (tope max_tool_calls,
+        # default 8; el mismo check deniega si el tiempo global del mensaje
+        # se agotó o hay kill-switch). Denegado → la herramienta NO se
+        # ejecuta y Claude recibe el motivo como tool_result para cerrar
+        # con lo que ya tiene. Sin presupuesto activo (jobs/scheduler sin
+        # wiring aún) no se gatea aquí.
+        _pres = _presupuesto_actual()
+        if _pres is not None:
+            _dec = _pres.reservar_tool()
+            if not _dec.permitido:
+                logger.warning(
+                    f"[BUDGET] Tool '{bloque.name}' bloqueada: {_dec.razon}"
+                )
+                resultados_herramientas.append({
+                    "type": "tool_result",
+                    "tool_use_id": bloque.id,
+                    "content": (
+                        "Límite de ejecución alcanzado para este mensaje "
+                        f"({_dec.razon}). No pidas más herramientas: responde "
+                        "al usuario con lo que ya tienes."
+                    ),
+                })
+                continue
 
         # ── guardar_zona_horaria ──────────────────────────────────────
         if bloque.name == "guardar_zona_horaria":
