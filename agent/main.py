@@ -92,6 +92,10 @@ from agent.memory import (
     contar_eventos_estres_recientes, ya_avisado_sobrecarga_hoy, marcar_aviso_sobrecarga,
 )
 from agent.providers import obtener_proveedor
+from agent.presupuesto_runtime import (
+    abrir_presupuesto_mensaje,
+    cerrar_presupuesto_mensaje,
+)
 from agent.envio_gate import (
     activar_contexto_directo,
     restaurar_contexto,
@@ -1015,6 +1019,10 @@ async def procesar_webhook(request: Request):
         # tareas en background, que copian el contextvar al crearse) es
         # respuesta DIRECTA al usuario que escribió: el gate de envíos no la
         # restringe (la conversación reactiva sigue viva incluso tras STOP).
+        # Presupuesto de ejecución de ESTE mensaje (4.1/4.2 · PR 2): topa
+        # llamadas LLM/tools, costo y tiempo. Lo heredan brain.py y las
+        # tareas en background creadas dentro (copian el ContextVar).
+        _token_presupuesto = abrir_presupuesto_mensaje(msg.telefono)
         _token_envio = activar_contexto_directo(msg.telefono)
         try:
             if msg.es_propio:
@@ -2113,6 +2121,7 @@ async def procesar_webhook(request: Request):
                 pass  # Si esto también falla, no hay más que hacer
         finally:
             restaurar_contexto(_token_envio)
+            cerrar_presupuesto_mensaje(_token_presupuesto)
 
     return {"status": "ok"}
 

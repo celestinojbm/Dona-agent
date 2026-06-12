@@ -1351,6 +1351,71 @@ def obtener_mensaje_fallback() -> str:
     return config.get("fallback_message", "Hmm, no entendí bien eso 😅 ¿Me lo puedes decir de otra forma?")
 
 
+# ── RuntimeBudgetGuard: gateo de las llamadas LLM (Fase 0 · 4.1/4.2 · PR 2) ──
+# Cada llamada a Claude reserva una "llamada LLM" del presupuesto del mensaje
+# ANTES de ejecutarse, corre bajo timeout con estado cerrado, y consume el
+# costo real estimado después. Sin presupuesto activo (jobs/scheduler aún sin
+# wiring) los kill-switches globales/por-owner igual aplican; el resto pasa.
+
+# Precio aprox. de claude-sonnet-4-5 (USD por millón de tokens) para estimar
+# el costo consumido. No tiene que ser exacto: alimenta los topes de costo.
+_PRECIO_IN_USD_MTOK = 3.0
+_PRECIO_OUT_USD_MTOK = 15.0
+
+
+class _PresupuestoLLMAgotado(Exception):
+    """El RuntimeBudgetGuard bloqueó esta llamada LLM (límite/kill-switch/
+    timeout). `razon` viene del guard (set cerrado). El caller responde de
+    forma segura, NO reintenta."""
+
+    def __init__(self, razon: str):
+        super().__init__(razon)
+        self.razon = razon
+
+
+def _mensaje_limite_presupuesto(razon: str) -> str:
+    """Respuesta segura cuando el presupuesto del mensaje se agota. El usuario
+    recibe algo claro y breve (criterio Hermes: nunca cortar sin respuesta)."""
+    if razon in ("kill_switch_global", "owner_suspendido", "max_costo_diario_owner"):
+        return (
+            "Por ahora no puedo seguir procesando solicitudes complejas (límite "
+            "de seguridad alcanzado). Intenta de nuevo más tarde 🙏"
+        )
+    return (
+        "Esto se está volviendo más largo de lo que puedo resolver de una sola "
+        "vez 😅 ¿Me lo divides en un paso más concreto?"
+    )
+
+
+async def _invocar_claude_gateado(api_kwargs: dict, telefono: str):
+    """Llama a client.messages.create bajo el RuntimeBudgetGuard.
+
+    Reserva una llamada LLM (bloqueo → _PresupuestoLLMAgotado), aplica el
+    timeout del guard (vencimiento → _PresupuestoLLMAgotado con estado
+    cerrado) y consume el costo estimado tras la respuesta. Devuelve la
+    respuesta de Anthropic."""
+    from agent.presupuesto_runtime import (
+        reservar_llm, con_timeout_llm, consumir_llm, TimeoutPresupuesto,
+    )
+
+    decision = reservar_llm(telefono)
+    if not decision.permitido:
+        raise _PresupuestoLLMAgotado(decision.razon)
+    try:
+        response = await con_timeout_llm(client.messages.create(**api_kwargs), telefono)
+    except TimeoutPresupuesto as t:
+        raise _PresupuestoLLMAgotado(t.razon) from None
+
+    try:
+        cin = response.usage.input_tokens
+        cout = response.usage.output_tokens
+        costo = (cin * _PRECIO_IN_USD_MTOK + cout * _PRECIO_OUT_USD_MTOK) / 1_000_000
+        consumir_llm(costo, modelo=api_kwargs.get("model", ""))
+    except Exception:
+        consumir_llm(0.0)
+    return response
+
+
 async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str = "", timestamp_mensaje: int = 0, proveedor=None) -> str:
     """
     Genera una respuesta usando Claude API.
@@ -1495,7 +1560,10 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     _max_reintentos = 3
     for _intento in range(_max_reintentos):
         try:
-            response = await client.messages.create(**_api_kwargs)
+            # Gateo de presupuesto (4.1/4.2 · PR 2): reserva + timeout +
+            # consumo. Un bloqueo del guard NO es transitorio → corta el
+            # loop y responde de forma segura (no reintentar).
+            response = await _invocar_claude_gateado(_api_kwargs, telefono)
 
             _tin = response.usage.input_tokens
             _tout = response.usage.output_tokens
@@ -1512,6 +1580,10 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
             # Respuesta de texto normal
             return _extraer_texto(response)
 
+        except _PresupuestoLLMAgotado as _pb:
+            logger.warning(f"[BUDGET] Respuesta primaria bloqueada por presupuesto: {_pb.razon}")
+            return _mensaje_limite_presupuesto(_pb.razon)
+
         except Exception as e:
             error_str = str(e)
             es_transitorio = any(code in error_str for code in ("529", "500", "502", "503", "overloaded"))
@@ -1524,19 +1596,29 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
 
     # ── Fallback: DeepSeek → GPT-4o ─────────────────────────────────────────
     # Claude no disponible — responder con modelo alternativo (sin tool use)
-    respuesta_fallback = await _responder_con_fallback(system_prompt, mensajes)
+    respuesta_fallback = await _responder_con_fallback(system_prompt, mensajes, telefono)
     if respuesta_fallback:
         return respuesta_fallback
 
     return obtener_mensaje_error()
 
 
-async def _responder_con_fallback(system_prompt: str, mensajes: list) -> str | None:
+async def _responder_con_fallback(system_prompt: str, mensajes: list, telefono: str = "") -> str | None:
     """
     Intenta responder con DeepSeek o GPT-4o cuando Claude no está disponible.
     Sin tool use — solo conversación de texto.
     Retorna None si ningún fallback funciona.
+
+    El intento de recuperación es UNA llamada LLM lógica gateada por el
+    presupuesto (4.1/4.2 · PR 2): si el guard la bloquea (kill-switch, tope
+    de costo/llamadas), no se quema más presupuesto en el fallback.
     """
+    # Gateo de presupuesto: una reserva para el intento de recuperación.
+    from agent.presupuesto_runtime import reservar_llm, consumir_llm
+    if not reservar_llm(telefono).permitido:
+        logger.warning("[BUDGET] Fallback omitido: presupuesto/kill-switch activo")
+        return None
+
     # Formato OpenAI: system message + user/assistant messages
     mensajes_openai = [{"role": "system", "content": system_prompt}] + mensajes
 
@@ -1550,6 +1632,10 @@ async def _responder_con_fallback(system_prompt: str, mensajes: list) -> str | N
             )
             texto = resp.choices[0].message.content
             logger.info(f"[FALLBACK] DeepSeek respondió ({resp.usage.total_tokens} tokens)")
+            try:
+                consumir_llm(resp.usage.total_tokens * 0.3 / 1_000_000, modelo="deepseek-chat")
+            except Exception:
+                consumir_llm(0.0)
             return texto
         except Exception as e:
             logger.warning(f"[FALLBACK] DeepSeek falló: {e}")
@@ -1564,6 +1650,10 @@ async def _responder_con_fallback(system_prompt: str, mensajes: list) -> str | N
             )
             texto = resp.choices[0].message.content
             logger.info(f"[FALLBACK] GPT-4o respondió ({resp.usage.total_tokens} tokens)")
+            try:
+                consumir_llm(resp.usage.total_tokens * 5.0 / 1_000_000, modelo="gpt-4o")
+            except Exception:
+                consumir_llm(0.0)
             return texto
         except Exception as e:
             logger.warning(f"[FALLBACK] GPT-4o falló: {e}")
@@ -3147,13 +3237,24 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
         {"role": "user", "content": resultados_herramientas}
     ]
 
-    respuesta_final = await client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=1024,
-        system=system_prompt,
-        messages=mensajes_con_tool,
-        tools=TOOLS
-    )
+    # Gateo de presupuesto (4.1/4.2 · PR 2): este es el punto donde la
+    # recursión de tool_use (abajo) podía hacer llamadas LLM ILIMITADAS.
+    # reservar_llm tope la cadena en max_llm_calls; al agotarse, se corta
+    # la recursión y se responde de forma segura con lo ya obtenido.
+    try:
+        respuesta_final = await _invocar_claude_gateado(
+            dict(
+                model="claude-sonnet-4-5",
+                max_tokens=1024,
+                system=system_prompt,
+                messages=mensajes_con_tool,
+                tools=TOOLS,
+            ),
+            telefono,
+        )
+    except _PresupuestoLLMAgotado as _pb:
+        logger.warning(f"[BUDGET] Cadena de tools cortada por presupuesto: {_pb.razon}")
+        return _mensaje_limite_presupuesto(_pb.razon)
 
     # Claude puede encadenar tool calls (ej: guardar_zona_horaria → crear_recordatorio).
     # Si la respuesta siguiente es también tool_use, procesarla recursivamente.
