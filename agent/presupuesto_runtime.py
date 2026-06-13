@@ -31,10 +31,19 @@ Fail-closed (criterio Hermes):
   - al 80% de cualquier dimensión → evento warning (una vez por dimensión);
   - al 100% → denegar con razón cerrada; el caller responde de forma segura.
 
+Dimensión auxiliar (entregable F · F-1, criterio Hermes): las llamadas LLM
+ligeras de soporte (detección emocional, clasificación NLP, postprocesos)
+NO compiten por el cupo principal del loop (max_llm_calls) — tienen cupo
+propio `max_llm_aux_calls` (default 3). El COSTO sí es compartido (entra a
+max_costo_usd_mensaje y al diario por owner), y timeout/kill-switch aplican
+idéntico. Invariante: ninguna llamada real al provider sin guard, en
+ninguna dimensión.
+
 Razones de bloqueo (set CERRADO — no inventar strings nuevos en callers):
   kill_switch_global · owner_suspendido · presupuesto_tiempo_agotado ·
-  max_llm_calls · max_tool_calls · max_tool_depth · max_parallel_tools ·
-  max_costo_mensaje · max_costo_diario_owner · contador_corrupto
+  max_llm_calls · max_llm_aux_calls · max_tool_calls · max_tool_depth ·
+  max_parallel_tools · max_costo_mensaje · max_costo_diario_owner ·
+  contador_corrupto
 """
 
 from __future__ import annotations
@@ -56,6 +65,7 @@ RAZONES_BLOQUEO = {
     "owner_suspendido",
     "presupuesto_tiempo_agotado",
     "max_llm_calls",
+    "max_llm_aux_calls",
     "max_tool_calls",
     "max_tool_depth",
     "max_parallel_tools",
@@ -133,6 +143,7 @@ class ConfigPresupuesto:
     hard_segundos: float
     llm_timeout_segundos: float
     llm_max_reintentos: int
+    max_llm_aux_calls: int
     tool_timeout_segundos: float
     tool_timeout_lenta_segundos: float
     max_llm_calls: int
@@ -149,6 +160,7 @@ def cargar_config() -> ConfigPresupuesto:
         hard_segundos=_leer_num("BUDGET_FG_HARD_SEGUNDOS", 60.0, 10.0, 600.0),
         llm_timeout_segundos=_leer_num("BUDGET_LLM_TIMEOUT_SEGUNDOS", 30.0, 5.0, 120.0),
         llm_max_reintentos=int(_leer_num("BUDGET_LLM_MAX_REINTENTOS", 1, 0, 2)),
+        max_llm_aux_calls=int(_leer_num("BUDGET_MAX_LLM_AUX_CALLS_MENSAJE", 3, 0, 20)),
         tool_timeout_segundos=_leer_num("BUDGET_TOOL_TIMEOUT_SEGUNDOS", 10.0, 1.0, 60.0),
         tool_timeout_lenta_segundos=_leer_num("BUDGET_TOOL_TIMEOUT_LENTA_SEGUNDOS", 30.0, 1.0, 120.0),
         max_llm_calls=int(_leer_num("BUDGET_MAX_LLM_CALLS_MENSAJE", 3, 1, 20)),
@@ -252,6 +264,7 @@ class PresupuestoMensaje:
     config: ConfigPresupuesto = field(default_factory=cargar_config)
     iniciado: float = field(default_factory=time.monotonic)
     llm_calls: int = 0
+    llm_aux_calls: int = 0
     tool_calls: int = 0
     depth_actual: int = 0
     paralelas_actual: int = 0
@@ -269,7 +282,8 @@ class PresupuestoMensaje:
 
     def _contadores_sanos(self) -> bool:
         return (
-            self.llm_calls >= 0 and self.tool_calls >= 0
+            self.llm_calls >= 0 and self.llm_aux_calls >= 0
+            and self.tool_calls >= 0
             and self.depth_actual >= 0 and self.paralelas_actual >= 0
             and self.costo_usd >= 0.0
         )
@@ -347,6 +361,39 @@ class PresupuestoMensaje:
         emitirla). NO usar tras una llamada realizada, ni siquiera fallida —
         un intento real consume cupo (evita retries infinitos)."""
         self.llm_calls = max(0, self.llm_calls - 1)
+
+    def reservar_llm_aux(self) -> DecisionPresupuesto:
+        """Reserva una llamada LLM AUXILIAR (ligera, de soporte). Cupo propio
+        (max_llm_aux_calls) para no competir con el loop principal; el costo
+        comparte los topes de mensaje y diario (un aux puede agotar el costo
+        y bloquear al principal — eso es correcto: el techo real es USD)."""
+        bloqueo = self._checks_comunes()
+        if bloqueo is not None:
+            return bloqueo
+        if self.llm_aux_calls >= self.config.max_llm_aux_calls:
+            return self._bloquear(
+                "max_llm_aux_calls", limite=self.config.max_llm_aux_calls,
+                usado=self.llm_aux_calls,
+            )
+        if self.costo_usd >= self.config.max_costo_usd_mensaje:
+            return self._bloquear(
+                "max_costo_mensaje", limite=self.config.max_costo_usd_mensaje,
+                usado=round(self.costo_usd, 4),
+            )
+        if costo_diario_de(self.telefono) >= self.config.max_costo_usd_dia_owner:
+            return self._bloquear(
+                "max_costo_diario_owner",
+                limite=self.config.max_costo_usd_dia_owner,
+                usado=round(costo_diario_de(self.telefono), 4),
+            )
+        self.llm_aux_calls += 1
+        self._warn_80("llm_aux_calls", self.llm_aux_calls, self.config.max_llm_aux_calls)
+        return _PERMITIDO
+
+    def liberar_llm_aux(self) -> None:
+        """La llamada aux reservada nunca se ejecutó. Mismas reglas que
+        liberar_llm: un intento real consume cupo."""
+        self.llm_aux_calls = max(0, self.llm_aux_calls - 1)
 
     def consumir_llm(self, costo_usd: float, modelo: str = "") -> None:
         """Registra el costo REAL post-llamada (estimado si el proveedor no
@@ -442,6 +489,36 @@ def reservar_llm(telefono: str = "") -> DecisionPresupuesto:
     pres = presupuesto_actual()
     if pres is not None:
         return pres.reservar_llm()
+
+    if kill_switch_global_activo():
+        _emitir_evento(
+            "budget_blocked", razon="kill_switch_global",
+            owner_short=telefono[-4:] if telefono else "?", contexto="sin_presupuesto",
+        )
+        return DecisionPresupuesto(permitido=False, razon="kill_switch_global")
+    razon_susp = owner_suspendido(telefono) if telefono else None
+    if razon_susp:
+        _emitir_evento(
+            "budget_blocked", razon="owner_suspendido",
+            owner_short=telefono[-4:] if telefono else "?", contexto="sin_presupuesto",
+        )
+        return DecisionPresupuesto(permitido=False, razon="owner_suspendido")
+    _emitir_evento(
+        "reserva_sin_contexto",
+        owner_short=telefono[-4:] if telefono else "?",
+    )
+    return _PERMITIDO
+
+
+def reservar_llm_aux(telefono: str = "") -> DecisionPresupuesto:
+    """Reserva una llamada LLM AUXILIAR contra el presupuesto del mensaje
+    activo. Fuera de contexto: mismo comportamiento fail-safe que
+    reservar_llm (kill-switches aplican, radar reserva_sin_contexto) —
+    el camino normal es que TODA unidad de trabajo tenga presupuesto
+    (foreground via webhook; background abre el suyo por unidad)."""
+    pres = presupuesto_actual()
+    if pres is not None:
+        return pres.reservar_llm_aux()
 
     if kill_switch_global_activo():
         _emitir_evento(
