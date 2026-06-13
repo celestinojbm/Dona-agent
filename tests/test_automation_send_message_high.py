@@ -14,8 +14,8 @@ Cubre:
   - provider.enviar_mensaje lanza excepción → reserva liberada
   - audit NO incluye el número destino completo ni el cuerpo del
     mensaje completo
-  - confirmar_enviar_mensaje_whatsapp atajo: idempotente si ya
-    completed · aprueba+ejecuta si needs_approval
+  - el atajo legacy confirmar_enviar_mensaje_whatsapp NO existe
+    (sentinel contra reintroducción · ítem 5.1 / C4)
   - tipo CRITICAL (envio_masivo_clientes) sigue bloqueado · no
     confunde con HIGH
 """
@@ -390,7 +390,7 @@ class TestAuditSinPII:
             assert cuerpo not in log.payload_summary
 
 
-# ── 7. confirmar_enviar_mensaje_whatsapp · atajo end-to-end ──────────
+# ── 7. confirmación dedicada HIGH · atajo legacy eliminado ───────────
 
 
 class TestConfirmacionDedicadaHigh:
@@ -488,9 +488,23 @@ class TestConfirmacionDedicadaHigh:
         assert await bi.obtener_saldo("5593") == 44
 
 
-class TestConfirmarShortcut:
+class TestAtajoLegacyEliminado:
+    """REGRESIÓN (ítem 5.1 del roadmap, C4 del audit): el atajo
+    confirmar_enviar_mensaje_whatsapp auto-aprobaba acciones HIGH sin
+    verificar dueño ni canal de confirmación (solo accion_id → IDOR).
+    Verificado no alcanzable en prod, pero su sola existencia anulaba el
+    camino endurecido. Este sentinel FALLA si alguien lo reintroduce."""
+
+    def test_atajo_confirmar_no_existe(self, db):
+        ac, cr, ex, bi, sm = db
+        assert not hasattr(sm, "confirmar_enviar_mensaje_whatsapp")
+
     @pytest.mark.asyncio
-    async def test_confirmar_aprueba_y_ejecuta(self, db, monkeypatch):
+    async def test_unico_camino_de_materializacion_es_el_dedicado(
+        self, db, monkeypatch,
+    ):
+        """Sin el atajo, una acción needs_approval NO tiene forma de
+        ejecutarse sin aprobación explícita + confirmación dedicada."""
         ac, cr, ex, bi, sm = db
         await bi.acreditar("5600", 50, "seed")
         fake = FakeProveedor(resultado=True)
@@ -500,52 +514,11 @@ class TestConfirmarShortcut:
             telefono="5600", numero_destino="+5215512345678",
             mensaje="hola",
         )
-        r = await sm.confirmar_enviar_mensaje_whatsapp(a["id"])
-        assert r["estado_final"] == "completed"
-        assert len(fake.invocaciones) == 1
-
-    @pytest.mark.asyncio
-    async def test_confirmar_idempotente_si_ya_completada(
-        self, db, monkeypatch,
-    ):
-        ac, cr, ex, bi, sm = db
-        await bi.acreditar("5601", 50, "seed")
-        fake = FakeProveedor(resultado=True)
-        _mock_proveedor(monkeypatch, sm, fake)
-
-        a = await sm.preparar_enviar_mensaje_whatsapp(
-            telefono="5601", numero_destino="+5215512345678",
-            mensaje="hola",
-        )
-        r1 = await sm.confirmar_enviar_mensaje_whatsapp(a["id"])
-        assert r1["estado_final"] == "completed"
-        # Segunda llamada · ya completada
-        r2 = await sm.confirmar_enviar_mensaje_whatsapp(a["id"])
-        assert r2["estado_final"] == "completed"
-        assert r2.get("idempotent") is True
-        # Provider invocado solo una vez
-        assert len(fake.invocaciones) == 1
-
-    @pytest.mark.asyncio
-    async def test_confirmar_rechazada_no_ejecuta(self, db, monkeypatch):
-        ac, cr, ex, bi, sm = db
-        fake = FakeProveedor(resultado=True)
-        _mock_proveedor(monkeypatch, sm, fake)
-        a = await sm.preparar_enviar_mensaje_whatsapp(
-            telefono="5602", numero_destino="+5215512345678",
-            mensaje="hola",
-        )
-        await ac.rechazar_accion(a["id"])
-        r = await sm.confirmar_enviar_mensaje_whatsapp(a["id"])
-        assert r["estado_final"] == "rejected"
-        assert fake.invocaciones == []
-
-    @pytest.mark.asyncio
-    async def test_confirmar_accion_inexistente(self, db):
-        ac, cr, ex, bi, sm = db
-        r = await sm.confirmar_enviar_mensaje_whatsapp(99999)
+        # El camino dedicado rechaza la acción sin aprobar — no auto-aprueba
+        r = await sm.confirmar_high_whatsapp_dedicado(a["id"], "ENVIAR", "5600")
         assert r["estado_final"] == "failed"
-        assert r["error"] == "accion_no_existe"
+        assert r["error"] == "accion_no_aprobada"
+        assert fake.invocaciones == []
 
 
 # ── 8. CRITICAL no se confunde con HIGH ──────────────────────────────
