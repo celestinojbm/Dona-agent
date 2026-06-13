@@ -61,11 +61,14 @@ EVENTOS_VALIDOS = {
     "high_consent_registered",
     "high_send_blocked_policy",
     # M0 · Mission Runtime recuperar-lead. M0-1 introduce el ciclo de vida
-    # básico de la misión (creación + cierre seguro); los eventos de
-    # draft/preview/link/completed llegan en M0-2..M0-5.
+    # básico de la misión (creación + cierre seguro); M0-2 agrega el draft y
+    # el preview owner-scoped. Los eventos de link/completed llegan en
+    # M0-3..M0-5.
     "mission_recover_lead_created",
     "mission_recover_lead_blocked",
     "mission_recover_lead_failed",
+    "mission_recover_lead_draft_created",
+    "mission_recover_lead_preview_rendered",
 }
 
 

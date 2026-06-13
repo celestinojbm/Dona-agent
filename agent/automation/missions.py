@@ -282,3 +282,215 @@ async def marcar_fallida(
         mision_id, telefono_owner, "failed", reason_code,
         "mission_recover_lead_failed",
     )
+
+
+# ── M0-2 · preparar (draft + preview owner-scoped) ───────────────────────
+
+# Límite del cuerpo del draft (consistente con el tope del ejecutor HIGH; el
+# draft NUNCA debe exceder lo que el envío real aceptará).
+MAX_LEN_DRAFT = 4000
+
+
+def validar_destino(destino: str) -> str:
+    """Valida el destino del lead. Retorna "" si es válido, o el reason_code
+    cerrado del problema (missing_lead_destination / invalid_destination).
+    Misma regla que el ejecutor HIGH (solo dígitos, '+' opcional, 6..32)."""
+    s = (destino or "").strip()
+    if not s:
+        return "missing_lead_destination"
+    if len(s) < 6 or len(s) > 32:
+        return "invalid_destination"
+    cuerpo = s[1:] if s.startswith("+") else s
+    if not cuerpo.isdigit():
+        return "invalid_destination"
+    return ""
+
+
+def _prompt_draft_recuperacion(
+    lead_nombre: str, contexto: str, objetivo: str,
+) -> str:
+    """Construye el prompt del mensaje de recuperación. REGLA CLAVE (spec
+    Hermes): el mensaje NO debe inventar descuentos, precios ni promesas que
+    no vengan en el contexto del dueño — instrucción explícita al modelo."""
+    nombre = (lead_nombre or "").strip() or "el cliente"
+    ctx = (contexto or "").strip() or "(sin contexto adicional)"
+    obj = (objetivo or "").strip() or "retomar la conversación"
+    return (
+        "Eres Dona, asistente de un dueño de negocio. Redacta UN mensaje "
+        "breve de WhatsApp para recontactar a un lead que no convirtió.\n\n"
+        f"Lead: {nombre}\n"
+        f"Contexto que dio el dueño: {ctx}\n"
+        f"Objetivo del mensaje: {obj}\n\n"
+        "Reglas estrictas:\n"
+        "- Tono humano, cálido y directo. NO agresivo, NO insistente.\n"
+        "- Máximo 2 frases cortas + un cierre con pregunta suave (CTA).\n"
+        "- Español. Sin markdown, sin emojis excesivos (máximo 1).\n"
+        "- PROHIBIDO inventar descuentos, precios, promociones, plazos u "
+        "ofertas que NO estén explícitos en el contexto del dueño. Si no hay "
+        "oferta en el contexto, NO la menciones ni la inventes.\n"
+        "- No hagas promesas en nombre del negocio que no puedas respaldar.\n"
+        "- Devuelve SOLO el texto del mensaje, sin comillas ni explicación."
+    )
+
+
+def _reason_code_por_presupuesto(razon_budget: str) -> str:
+    """Mapea una razón de bloqueo del BudgetGuard al reason_code cerrado de
+    la misión. Kill-switch/suspensión = policy_blocked; el resto (cupo,
+    costo, tiempo, contador) = budget_exhausted."""
+    if razon_budget in ("kill_switch_global", "owner_suspendido"):
+        return "policy_blocked"
+    return "budget_exhausted"
+
+
+async def _generar_draft(telefono: str, prompt: str) -> tuple[str | None, str]:
+    """Genera el draft con la vía LLM gateada por el BudgetGuard. Reserva el
+    cupo AUXILIAR explícitamente (para obtener la razón exacta si bloquea) y
+    reutiliza el núcleo de provider+timeout+consumo de agent.llm SIN volver a
+    reservar. Retorna (texto, "") si OK, o (None, reason_code) si bloqueó/falló.
+
+    Distingue: presupuesto bloqueado → reason del guard (sin tocar provider);
+    provider sin respuesta → "provider_failed".
+
+    El draft NO cobra créditos (billing); solo consume presupuesto de runtime.
+    Los créditos del ENVÍO se reservan en la ejecución HIGH (M0-4)."""
+    from agent.presupuesto_runtime import reservar_llm_aux
+    import agent.llm as _llm
+
+    decision = reservar_llm_aux(telefono)
+    if not decision.permitido:
+        # Bloqueado ANTES de tocar al provider (BudgetGuard).
+        return None, _reason_code_por_presupuesto(decision.razon)
+
+    texto = await _llm._completar(
+        [{"role": "user", "content": prompt}], None, 400, telefono,
+    )
+    if not texto:
+        return None, "provider_failed"
+    return texto.strip()[:MAX_LEN_DRAFT], ""
+
+
+def _preview_de(mision: dict[str, Any]) -> dict[str, Any]:
+    """Arma el preview owner-scoped a partir del dict de misión. El mensaje
+    completo (draft) solo se expone aquí, a un caller ya owner-validado; el
+    costo mostrado es el del ENVÍO eventual, no el del draft."""
+    from agent.automation.costos import estimar_costo_accion
+    draft = (mision.get("evidencia") or {}).get("draft") or {}
+    mensaje = draft.get("mensaje", "")
+    return {
+        "ok": True,
+        "mision_id": mision["id"],
+        "tipo": mision["tipo"],
+        "estado": mision["estado"],
+        "canal": mision["canal"],
+        "lead_nombre": mision["lead_nombre"],
+        "destino_masked": mision["destino_masked"],
+        "destino": mision["destino"],            # operativo · owner-scoped
+        "objetivo": mision["objetivo"],
+        "mensaje_preview": mensaje,
+        "longitud_mensaje": len(mensaje),
+        "riesgo": "high",                        # el envío a tercero es HIGH
+        "costo_creditos_estimado_envio": estimar_costo_accion("enviar_mensaje_whatsapp"),
+        # En M0-2 todavía NO hay acción HIGH ni consentimiento: el siguiente
+        # paso (M0-3) enlaza la acción y pide aprobación + confirmación ENVIAR.
+        "next_required_action": "enlazar_accion_high_y_confirmar_envio",
+        "requiere_consentimiento_tercero": True,
+        "requiere_confirmacion_high": True,
+    }
+
+
+async def preparar_recuperar_lead(
+    *,
+    telefono: str,
+    destino: str,
+    lead_nombre: str = "",
+    contexto: str = "",
+    objetivo: str = "",
+    subscription_id: str = "",
+    canal: str = "whatsapp",
+) -> dict[str, Any]:
+    """Owner-triggered: crea la misión, redacta el draft (LLM gateado) y
+    devuelve el preview owner-scoped. NO envía, NO crea acción HIGH, NO
+    aprueba (eso es M0-3/M0-4).
+
+    - Destino inválido/ausente → {ok: False, reason_code} SIN crear misión.
+    - Draft bloqueado por presupuesto → misión `blocked` (reason_code) y
+      {ok: False, ...}; el provider NO se llama si el BudgetGuard deniega.
+    - OK → misión `draft` con el mensaje guardado + preview.
+    """
+    razon_destino = validar_destino(destino)
+    if razon_destino:
+        return {"ok": False, "reason_code": razon_destino, "mision_id": None}
+
+    mision = await crear_mision_recuperar_lead(
+        telefono=telefono, destino=destino, lead_nombre=lead_nombre,
+        contexto=contexto, objetivo=objetivo, subscription_id=subscription_id,
+        canal=canal,
+    )
+    mision_id = mision["id"]
+
+    prompt = _prompt_draft_recuperacion(lead_nombre, contexto, objetivo)
+    texto, razon = await _generar_draft(telefono, prompt)
+    if texto is None:
+        await marcar_bloqueada(mision_id, telefono, razon)
+        return {"ok": False, "reason_code": razon, "mision_id": mision_id}
+
+    # Guardar el draft en el estado operativo (owner-scoped) de la misión.
+    from agent.memory import async_session
+    from agent.automation.models import MisionAutomation
+
+    async with async_session() as session:
+        row = (await session.execute(
+            select(MisionAutomation).where(
+                MisionAutomation.id == mision_id,
+                MisionAutomation.telefono == telefono,
+            )
+        )).scalar_one_or_none()
+        if row is None:
+            return {"ok": False, "reason_code": "wrong_owner", "mision_id": mision_id}
+        try:
+            evidencia = json.loads(row.evidencia_json or "{}")
+        except Exception:
+            evidencia = {}
+        evidencia["draft"] = {
+            "mensaje": texto,
+            "generado_en": datetime.utcnow().isoformat(),
+        }
+        row.evidencia_json = json.dumps(evidencia, ensure_ascii=False)
+        row.updated_at = datetime.utcnow()
+        await session.commit()
+        await session.refresh(row)
+        result = _mision_a_dict(row)
+
+    await registrar_evento(
+        evento="mission_recover_lead_draft_created",
+        telefono=telefono,
+        riesgo="high",
+        payload={
+            "mision_id": mision_id,
+            "longitud_draft": len(texto),
+            "destino_masked": result["destino_masked"],
+        },
+    )
+    await registrar_evento(
+        evento="mission_recover_lead_preview_rendered",
+        telefono=telefono,
+        riesgo="high",
+        payload={
+            "mision_id": mision_id,
+            "estado": result["estado"],
+            "destino_masked": result["destino_masked"],
+            "longitud_mensaje": len(texto),
+        },
+    )
+    return _preview_de(result)
+
+
+async def preview_recuperar_lead(
+    mision_id: int, telefono_owner: str,
+) -> dict[str, Any] | None:
+    """Re-renderiza el preview owner-scoped de una misión ya preparada.
+    Wrong-owner → None. No re-genera el draft ni toca el provider."""
+    mision = await obtener_mision(mision_id, telefono_owner)
+    if mision is None:
+        return None
+    return _preview_de(mision)
