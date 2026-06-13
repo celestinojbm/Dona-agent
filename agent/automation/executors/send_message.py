@@ -65,6 +65,7 @@ async def preparar_enviar_mensaje_whatsapp(
     titulo: str = "",
     descripcion: str = "",
     razon_recomendacion: str = "",
+    opportunity_id: str = "",
 ) -> dict[str, Any]:
     """Crea una acción HIGH 'enviar_mensaje_whatsapp' en estado
     'needs_approval' (porque clasificar_riesgo la marca HIGH). NUNCA
@@ -76,6 +77,12 @@ async def preparar_enviar_mensaje_whatsapp(
         mensaje: cuerpo del mensaje.
         titulo / descripcion / razon_recomendacion: metadata para Action
             Center · descripcion default = primeros 300 chars del mensaje.
+        opportunity_id: identificador de la oportunidad/misión que origina
+            la acción. Entra en la idempotency_key (telefono|tipo|playbook|
+            opportunity|fecha): pasar uno ÚNICO (ej. "mision-7") evita que
+            dos preparaciones distintas del mismo owner el mismo día
+            colisionen en la misma acción. Default "" preserva el
+            comportamiento previo (un solo enviar_mensaje_whatsapp/owner/día).
 
     Returns:
         dict de la acción creada · estado 'needs_approval' · 'created':
@@ -94,6 +101,7 @@ async def preparar_enviar_mensaje_whatsapp(
         titulo=(titulo or "Enviar mensaje WhatsApp")[:200],
         descripcion=(descripcion or mensaje)[:1000],
         razon_recomendacion=razon_recomendacion,
+        opportunity_id=opportunity_id,
         payload={
             "numero_destino": numero_destino.strip(),
             "mensaje": mensaje.strip(),
