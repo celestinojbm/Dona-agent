@@ -494,3 +494,202 @@ async def preview_recuperar_lead(
     if mision is None:
         return None
     return _preview_de(mision)
+
+
+# ── M0-3 · enlazar la acción HIGH WhatsApp existente ─────────────────────
+
+
+async def enlazar_accion_high_recuperar_lead(
+    mision_id: int, telefono_owner: str,
+) -> dict[str, Any]:
+    """Compone la acción HIGH `enviar_mensaje_whatsapp` con el draft de la
+    misión y la enlaza (contrato Hermes M0-3). NO envía, NO aprueba.
+
+    REUTILIZA el camino HIGH dedicado existente (preparar_enviar_mensaje_whatsapp
+    → crear_accion); NO crea un ejecutor nuevo ni relaja la seguridad. La
+    acción nace `needs_approval` y como es riesgo HIGH, el control genérico la
+    deja en `dedicated_confirmation_required`: el generic execute sigue
+    bloqueado; solo el camino dedicado (confirmar_high_whatsapp_dedicado, M0-4)
+    la materializa.
+
+    Bloquea de forma explícita (y testeada) si:
+      - misión inexistente o de otro owner → {ok: False} (no revela cuál);
+      - draft ausente → {ok: False, error};
+      - destino inválido (defensa en profundidad) → misión `blocked`;
+      - la política de terceros (2.5) niega por límite duro → misión `blocked`.
+    Idempotente: si ya está enlazada, devuelve la acción existente.
+
+    La política `requiere_consentimiento` (primer contacto) NO bloquea aquí:
+    el consentimiento se registra al confirmar ENVIAR (M0-4). Aquí solo se
+    bloquea por límite duro (permitido=False).
+
+    RESIDUAL DECLARADO (a cerrar en M0-4 por reconciliación, no por duplicar
+    la creación HIGH ni tocar el ejecutor): el claim atómico cierra los
+    duplicados concurrentes, pero crear la acción y setear `accion_id` son dos
+    commits. Un crash en esa ventana deja la acción HIGH en `needs_approval`
+    no enlazada y la misión `needs_approval` sin `accion_id`. No hay envío sin
+    aprobación+confirmación dedicada (y los límites 2.5 acotan el daño), pero
+    el camino dedicado existente no exige enlace a misión. M0-4 debe
+    reconciliar: misión `needs_approval` sin `accion_id` → revertir a draft o
+    relinkear; acción con opportunity_id `mision-*` cuya misión no la apunta →
+    cancelar.
+    """
+    mision = await obtener_mision(mision_id, telefono_owner)  # owner-scoped
+    if mision is None:
+        # wrong-owner e inexistente son indistinguibles (no se revela cuál).
+        return {"ok": False, "error": "mision_no_existe_o_ajena", "mision_id": mision_id}
+
+    # Idempotencia: ya enlazada → devolver la acción existente.
+    if mision.get("accion_id"):
+        return {
+            "ok": True, "mision_id": mision_id, "accion_id": mision["accion_id"],
+            "estado": mision["estado"], "idempotent": True,
+        }
+
+    # Solo se enlaza desde `draft` (no terminal/needs_approval/etc.).
+    if mision["estado"] != "draft":
+        return {
+            "ok": False, "error": "estado_no_enlazable",
+            "estado": mision["estado"], "mision_id": mision_id,
+        }
+
+    draft = (mision.get("evidencia") or {}).get("draft") or {}
+    mensaje = draft.get("mensaje", "")
+    if not mensaje:
+        return {"ok": False, "error": "draft_ausente", "mision_id": mision_id}
+
+    destino = mision.get("destino", "")
+    rd = validar_destino(destino)
+    if rd:
+        await marcar_bloqueada(mision_id, telefono_owner, rd)
+        return {"ok": False, "reason_code": rd, "mision_id": mision_id}
+
+    # Política de terceros (2.5): límite duro → bloquea SIN crear acción.
+    # Fail-closed: si la evaluación lanza, se bloquea.
+    from agent.automation.consent_terceros import evaluar_politica_envio_tercero
+    try:
+        politica = await evaluar_politica_envio_tercero(telefono_owner, destino)
+    except Exception as e:
+        logger.critical(
+            f"[M0-3] FAIL-CLOSED evaluando política mision={mision_id} "
+            f"({type(e).__name__}: {e})"
+        )
+        await marcar_bloqueada(mision_id, telefono_owner, "policy_blocked")
+        return {"ok": False, "reason_code": "policy_blocked", "mision_id": mision_id}
+
+    if not politica["permitido"]:
+        await marcar_bloqueada(mision_id, telefono_owner, "policy_blocked")
+        await registrar_evento(
+            evento="high_send_blocked_policy",
+            telefono=telefono_owner,
+            riesgo="high",
+            payload={
+                "fase": "mission_link", "mision_id": mision_id,
+                "motivo": politica["motivo"],
+            },
+        )
+        return {
+            "ok": False, "reason_code": "policy_blocked",
+            "motivo": politica["motivo"], "mision_id": mision_id,
+        }
+
+    # Claim ATÓMICO ANTES de crear la acción (cierra el race concurrente Y la
+    # ventana de crash, hallazgo Codex): se reclama la misión draft→needs_approval
+    # con guard `accion_id IS NULL`. SOLO el ganador (rowcount==1) crea la
+    # acción HIGH → cero acciones huérfanas confirmables. Si el ganador cae
+    # entre el claim y el set de accion_id, la misión queda needs_approval SIN
+    # acción: estado recuperable y NO enviable (no hay acción que confirmar).
+    from sqlalchemy import update
+    from agent.memory import async_session
+    from agent.automation.models import MisionAutomation
+
+    async with async_session() as session:
+        res = await session.execute(
+            update(MisionAutomation)
+            .where(
+                MisionAutomation.id == mision_id,
+                MisionAutomation.telefono == telefono_owner,
+                MisionAutomation.estado == "draft",
+                MisionAutomation.accion_id.is_(None),
+            )
+            .values(estado="needs_approval", updated_at=datetime.utcnow())
+        )
+        gano_claim = (res.rowcount == 1)
+        await session.commit()
+
+    if not gano_claim:
+        # Perdimos el claim: otra llamada concurrente ya lo tomó. NO creamos
+        # acción (cero huérfanas). Devolvemos la acción ya enlazada si existe.
+        actual = await obtener_mision(mision_id, telefono_owner)
+        linked_aid = (actual or {}).get("accion_id")
+        if linked_aid:
+            return {
+                "ok": True, "mision_id": mision_id,
+                "accion_id": linked_aid, "estado": actual["estado"],
+                "idempotent": True,
+            }
+        estado_actual = (actual or {}).get("estado")
+        if estado_actual == "needs_approval":
+            # El ganador está creando la acción justo ahora (ventana corta);
+            # no es un error — el enlace está en proceso.
+            return {
+                "ok": True, "mision_id": mision_id, "accion_id": None,
+                "estado": "needs_approval", "idempotent": True,
+                "enlace_en_proceso": True,
+            }
+        return {
+            "ok": False, "error": "estado_no_enlazable",
+            "estado": estado_actual, "mision_id": mision_id,
+        }
+
+    # Ganamos el claim: crear la acción HIGH con el draft, reutilizando el
+    # camino dedicado. opportunity_id único por misión.
+    from agent.automation.executors.send_message import preparar_enviar_mensaje_whatsapp
+    accion = await preparar_enviar_mensaje_whatsapp(
+        telefono=telefono_owner,
+        numero_destino=destino,
+        mensaje=mensaje,
+        titulo="Recuperar lead",
+        descripcion=f"Misión recuperar-lead #{mision_id}",
+        opportunity_id=f"mision-{mision_id}",
+    )
+    accion_id = accion["id"]
+
+    # Setear accion_id en la misión ya reclamada (guard accion_id IS NULL).
+    async with async_session() as session:
+        await session.execute(
+            update(MisionAutomation)
+            .where(
+                MisionAutomation.id == mision_id,
+                MisionAutomation.telefono == telefono_owner,
+                MisionAutomation.accion_id.is_(None),
+            )
+            .values(accion_id=accion_id, updated_at=datetime.utcnow())
+        )
+        await session.commit()
+
+    result = await obtener_mision(mision_id, telefono_owner) or {}
+    await registrar_evento(
+        evento="mission_recover_lead_action_linked",
+        telefono=telefono_owner,
+        accion_id=accion_id,
+        riesgo="high",
+        payload={
+            "mision_id": mision_id,
+            "estado": result.get("estado", "needs_approval"),
+            "destino_masked": result.get("destino_masked", ""),
+            "es_primer_contacto": politica["es_primer_contacto"],
+            "requiere_consentimiento": politica["requiere_consentimiento"],
+        },
+    )
+    return {
+        "ok": True,
+        "mision_id": mision_id,
+        "accion_id": accion_id,
+        "estado": "needs_approval",
+        "es_primer_contacto": politica["es_primer_contacto"],
+        "requiere_consentimiento": politica["requiere_consentimiento"],
+        # El siguiente paso (M0-4) es aprobar + confirmar literal ENVIAR por
+        # el camino dedicado; el generic execute sigue bloqueado.
+        "next_required_action": "aprobar_y_confirmar_envio_dedicado",
+    }
