@@ -24,7 +24,7 @@
 | Render web + worker | **live** ambos en `12899b902` (2026-06-13 ~05:04Z) |
 | CI verde sobre head real | **PASS** (`Suite completa (pytest)`, `Validar agent-runs offline`, `submit-pypi` = success) |
 | Tests de la suite | 1172 passed (último run) |
-| Ítems del checklist | 23 (21 PASS verificados corriendo tests reales + 2 PASS de infra) |
+| Ítems del checklist | 26 — 22 gates de seguridad con test (BUD 3 · TOOL 3 · RET 4 · FALL-TIME 4 · LOOP-COST 4 · AUX 4) + 4 de infra/go (EVID 1 · CI 1 · GO 2); **todos PASS** |
 | FAIL bloqueantes | **0** |
 | Riesgos residuales | aceptados y documentados (§8) — ninguno bloquea |
 | Siguiente misión habilitada | **Misión 0 (recuperar-lead)**, solo dentro de BudgetGuard real (condición cumplida) |
@@ -120,7 +120,7 @@ Columnas: **ID · Afirmación binaria · Resultado · Evidencia (tests + comando
 |---|---|---|---|---|---|
 | F0-EVID-02 | Render web y worker reportan el mismo SHA `12899b902` (ambos live) | **PASS** | Render API: web live `12899b902`, worker live `12899b902` | render_live_sha | sí |
 | F0-CI-01 | Check-runs del head `12899b9` todos success; suite completa pasó en CI | **PASS** | `gh api .../commits/12899b90.../check-runs` → 3 checks success (run 27457291394) | ci_run | sí |
-| F0-GO-01 | Cero FAIL bloqueante en los gates de budget/tool/retry/timeout/loop/cost | **PASS** | Agregado de §4–5: 21/21 gates de seguridad PASS, 0 FAIL | closed_state | sí |
+| F0-GO-01 | Cero FAIL bloqueante en los gates de budget/tool/retry/timeout/loop/cost | **PASS** | Agregado de §4–5: 22/22 gates de seguridad PASS, 0 FAIL | closed_state | sí |
 | F0-GO-02 | Misión 0 autorizada solo dentro de BudgetGuard real; condición 4.1/4.2 cumplida | **PASS** | Ciclo #82→#84→#86→#87→#89 mergeado + live; guard central en el head desplegado | closed_state | no |
 
 ---
@@ -256,3 +256,22 @@ corrige en este PR.
 *Generado 2026-06-13. Firmado condicional al merge verde de este PR (que
 commitea la evidencia y la lleva a CI). Tras el merge, el SHA de producción del
 dossier firmado es el merge commit de este PR; el delta de producción es cero.*
+
+---
+
+## Firma
+
+**Hermes — 2026-06-13: PASS.** Salida de Fase 0 firmada como suficiente para
+habilitar Misión 0, bajo la condición operativa de que Misión 0 solo se diseñe e
+implemente dentro del RuntimeBudgetGuard real (flujo `preparar_`/`confirmar_`,
+gates, métricas y evidencia antes de tocar producción sensible).
+
+Verificación independiente de Hermes (no aceptada de memoria): comparó el hash
+del dossier (idéntico entre el worktree y su copia), revisó el diff contra
+`origin/main` (solo `docs/` + `tests/`, sin delta de producción), y **corrió los
+tests él mismo**: `test_salida_fase0.py` 16 passed, `TestClientesMuertosEliminados`
+4 passed, familia completa del guard 89 passed. Notas no bloqueantes aceptadas:
+"texto-solo" del fallback es evidencia por inspección; la garantía aux es por
+contrato de la vía auxiliar + sentinels (no test por-caller) — suficiente para
+salida de Fase 0, ampliar el sentinel arquitectónico si se agregan módulos LLM
+en fases posteriores.
