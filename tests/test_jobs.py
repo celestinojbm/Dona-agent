@@ -31,7 +31,11 @@ async def db(tmp_path, monkeypatch):
     importlib.reload(_worker)
     importlib.reload(_jobs)
     await _memory.inicializar_db()
-    return _jobs
+    yield _jobs
+    # Drenar las tasks inproc en vuelo ANTES de que el loop del test cierre:
+    # una task viva al cierre revienta el teardown con "Event loop is closed"
+    # (el flake histórico de test_listar_jobs_usuario).
+    await _queue.esperar_tareas_inproc()
 
 
 class TestBackendActivo:
@@ -95,15 +99,39 @@ class TestEncolarInproc:
 
     @pytest.mark.asyncio
     async def test_listar_jobs_usuario(self, db):
+        import agent.jobs.queue as q
         j1 = await db.encolar("echo", "5551", {"i": 1})
         j2 = await db.encolar("echo", "5551", {"i": 2})
         await db.encolar("echo", "otro", {"i": 3})
-        await asyncio.sleep(0.1)
+        # Determinista: drenar las tasks en vez de dormir un tiempo arbitrario
+        await q.esperar_tareas_inproc()
         mios = await db.listar_jobs_usuario("5551", limite=10)
         assert len(mios) == 2
         # orden desc por creado
         assert mios[0]["id"] == j2
         assert mios[1]["id"] == j1
+
+
+class TestTareasInprocFuertes:
+    """REGRESIÓN (flake "Event loop is closed" + bug real de producción):
+    _encolar_inproc creaba la task SIN referencia fuerte — asyncio solo
+    guarda referencias débiles, así que el GC podía recolectar un job a
+    media ejecución (desaparecía sin done ni error). Además no había forma
+    de drenar las tasks en vuelo, y una task viva al cerrar el loop del
+    test reventaba el teardown."""
+
+    @pytest.mark.asyncio
+    async def test_tasks_trackeadas_y_drenables(self, db):
+        import agent.jobs.queue as q
+        ids = [await db.encolar("echo", "5551", {"i": i}) for i in range(3)]
+
+        await q.esperar_tareas_inproc()
+
+        # Tras drenar: todo terminal y el set limpio (done_callback descarta)
+        for jid in ids:
+            estado = await db.obtener_estado(jid)
+            assert estado["estado"] in ("done", "error")
+        assert all(t.done() for t in q._tareas_inproc)
 
 
 class TestRegistroHandlers:

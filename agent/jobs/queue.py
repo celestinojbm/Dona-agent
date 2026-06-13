@@ -193,6 +193,13 @@ async def _encolar_arq(job_id: int, tipo: str, telefono: str, params: dict) -> N
 
 # ── Backend: inproc (asyncio.create_task) ──────────────────────────────────
 
+# Referencias FUERTES a las tasks inproc en vuelo. asyncio solo guarda
+# referencias débiles a las tasks: sin esto, el GC puede recolectar un job
+# a media ejecución (job que desaparece sin done ni error). El set también
+# permite drenarlas ordenadamente (tests / shutdown).
+_tareas_inproc: set[asyncio.Task] = set()
+
+
 def _encolar_inproc(job_id: int, tipo: str, telefono: str, params: dict) -> None:
     """
     Dispara la tarea en el loop actual. No persiste entre restarts — en dev
@@ -205,4 +212,16 @@ def _encolar_inproc(job_id: int, tipo: str, telefono: str, params: dict) -> None
         # No hay loop corriendo — crear uno temporal (casos raros tipo tests)
         logger.warning(f"[JOBS] Sin loop corriendo para job {job_id} — ignorando (se puede re-encolar después)")
         return
-    loop.create_task(ejecutar_job_inproc(job_id, tipo, telefono, params))
+    task = loop.create_task(ejecutar_job_inproc(job_id, tipo, telefono, params))
+    _tareas_inproc.add(task)
+    task.add_done_callback(_tareas_inproc.discard)
+
+
+async def esperar_tareas_inproc(timeout: float = 10.0) -> None:
+    """Espera a que terminen las tasks inproc en vuelo. Para teardown de
+    tests (una task viva al cerrar el loop revienta con 'Event loop is
+    closed') y shutdown ordenado. Best-effort: al vencer el timeout deja
+    de esperar (no cancela)."""
+    pendientes = [t for t in _tareas_inproc if not t.done()]
+    if pendientes:
+        await asyncio.wait(pendientes, timeout=timeout)
