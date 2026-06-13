@@ -31,9 +31,13 @@ class TestClasificacionRiesgo:
     def test_clasificacion_directa(self, tipo, esperado):
         assert clasificar_riesgo(tipo) == esperado
 
-    def test_tipo_desconocido_es_medium(self):
-        assert clasificar_riesgo("tipo_inventado_xyz") == NivelRiesgo.MEDIUM
-        assert clasificar_riesgo("") == NivelRiesgo.MEDIUM
+    def test_tipo_desconocido_es_critical_fail_closed(self):
+        """REGRESIÓN C4 (fail-open): el default era MEDIUM — un tipo
+        inventado/spoofeado obtenía aprobación simple. Lo no clasificado
+        se bloquea (CRITICAL) hasta clasificarse explícitamente."""
+        assert clasificar_riesgo("tipo_inventado_xyz") == NivelRiesgo.CRITICAL
+        assert clasificar_riesgo("") == NivelRiesgo.CRITICAL
+        assert esta_bloqueado_t21(clasificar_riesgo("tipo_inventado_xyz")) is True
 
 
 class TestReglasAprobacion:

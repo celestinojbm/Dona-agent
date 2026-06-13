@@ -30,8 +30,9 @@ class NivelRiesgo(str, Enum):
     CRITICAL = "critical"
 
 
-# Tipos de acción y su nivel de riesgo. Cualquier tipo no listado
-# se considera medium por defecto (requiere aprobación simple).
+# Tipos de acción y su nivel de riesgo. Cualquier tipo NO listado se
+# considera CRITICAL (fail-closed): un tipo que nadie clasificó no tiene
+# base para asumirse inocuo — queda bloqueado hasta agregarse aquí.
 RIESGO_POR_TIPO_ACCION: dict[str, NivelRiesgo] = {
     # LOW · solo generación interna · cero efecto externo
     "generar_plan_semanal": NivelRiesgo.LOW,
@@ -59,9 +60,11 @@ RIESGO_POR_TIPO_ACCION: dict[str, NivelRiesgo] = {
 
 
 def clasificar_riesgo(tipo_accion: str) -> NivelRiesgo:
-    """Clasifica un tipo de acción. Si no está en la tabla, retorna MEDIUM
-    (default seguro · requiere aprobación)."""
-    return RIESGO_POR_TIPO_ACCION.get(tipo_accion, NivelRiesgo.MEDIUM)
+    """Clasifica un tipo de acción. Si no está en la tabla, retorna CRITICAL
+    (fail-closed, C4 del audit): el default MEDIUM anterior era fail-open —
+    un tipo inventado/spoofeado (p.ej. alucinado por el LLM) obtenía
+    aprobación simple en vez de bloqueo. Lo no clasificado se bloquea."""
+    return RIESGO_POR_TIPO_ACCION.get(tipo_accion, NivelRiesgo.CRITICAL)
 
 
 def requiere_aprobacion(riesgo: NivelRiesgo | str) -> bool:
