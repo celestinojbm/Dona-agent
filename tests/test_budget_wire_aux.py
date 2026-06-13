@@ -23,6 +23,8 @@ en ninguna dimensión.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 import agent.llm as llm
@@ -320,7 +322,42 @@ class TestClientesMuertosEliminados:
         import agent.emotion as emotion
         assert not hasattr(emotion, "_claude")
 
+    def test_modulos_aux_sin_cliente_provider_a_nivel_modulo(self):
+        """Sentinel de arquitectura (F0-AUX-03): emotion, mirofish_client y
+        onboarding NO deben instanciar un cliente provider a nivel módulo —
+        toda su LLM debe ir por la vía auxiliar gateada (agent.llm). Un
+        cliente latente sería una ruta real al provider que ignora el guard.
+        Inspección de fuente: cierra el residual de que el assert solo cubría
+        emotion."""
+        import agent
+        raiz = os.path.dirname(agent.__file__)
+        patrones_cliente = ("AsyncAnthropic(", "AsyncOpenAI(", ".messages.create", ".chat.completions.create")
+        for modulo in ("emotion.py", "mirofish_client.py", "onboarding.py"):
+            ruta = os.path.join(raiz, modulo)
+            if not os.path.exists(ruta):
+                continue
+            with open(ruta, encoding="utf-8") as f:
+                fuente = f.read()
+            for patron in patrones_cliente:
+                assert patron not in fuente, (
+                    f"{modulo} contiene '{patron}' — debe ir por agent.llm (vía aux gateada)"
+                )
+
     def test_config_aux_existe_con_default_seguro(self):
         cfg = pr.cargar_config()
         assert cfg.max_llm_aux_calls == 3
         assert "max_llm_aux_calls" in pr.RAZONES_BLOQUEO
+
+    def test_aux_fail_closed_env_invalida_cae_a_default(self, monkeypatch):
+        """F0-AUX-04 (fail-closed dedicado a la dimensión aux): una env aux
+        ilegible o fuera de rango cae al default seguro (3) + evento
+        config_invalida — el validador NO adopta un límite no confiable.
+        Cierra el residual de que el fail-closed solo se probaba vía la env
+        del cupo principal."""
+        for valor_malo in ("muchas", "-1", "999"):
+            pr._contadores_eventos.clear()
+            monkeypatch.setenv("BUDGET_MAX_LLM_AUX_CALLS_MENSAJE", valor_malo)
+            cfg = pr.cargar_config()
+            assert cfg.max_llm_aux_calls == 3  # default seguro, no el valor malo
+            assert pr.snapshot_eventos().get("config_invalida", 0) >= 1
+        monkeypatch.delenv("BUDGET_MAX_LLM_AUX_CALLS_MENSAJE", raising=False)
