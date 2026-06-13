@@ -37,7 +37,8 @@ def _estado_limpio(monkeypatch):
         "BUDGET_FG_SOFT_SEGUNDOS", "BUDGET_FG_HARD_SEGUNDOS",
         "BUDGET_LLM_TIMEOUT_SEGUNDOS", "BUDGET_LLM_MAX_REINTENTOS",
         "BUDGET_TOOL_TIMEOUT_SEGUNDOS", "BUDGET_TOOL_TIMEOUT_LENTA_SEGUNDOS",
-        "BUDGET_MAX_LLM_CALLS_MENSAJE", "BUDGET_MAX_TOOL_CALLS_MENSAJE",
+        "BUDGET_MAX_LLM_CALLS_MENSAJE", "BUDGET_MAX_LLM_AUX_CALLS_MENSAJE",
+        "BUDGET_MAX_TOOL_CALLS_MENSAJE",
         "BUDGET_MAX_TOOL_DEPTH", "BUDGET_MAX_PARALLEL_TOOLS",
         "BUDGET_MAX_COSTO_USD_MENSAJE", "BUDGET_MAX_COSTO_USD_DIA_OWNER",
     ):
@@ -53,6 +54,7 @@ def _config_corta(**overrides) -> pr.ConfigPresupuesto:
     base = dict(
         soft_segundos=45.0, hard_segundos=60.0,
         llm_timeout_segundos=30.0, llm_max_reintentos=1,
+        max_llm_aux_calls=3,
         tool_timeout_segundos=10.0, tool_timeout_lenta_segundos=30.0,
         max_llm_calls=3, max_tool_calls=8, max_tool_depth=3,
         max_parallel_tools=3, max_costo_usd_mensaje=0.15,

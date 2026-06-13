@@ -129,19 +129,41 @@ async def analizar_imagen_con_claude(
             "text": "Analiza esta imagen y extrae la información más relevante."
         })
 
+    # Gateo del RuntimeBudgetGuard (entregable F · F-1): el análisis de
+    # imagen es trabajo PRINCIPAL (alimenta la respuesta al usuario) —
+    # reserva cupo principal del presupuesto del mensaje. Bloqueado →
+    # None: el pipeline ya degrada (mensaje de "no pude procesarla").
+    from agent.presupuesto_runtime import (
+        reservar_llm, con_timeout_llm, consumir_llm, TimeoutPresupuesto,
+    )
+
+    decision = reservar_llm()
+    if not decision.permitido:
+        logger.warning(f"[VISION] Análisis bloqueado por presupuesto: {decision.razon}")
+        return None
+
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
+        response = await con_timeout_llm(client.messages.create(
             model="claude-haiku-4-5",
             max_tokens=1024,
             system=_SYSTEM_VISION,
             messages=[{"role": "user", "content": user_content}]
-        )
+        ))
+        try:
+            # Precios aprox. Haiku (USD/Mtok) — alimenta los topes de costo
+            costo = (response.usage.input_tokens * 1.0 + response.usage.output_tokens * 5.0) / 1_000_000
+            consumir_llm(costo, modelo="claude-haiku-4-5")
+        except Exception:
+            consumir_llm(0.0)
         texto = response.content[0].text.strip() if response.content else None
         if texto:
             logger.info(f"[VISION] Imagen analizada: \"{texto[:80]}{'...' if len(texto) > 80 else ''}\"")
         return texto
 
+    except TimeoutPresupuesto as t:
+        logger.warning(f"[VISION] Análisis cortado por timeout del guard: {t.razon}")
+        return None
     except Exception as e:
         logger.error(f"[VISION] Error analizando imagen con Claude ({type(e).__name__}): {e}")
         return None

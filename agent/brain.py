@@ -3381,11 +3381,7 @@ async def _postprocesar_reporte_mirofish(reporte_raw: str, escenario: str) -> li
     3. Dividirlo en máltiples mensajes si es largo (máx 1500 chars cada uno).
     Retorna una lista de mensajes listos para enviar.
     """
-    import anthropic as _anthropic
-    import os
-
     try:
-        cliente = _anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         prompt = (
             f"Eres Dona, asistente personal estratégica. "
             f"Recibes el resultado de un análisis de consecuencias y debes presentarlo "

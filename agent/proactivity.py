@@ -28,6 +28,40 @@ MAX_MENSAJES_DIARIOS = 2   # Límite para no ser molesto
 # Cliente de Claude para generación de mensajes proactivos
 _claude = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+# Precios aprox. de claude-sonnet (USD/Mtok) para estimar costo consumido
+_PRECIO_IN_USD_MTOK = 3.0
+_PRECIO_OUT_USD_MTOK = 15.0
+
+
+async def _invocar_claude_proactivo(api_kwargs: dict, telefono: str):
+    """Llama a _claude.messages.create bajo el RuntimeBudgetGuard
+    (entregable F · F-1). Los mensajes proactivos son trabajo PRINCIPAL
+    (user-visible): reservan cupo principal del presupuesto de su unidad
+    (verificar_proactividad abre uno por usuario). Bloqueo/timeout →
+    None: el disparador degrada a no-enviar (nunca mensaje a medias)."""
+    from agent.presupuesto_runtime import (
+        reservar_llm, con_timeout_llm, consumir_llm, TimeoutPresupuesto,
+    )
+
+    decision = reservar_llm(telefono)
+    if not decision.permitido:
+        logger.warning(f"[BUDGET] Proactividad bloqueada por presupuesto: {decision.razon}")
+        return None
+    try:
+        response = await con_timeout_llm(_claude.messages.create(**api_kwargs), telefono)
+    except TimeoutPresupuesto:
+        return None
+
+    try:
+        costo = (
+            response.usage.input_tokens * _PRECIO_IN_USD_MTOK
+            + response.usage.output_tokens * _PRECIO_OUT_USD_MTOK
+        ) / 1_000_000
+        consumir_llm(costo, modelo=api_kwargs.get("model", ""))
+    except Exception:
+        consumir_llm(0.0)
+    return response
+
 # Palabras clave TCPA / CAN-SPAM: cuando el usuario envía cualquiera de estas
 # en aislamiento (como primer/único contenido del mensaje), DEBE desactivarse
 # la proactividad inmediatamente. Son palabras clave reconocidas por la FCC
@@ -220,6 +254,8 @@ async def verificar_proactividad(proveedor):
 
         logger.debug(f"Proactividad: revisando {len(usuarios)} usuario(s)")
 
+        from agent.presupuesto_runtime import presupuesto_de_mensaje
+
         for u in usuarios:
             telefono = u["telefono"]
             nombre = u["nombre"] or ""
@@ -233,7 +269,11 @@ async def verificar_proactividad(proveedor):
             offset_min = offset_min or 0
             ahora_local = datetime.utcnow() + timedelta(minutes=offset_min)
 
-            mensaje = await _evaluar_disparadores(u, ahora_local, offset_min)
+            # Presupuesto PROPIO por unidad background (entregable F · F-1,
+            # criterio Hermes): un usuario = una unidad con sus topes — el
+            # batch NO comparte un presupuesto global gigante.
+            with presupuesto_de_mensaje(telefono):
+                mensaje = await _evaluar_disparadores(u, ahora_local, offset_min)
 
             if mensaje:
                 # El contador diario lo incrementa el gate de envíos
@@ -421,11 +461,16 @@ async def _generar_morning_brief(
             f"- El usuario NUNCA debe saber que estás trabajando con información incompleta"
         )
 
-        response = await _claude.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=220,
-            messages=[{"role": "user", "content": prompt}],
+        response = await _invocar_claude_proactivo(
+            dict(
+                model="claude-sonnet-4-6",
+                max_tokens=220,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            telefono,
         )
+        if response is None:
+            return None
         return response.content[0].text if response.content else None
 
     except Exception as e:
@@ -541,11 +586,16 @@ async def _disparador_conflict(telefono: str, nombre: str, contexto: str) -> str
             f"Si no hay nada urgente, responde exactamente: SIN_CONFLICTO"
         )
 
-        response = await _claude.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=150,
-            messages=[{"role": "user", "content": prompt}],
+        response = await _invocar_claude_proactivo(
+            dict(
+                model="claude-sonnet-4-6",
+                max_tokens=150,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            telefono,
         )
+        if response is None:
+            return None
 
         resultado = response.content[0].text.strip() if response.content else "SIN_CONFLICTO"
         if resultado == "SIN_CONFLICTO" or not resultado:
@@ -599,11 +649,16 @@ async def _generar_weekly_review(telefono: str, nombre: str, contexto: str) -> s
             f"- Si el contexto es insuficiente, genera igualmente un mensaje motivador sin mencionarlo"
         )
 
-        response = await _claude.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=220,
-            messages=[{"role": "user", "content": prompt}],
+        response = await _invocar_claude_proactivo(
+            dict(
+                model="claude-sonnet-4-6",
+                max_tokens=220,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            telefono,
         )
+        if response is None:
+            return None
         return response.content[0].text if response.content else None
 
     except Exception as e:
@@ -789,11 +844,16 @@ async def _disparador_consejo_estrategico(telefono: str, nombre: str, contexto: 
             f"NUNCA menciones la calidad del contexto ni expongas razonamiento interno."
         )
 
-        response = await _claude.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=150,
-            messages=[{"role": "user", "content": prompt}],
+        response = await _invocar_claude_proactivo(
+            dict(
+                model="claude-sonnet-4-6",
+                max_tokens=150,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            telefono,
         )
+        if response is None:
+            return None
 
         resultado = response.content[0].text.strip() if response.content else "SIN_CONSEJO"
         if resultado == "SIN_CONSEJO" or not resultado:

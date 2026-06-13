@@ -470,8 +470,6 @@ async def _inferir_timezone_desde_ciudad(ciudad: str, pais: str) -> tuple[str | 
     Se llama UNA sola vez al final del onboarding — nunca bloquea al usuario.
     El nombre IANA permite calcular correctamente el DST en cualquier momento futuro.
     """
-    import os
-    from anthropic import AsyncAnthropic
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     from datetime import datetime
 

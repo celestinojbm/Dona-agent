@@ -17,16 +17,15 @@ La detección usa Claude Haiku (rápido y barato). Si falla, retorna "neutral"
 para no bloquear la respuesta principal.
 """
 
-import os
 import json
 import logging
-from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger("dona")
 
-_claude = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# Sin cliente propio: la llamada LLM va por agent.llm (vía auxiliar gateada
+# por el RuntimeBudgetGuard — entregable F · F-1).
 
 # Palabras que indican posible crisis — manejo especial independientemente del LLM
 _PALABRAS_CRISIS = {
