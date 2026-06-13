@@ -9,10 +9,12 @@ configurado. Sigue el patrón preparar → aprobar → confirmar/ejecutar:
          destinatario y el cuerpo guardados en payload. NUNCA envía.
   2. aprobar_accion(accion_id)
        → el usuario aprueba explícitamente la acción.
-  3. confirmar_enviar_mensaje_whatsapp(accion_id)
-       → atajo que aprueba (si está needs_approval) y ejecuta. Si la
-         acción ya estaba 'completed' devuelve el resultado existente
-         sin re-enviar (idempotente).
+  3. preview_confirmacion_high_whatsapp(accion_id, telefono_actor)
+       + confirmar_high_whatsapp_dedicado(accion_id, "ENVIAR", telefono_actor)
+       → ÚNICO camino de materialización: exige acción 'approved', dueño
+         autenticado y confirmación literal. (El atajo histórico
+         confirmar_enviar_mensaje_whatsapp, que auto-aprobaba sin verificar
+         dueño, fue eliminado — ítem 5.1 del roadmap, C4 del audit.)
 
 El ejecutor real, llamado por agent.automation.execution.ejecutar_accion
 cuando el estado es 'approved':
@@ -252,10 +254,10 @@ async def confirmar_high_whatsapp_dedicado(
 ) -> dict[str, Any]:
     """Materializa una acción HIGH ya aprobada desde UX dedicada.
 
-    A diferencia del atajo histórico confirmar_enviar_mensaje_whatsapp(),
-    este camino NO auto-aprueba. Exige estado exactamente 'approved' y
-    confirmación exactamente 'ENVIAR' sin normalizar/strip, para que
-    ' ENVIAR ' o variantes no pasen por accidente.
+    Este camino NO auto-aprueba (el atajo histórico que sí lo hacía fue
+    eliminado). Exige estado exactamente 'approved' y confirmación
+    exactamente 'ENVIAR' sin normalizar/strip, para que ' ENVIAR ' o
+    variantes no pasen por accidente.
 
     Cada paso deja huella en audit log:
       * `high_confirmation_submitted` cuando el actor autenticado es dueño
@@ -506,63 +508,6 @@ async def confirmar_high_whatsapp_dedicado(
         )
 
     return resultado
-
-
-async def confirmar_enviar_mensaje_whatsapp(
-    accion_id: int,
-) -> dict[str, Any]:
-    """Aprueba (si hace falta) y ejecuta la acción · operación
-    'confirmar' del patrón.
-
-    Idempotente: si la acción ya está 'completed', devuelve el resultado
-    existente sin re-enviar. Si está 'failed' o 'rejected', no ejecuta
-    (devuelve error claro). Si está 'needs_approval', aprueba primero y
-    luego ejecuta. Si está 'approved', ejecuta directo.
-    """
-    accion = await _leer_accion_fresca(accion_id)
-    if accion is None:
-        return {
-            "estado_final": "failed",
-            "error": "accion_no_existe",
-            "accion_id": accion_id,
-        }
-
-    estado = accion["estado"]
-
-    if estado == "completed":
-        # Ya enviada · devolver resultado existente
-        resultado_prev = _parse_json(accion.get("result_json"))
-        return {
-            "estado_final": "completed",
-            "result": resultado_prev or {},
-            "idempotent": True,
-        }
-    if estado in ("rejected", "cancelled"):
-        return {
-            "estado_final": estado,
-            "error": f"accion_{estado}",
-            "accion_id": accion_id,
-        }
-    if estado == "failed":
-        return {
-            "estado_final": "failed",
-            "error": "accion_previamente_fallida",
-            "accion_id": accion_id,
-        }
-
-    if estado == "needs_approval":
-        from agent.automation.action_center import aprobar_accion
-        await aprobar_accion(accion_id)
-        accion = await _leer_accion_fresca(accion_id)
-        if accion is None or accion["estado"] != "approved":
-            return {
-                "estado_final": "failed",
-                "error": "no_se_pudo_aprobar",
-                "accion_id": accion_id,
-            }
-
-    from agent.automation.execution import ejecutar_accion
-    return await ejecutar_accion(accion)
 
 
 # ── Ejecutor real (llamado por ejecutar_accion en execution.py) ──────
