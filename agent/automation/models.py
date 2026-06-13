@@ -163,6 +163,53 @@ class EnvioTerceroAutomation(Base):
     enviado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class MisionAutomation(Base):
+    """Misión del Mission Runtime (M0 · recuperar-lead).
+
+    Una misión es la capa de orquestación VISIBLE sobre las acciones ya
+    existentes: identificar → preparar → aprobar → contactar → registrar
+    evidencia. M0-1 entrega solo el modelo y el estado; el draft/preview
+    (M0-2), el enlace a la acción HIGH (M0-3) y la sincronización de
+    completitud (M0-4) llegan después. NUNCA envía por sí misma.
+
+    Estado operativo OWNER-SCOPED (igual que acciones_automatizacion y
+    automation_consentimientos_tercero): la fila puede contener el destino
+    completo del lead porque es dato operativo del dueño, necesario para
+    componer la acción HIGH en M0-3. El destino NUNCA se filtra a audit
+    logs — ahí va siempre enmascarado (ver agent/automation/missions.py).
+
+    Lifecycle (estados cerrados, ver ESTADOS_MISION):
+      draft → needs_approval → approved → sending → completed
+                            ↘ blocked   (razón cerrada)
+                            ↘ failed    (razón cerrada)
+                            ↘ cancelled
+    """
+    __tablename__ = "automation_misiones"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Owner del negocio · scope de acceso (toda lectura filtra por aquí)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    subscription_id: Mapped[str] = mapped_column(String(120), default="")
+    # Tipo de misión · M0 = "recuperar_lead"
+    tipo: Mapped[str] = mapped_column(String(60), default="recuperar_lead", index=True)
+    estado: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    canal: Mapped[str] = mapped_column(String(30), default="whatsapp")
+    # Datos del lead · operativos, owner-scoped (no audit)
+    lead_nombre: Mapped[str] = mapped_column(String(120), default="")
+    destino: Mapped[str] = mapped_column(String(50), default="")
+    contexto: Mapped[str] = mapped_column(Text, default="")
+    objetivo: Mapped[str] = mapped_column(String(200), default="")
+    # Acción HIGH enlazada · se setea en M0-3 (nullable hasta entonces)
+    accion_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # Razón cerrada al bloquear/fallar (ver REASON_CODES_MISION)
+    reason_code: Mapped[str] = mapped_column(String(40), default="")
+    # Evidencia acumulada · JSON serializado (str para portabilidad cross-DB)
+    evidencia_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 # ── SQL de migración para PostgreSQL · todo aditivo, idempotente ────────────
 
 MIGRACIONES_AUTOMATION = [
@@ -255,4 +302,30 @@ MIGRACIONES_AUTOMATION = [
     "CREATE INDEX IF NOT EXISTS ix_aut_envio3_owner ON automation_envios_tercero (telefono_owner)",
     "CREATE INDEX IF NOT EXISTS ix_aut_envio3_destino ON automation_envios_tercero (destino)",
     "CREATE INDEX IF NOT EXISTS ix_aut_envio3_fecha ON automation_envios_tercero (enviado_en)",
+    # M0-1 — Misiones del Mission Runtime (recuperar-lead). Estado operativo
+    # owner-scoped; el destino completo vive aquí (no en audit).
+    """
+    CREATE TABLE IF NOT EXISTS automation_misiones (
+        id              SERIAL PRIMARY KEY,
+        telefono        VARCHAR(50)  NOT NULL,
+        subscription_id VARCHAR(120) NOT NULL DEFAULT '',
+        tipo            VARCHAR(60)  NOT NULL DEFAULT 'recuperar_lead',
+        estado          VARCHAR(20)  NOT NULL DEFAULT 'draft',
+        canal           VARCHAR(30)  NOT NULL DEFAULT 'whatsapp',
+        lead_nombre     VARCHAR(120) NOT NULL DEFAULT '',
+        destino         VARCHAR(50)  NOT NULL DEFAULT '',
+        contexto        TEXT         NOT NULL DEFAULT '',
+        objetivo        VARCHAR(200) NOT NULL DEFAULT '',
+        accion_id       INTEGER,
+        reason_code     VARCHAR(40)  NOT NULL DEFAULT '',
+        evidencia_json  TEXT         NOT NULL DEFAULT '{}',
+        created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+        updated_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+        completed_at    TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_aut_mision_tel ON automation_misiones (telefono)",
+    "CREATE INDEX IF NOT EXISTS ix_aut_mision_tipo ON automation_misiones (tipo)",
+    "CREATE INDEX IF NOT EXISTS ix_aut_mision_estado ON automation_misiones (estado)",
+    "CREATE INDEX IF NOT EXISTS ix_aut_mision_accion ON automation_misiones (accion_id)",
 ]

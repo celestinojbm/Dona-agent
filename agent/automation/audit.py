@@ -60,6 +60,12 @@ EVENTOS_VALIDOS = {
     # 2.5 · consentimiento de terceros (política Hermes block-until-consent)
     "high_consent_registered",
     "high_send_blocked_policy",
+    # M0 · Mission Runtime recuperar-lead. M0-1 introduce el ciclo de vida
+    # básico de la misión (creación + cierre seguro); los eventos de
+    # draft/preview/link/completed llegan en M0-2..M0-5.
+    "mission_recover_lead_created",
+    "mission_recover_lead_blocked",
+    "mission_recover_lead_failed",
 }
 
 
