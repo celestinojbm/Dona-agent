@@ -717,7 +717,6 @@ async def inicializar_db():
                     # Forzar creación explícita con CREATE TABLE IF NOT EXISTS
                     for nombre in sorted(faltantes):
                         tabla = Base.metadata.tables[nombre]
-                        ddl = str(tabla.compile(dialect=conn.dialect)) if hasattr(tabla, "compile") else None
                         # Usar CreateTable de SQLAlchemy para generar el DDL correcto
                         from sqlalchemy.schema import CreateTable
                         ddl_str = str(CreateTable(tabla).compile(conn.dialect))
@@ -1230,7 +1229,6 @@ async def cancelar_recordatorios_por_keyword(telefono: str, palabras: list[str])
     Retorna los IDs cancelados.
     """
     async with async_session() as session:
-        ahora = datetime.utcnow()
         query = (
             select(Recordatorio)
             .where(Recordatorio.telefono == telefono)

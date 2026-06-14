@@ -300,7 +300,8 @@ class PresupuestoMensaje:
             )
 
     def _bloquear(self, razon: str, limite=None, usado=None) -> DecisionPresupuesto:
-        assert razon in RAZONES_BLOQUEO, f"razón no cerrada: {razon}"
+        if razon not in RAZONES_BLOQUEO:
+            raise ValueError(f"razón no cerrada: {razon}")
         _emitir_evento(
             "budget_blocked",
             owner_short=self.telefono[-4:] if self.telefono else "?",

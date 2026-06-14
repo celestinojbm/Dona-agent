@@ -2388,7 +2388,6 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                         "reply_message_id": original["message_id_header"],
                     }
 
-                    remitente_corto = remitente_original.split("<")[0].strip() or remitente_original
                     resultado = (
                         f"BORRADOR DE RESPUESTA — esperando confirmación:\n\n"
                         f"Para: {remitente_original}\n"
