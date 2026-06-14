@@ -1,0 +1,65 @@
+name: Landing CI
+
+# Cierra el hueco mayor de la auditoria: el landing (Next.js 16) no tenia ningun
+# gate pre-merge. Next 16 ya NO corre lint ni typecheck dentro de `next build`,
+# asi que se ejecutan como pasos explicitos. Solo dispara cuando cambia el landing.
+
+on:
+  pull_request:
+    paths:
+      - 'landing/**'
+      - '.github/workflows/landing.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'landing/**'
+      - '.github/workflows/landing.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: landing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  landing:
+    name: Landing (lint · typecheck · test · build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: landing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+
+      - name: Install (reproducible)
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (vitest)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          # Placeholders SOLO para que `next build` compile en CI. No son secretos
+          # reales ni se usan en runtime; el build no debe depender de valores vivos.
+          STRIPE_SECRET_KEY: sk_test_dummy_ci
+          STRIPE_WEBHOOK_SECRET: whsec_dummy_ci
+          INTERNAL_BRIDGE_SECRET: dummy_bridge_secret_ci
+          BACKEND_URL: http://localhost:8000
+          AUTH_SECRET: dummy_auth_secret_ci_build_only
+          NEXTAUTH_SECRET: dummy_auth_secret_ci_build_only
+          NEXTAUTH_URL: http://localhost:3000
