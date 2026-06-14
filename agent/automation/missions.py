@@ -1048,3 +1048,146 @@ async def reconciliar_misiones_recuperar_lead(
         "relinkeadas": relinkeadas, "revertidas": revertidas,
         "completadas": completadas, "canceladas": canceladas,
     }
+
+
+# ── M0-5 · dossier de evidencia + métricas (Control Room mínimo) ─────────
+
+# Eventos de audit que deben existir para considerar una misión COMPLETADA
+# CON EVIDENCIA (no solo "estado=completed", sino el rastro reconstruible del
+# flujo). high_execution_succeeded es la prueba de que el envío salió.
+EVENTOS_EVIDENCIA_REQUERIDOS = (
+    "mission_recover_lead_created",
+    "mission_recover_lead_draft_created",
+    "mission_recover_lead_preview_rendered",
+    "mission_recover_lead_action_linked",
+    "high_execution_succeeded",
+    "mission_recover_lead_completed",
+)
+
+
+async def _eventos_de_mision(mision_id: int, accion_id, telefono_owner: str) -> set[str]:
+    """Conjunto de tipos de evento de audit asociados a la misión. Los eventos
+    de misión llevan `mision_id` en payload_summary; los `high_*` llevan
+    accion_id. Owner-scoped por telefono_short. NUNCA lee destino/cuerpo
+    (solo nombres de evento)."""
+    from sqlalchemy import select as _select, or_
+    from agent.memory import async_session
+    from agent.automation.models import AuditLogAutomatizacion
+    from agent.automation.audit import _short_telefono
+
+    tel_short = _short_telefono(telefono_owner)
+    # payload_summary va con sort_keys → "mision_id": <id> seguido de , o }
+    patron_coma = f'%"mision_id": {mision_id},%'
+    patron_llave = f'%"mision_id": {mision_id}}}%'
+    condiciones = [
+        AuditLogAutomatizacion.payload_summary.like(patron_coma),
+        AuditLogAutomatizacion.payload_summary.like(patron_llave),
+    ]
+    if accion_id:
+        condiciones.append(AuditLogAutomatizacion.accion_id == accion_id)
+
+    async with async_session() as session:
+        rows = (await session.execute(
+            _select(AuditLogAutomatizacion.evento).where(
+                AuditLogAutomatizacion.telefono_short == tel_short,
+                or_(*condiciones),
+            )
+        )).all()
+    return {r[0] for r in rows}
+
+
+async def dossier_mision(mision_id: int, telefono_owner: str) -> dict[str, Any] | None:
+    """Vista de detalle OWNER-SCOPED de una misión para el Control Room
+    (M0-5). Wrong-owner → None. Muestra estado, destino ENMASCARADO, acción
+    enlazada, reason_code, timestamps y el ESTADO DE EVIDENCIA: qué eventos
+    requeridos están presentes y `completed_with_evidence` (True solo si la
+    misión está `completed` Y todos los eventos requeridos existen). No expone
+    destino/cuerpo crudos."""
+    mision = await obtener_mision(mision_id, telefono_owner)
+    if mision is None:
+        return None
+
+    presentes = await _eventos_de_mision(
+        mision_id, mision.get("accion_id"), telefono_owner,
+    )
+    faltantes = [e for e in EVENTOS_EVIDENCIA_REQUERIDOS if e not in presentes]
+    completed_with_evidence = (
+        mision["estado"] == "completed" and not faltantes
+    )
+
+    return {
+        "mision_id": mision["id"],
+        "tipo": mision["tipo"],
+        "estado": mision["estado"],
+        "canal": mision["canal"],
+        "lead_nombre": mision["lead_nombre"],
+        "destino_masked": mision["destino_masked"],   # nunca crudo
+        "accion_id": mision["accion_id"],
+        "reason_code": mision["reason_code"],
+        "tiene_draft": bool((mision.get("evidencia") or {}).get("draft")),
+        "created_at": mision["created_at"],
+        "updated_at": mision["updated_at"],
+        "completed_at": mision["completed_at"],
+        "evidencia": {
+            "requeridos": list(EVENTOS_EVIDENCIA_REQUERIDOS),
+            "presentes": sorted(presentes & set(EVENTOS_EVIDENCIA_REQUERIDOS)),
+            "faltantes": faltantes,
+            "completed_with_evidence": completed_with_evidence,
+        },
+    }
+
+
+async def metricas_misiones(telefono_owner: str) -> dict[str, Any]:
+    """Contadores OWNER-SCOPED de misiones recuperar-lead para el Control Room
+    (M0-5): totales por estado, completadas-con-evidencia, y desglose de
+    reason_codes de las bloqueadas/fallidas. Métrica norte = completadas con
+    evidencia."""
+    from sqlalchemy import select as _select, func
+    from agent.memory import async_session
+    from agent.automation.models import MisionAutomation
+
+    async with async_session() as session:
+        por_estado = dict((await session.execute(
+            _select(MisionAutomation.estado, func.count())
+            .where(
+                MisionAutomation.telefono == telefono_owner,
+                MisionAutomation.tipo == TIPO_RECUPERAR_LEAD,
+            )
+            .group_by(MisionAutomation.estado)
+        )).all())
+
+        por_razon = dict((await session.execute(
+            _select(MisionAutomation.reason_code, func.count())
+            .where(
+                MisionAutomation.telefono == telefono_owner,
+                MisionAutomation.tipo == TIPO_RECUPERAR_LEAD,
+                MisionAutomation.estado.in_(("blocked", "failed")),
+            )
+            .group_by(MisionAutomation.reason_code)
+        )).all())
+
+        completadas_ids = (await session.execute(
+            _select(MisionAutomation.id, MisionAutomation.accion_id).where(
+                MisionAutomation.telefono == telefono_owner,
+                MisionAutomation.tipo == TIPO_RECUPERAR_LEAD,
+                MisionAutomation.estado == "completed",
+            )
+        )).all()
+
+    # Métrica norte: completadas CON evidencia completa (no solo estado).
+    con_evidencia = 0
+    for mid, aid in completadas_ids:
+        presentes = await _eventos_de_mision(mid, aid, telefono_owner)
+        if all(e in presentes for e in EVENTOS_EVIDENCIA_REQUERIDOS):
+            con_evidencia += 1
+
+    total = sum(por_estado.values())
+    return {
+        "total": total,
+        "por_estado": por_estado,
+        "completadas": por_estado.get("completed", 0),
+        "completadas_con_evidencia": con_evidencia,   # ← métrica norte
+        "bloqueadas": por_estado.get("blocked", 0),
+        "fallidas": por_estado.get("failed", 0),
+        "reason_codes": {k: v for k, v in por_razon.items() if k},
+    }
