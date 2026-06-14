@@ -1,0 +1,17 @@
+# Config de gitleaks para Dona: ruleset por defecto + allowlist de fixtures de
+# test (claves FAKE) para evitar falsos positivos. En PRs, gitleaks-action
+# escanea solo el diff del PR, asi que el ruido es minimo.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fixtures de test y placeholders no-secreto"
+regexes = [
+  '''sk-ant-test-fake-key''',
+  '''sk-ant-[a-z0-9-]*fake[a-z0-9-]*''',
+  '''(?i)dummy[_-]?(secret|key|token|auth)''',
+  '''(?i)(fake|test|placeholder|example)[_-]?(secret|key|token)''',
+]
+paths = [
+  '''(.*?)\.env\.example$''',
+]

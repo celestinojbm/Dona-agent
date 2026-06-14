@@ -1,0 +1,46 @@
+name: Security
+
+# Capa 2 del stack: auditoria de dependencias (CVEs) + secret-scanning.
+# pip-audit caza CVEs conocidos; gitleaks caza secretos. Dependabot (ver
+# .github/dependabot.yml) hace los upgrades. El schedule semanal captura CVEs
+# nuevos sin necesidad de un cambio de codigo.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'  # lunes 06:00 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pip-audit:
+    name: pip-audit (deps Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install "pip-audit>=2.7,<3"
+      - name: Auditar requirements.txt (CVEs conocidos)
+        run: pip-audit -r requirements.txt --progress-spinner off
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
