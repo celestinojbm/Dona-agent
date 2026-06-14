@@ -261,7 +261,6 @@ async def verificar_proactividad(proveedor):
 
         for u in usuarios:
             telefono = u["telefono"]
-            nombre = u["nombre"] or ""
 
             # Límite diario
             if u["mensajes_hoy"] >= MAX_MENSAJES_DIARIOS:
@@ -725,16 +724,11 @@ async def _disparador_noticias(telefono: str, nombre: str, contexto: str) -> str
     """
     from agent.memory import (
         marcar_noticia_enviada,
-        obtener_proactividad,
         ya_enviada_noticia,
     )
     from agent.real_world import extraer_industria, obtener_noticias
 
     try:
-        # No repetir si ya se envió esta semana
-        config = await obtener_proactividad(telefono)
-        ultimo_news = config.get("ultimo_conflict_check") if config else None  # reutilizamos campo
-
         ubicacion = await _obtener_ubicacion_usuario(telefono)
         pais = ubicacion.get("pais") or "México"
 

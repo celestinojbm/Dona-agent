@@ -7,7 +7,6 @@
 #   - "S"    flake8-bandit (SAST)      -> con per-file-ignores para FPs ya vistos
 #            (google_calendar _FALLBACK_STATE_SECRET/_TOKEN_URL, welcome
 #            _PASSWORD_PREFIX, real_world md5, storage sha1 — todos no-secreto)
-#   - "F841" variables sin usar
 #   - "B904" raise ... from ...        -> ~17 sitios
 # E501 (linea larga) se ignora siempre: lo cubriria el formatter, no lo forzamos.
 
@@ -19,7 +18,7 @@ line-length = 100
 select = ["F", "I", "UP", "B"]
 # UP042 (str,Enum -> StrEnum) NO se aplica: cambia __str__ y NivelRiesgo es zona
 # roja (clasificacion de riesgo). Revisar manualmente si se quiere migrar.
-ignore = ["B904", "F841", "E501", "UP042"]
+ignore = ["B904", "E501", "UP042"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]

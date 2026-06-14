@@ -197,7 +197,6 @@ async def generar_pdf(
         title=f"{_TITULOS[tipo]} {folio}",
     )
     styles = getSampleStyleSheet()
-    st_h1 = ParagraphStyle("h1", parent=styles["Heading1"], fontSize=22, textColor=colors.HexColor("#111111"), spaceAfter=6)
     st_h2 = ParagraphStyle("h2", parent=styles["Heading2"], fontSize=14, textColor=colors.HexColor("#333333"), spaceAfter=4)
     st_normal = ParagraphStyle("n", parent=styles["BodyText"], fontSize=10, textColor=colors.HexColor("#222222"))
     st_small = ParagraphStyle("s", parent=styles["BodyText"], fontSize=9, textColor=colors.HexColor("#555555"))
