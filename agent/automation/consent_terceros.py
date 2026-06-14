@@ -86,8 +86,9 @@ def componer_mensaje_primer_contacto(
 async def destino_hablo_con_dona(destino: str) -> bool:
     """True si el destino tiene mensajes INBOUND (role='user') — es decir,
     ya conversó con Dona alguna vez y no es un contacto frío."""
-    from sqlalchemy import select, exists
-    from agent.memory import async_session, Mensaje
+    from sqlalchemy import exists, select
+
+    from agent.memory import Mensaje, async_session
 
     destino_norm = normalizar_destino(destino)
     if not destino_norm:
@@ -106,8 +107,9 @@ async def destino_hablo_con_dona(destino: str) -> bool:
 
 async def _destino_respondio_desde(destino: str, desde: datetime) -> bool:
     """True si el destino escribió a Dona DESPUÉS de `desde` (respondió)."""
-    from sqlalchemy import select, exists
-    from agent.memory import async_session, Mensaje
+    from sqlalchemy import exists, select
+
+    from agent.memory import Mensaje, async_session
 
     async with async_session() as session:
         result = await session.execute(
@@ -137,9 +139,10 @@ async def evaluar_politica_envio_tercero(
 
     Fail-closed la aplica el caller: si esta función LANZA, no se envía.
     """
-    from sqlalchemy import select, func
-    from agent.memory import async_session
+    from sqlalchemy import func, select
+
     from agent.automation.models import EnvioTerceroAutomation
+    from agent.memory import async_session
 
     destino = normalizar_destino(numero_destino)
     ahora = datetime.utcnow()
@@ -226,9 +229,10 @@ async def evaluar_politica_envio_tercero(
 async def _terceros_nuevos_owner_desde(telefono_owner: str, desde: datetime) -> int:
     """Cuántos destinos DISTINTOS recibieron su PRIMER envío histórico de
     este owner a partir de `desde`."""
-    from sqlalchemy import select, func
-    from agent.memory import async_session
+    from sqlalchemy import func, select
+
     from agent.automation.models import EnvioTerceroAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         sub = (
@@ -254,8 +258,8 @@ async def registrar_consentimiento(
     scope: str = "este_mensaje",
 ) -> None:
     """Registra el consentimiento afirmativo del owner (append-only)."""
-    from agent.memory import async_session
     from agent.automation.models import ConsentimientoTerceroAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         session.add(ConsentimientoTerceroAutomation(
@@ -288,9 +292,10 @@ async def tiene_consentimiento_fresco(
     scope=este_mensaje NO se reutiliza entre mensajes — atarlo al accion_id
     impide que el consent de una acción habilite otra acción al mismo
     destino dentro de la ventana por un camino no dedicado."""
-    from sqlalchemy import select, exists
-    from agent.memory import async_session
+    from sqlalchemy import exists, select
+
     from agent.automation.models import ConsentimientoTerceroAutomation
+    from agent.memory import async_session
 
     corte = datetime.utcnow() - timedelta(minutes=max_minutos)
     async with async_session() as session:
@@ -311,8 +316,8 @@ async def registrar_envio_tercero(
     telefono_owner: str, numero_destino: str, accion_id: int | None
 ) -> None:
     """Loguea un envío exitoso a un tercero (base de los límites)."""
-    from agent.memory import async_session
     from agent.automation.models import EnvioTerceroAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         session.add(EnvioTerceroAutomation(

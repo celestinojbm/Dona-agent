@@ -11,9 +11,10 @@ Testeables sin FastAPI ni proveedores de WhatsApp.
 from __future__ import annotations
 
 import logging
+
 from agent.billing import (
-    obtener_resumen,
     crear_checkout,
+    obtener_resumen,
     paquetes_disponibles,
 )
 from agent.storage import listar_assets_usuario

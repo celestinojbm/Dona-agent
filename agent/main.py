@@ -6,29 +6,32 @@ Servidor principal del agente Dona.
 Funciona con cualquier proveedor (Whapi, Meta, Twilio) gracias a la capa de providers.
 """
 
-import os
-import re
+import hashlib
 import hmac
 import json
-import hashlib
 import logging
-import httpx
-from time import monotonic
+import os
+import re
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import PlainTextResponse, HTMLResponse, RedirectResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from time import monotonic
+
+import httpx
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 load_dotenv()
 
 # Configurar logging ANTES de cualquier import que use logger
 from agent.logging_config import configurar_logging
+
 configurar_logging()
 
 # T1.6 — instalar filtro de request_id sobre el logger root para que TODO
 # log durante un request lleve el id (correlación cliente↔servidor).
 from agent.observability import instalar_filtro_request_id
+
 instalar_filtro_request_id()
 
 # Readiness check consolidado (Fase 0 · 0.2): en entorno estricto, aborta el
@@ -38,6 +41,7 @@ instalar_filtro_request_id()
 # uno por redeploy. Complementa el fail-closed de C8: aquel rechaza requests sin
 # verificación, éste impide arrancar "vivo pero degradado".
 from agent.readiness import verificar_readiness
+
 verificar_readiness()
 
 # Forzar el check de STRIPE_WEBHOOK_SECRET al startup. Si el entorno es estricto
@@ -75,36 +79,44 @@ def _check_internal_bridge_secret() -> None:
 _check_internal_bridge_secret()
 
 from agent.brain import generar_respuesta
-from agent.memory import (
-    inicializar_db, guardar_mensaje, obtener_historial,
-    obtener_mirofish_estado, guardar_mirofish_estado,
-    obtener_ubicacion, guardar_ubicacion, guardar_ciudad_temporal,
+from agent.envio_gate import (
+    activar_contexto_directo,
+    contexto_envio_automatico,
+    contexto_envio_directo,
+    restaurar_contexto,
 )
-from agent.location import parece_viaje, detectar_viaje, es_ciudad_suelta
 from agent.learning import registrar_interaccion
-from agent.onboarding import procesar_mensaje_onboarding, es_onboarding_activo
-from agent.proactivity import (
-    es_comando_proactividad, manejar_comando_proactividad,
-    es_comando_stop_tcpa, es_comando_start_tcpa,
-    manejar_stop_tcpa, manejar_start_tcpa,
-)
+from agent.location import detectar_viaje, es_ciudad_suelta, parece_viaje
 from agent.memory import (
-    contar_eventos_estres_recientes, ya_avisado_sobrecarga_hoy, marcar_aviso_sobrecarga,
+    contar_eventos_estres_recientes,
+    guardar_ciudad_temporal,
+    guardar_mensaje,
+    guardar_mirofish_estado,
+    guardar_ubicacion,
+    inicializar_db,
+    marcar_aviso_sobrecarga,
+    obtener_historial,
+    obtener_mirofish_estado,
+    obtener_ubicacion,
+    ya_avisado_sobrecarga_hoy,
 )
-from agent.providers import obtener_proveedor
+from agent.memory_summary import actualizar_resumen_si_necesario
+from agent.onboarding import es_onboarding_activo, procesar_mensaje_onboarding
 from agent.presupuesto_runtime import (
     abrir_presupuesto_mensaje,
     cerrar_presupuesto_mensaje,
 )
-from agent.envio_gate import (
-    activar_contexto_directo,
-    restaurar_contexto,
-    contexto_envio_directo,
-    contexto_envio_automatico,
+from agent.proactivity import (
+    es_comando_proactividad,
+    es_comando_start_tcpa,
+    es_comando_stop_tcpa,
+    manejar_comando_proactividad,
+    manejar_start_tcpa,
+    manejar_stop_tcpa,
 )
-from agent.scheduler import iniciar_scheduler, detener_scheduler
-from agent.transcriber import procesar_audio_whapi, procesar_audio_meta
-from agent.memory_summary import actualizar_resumen_si_necesario
+from agent.providers import obtener_proveedor
+from agent.scheduler import detener_scheduler, iniciar_scheduler
+from agent.transcriber import procesar_audio_meta, procesar_audio_whapi
 
 logger = logging.getLogger("dona")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
@@ -120,17 +132,18 @@ PORT = int(os.getenv("PORT", 8000))
 # Usa PostgreSQL para persistir IDs procesados (sobrevive restarts).
 # Fallback a in-memory si la DB falla.
 import collections as _collections
+
 _mensajes_procesados_mem: _collections.OrderedDict = _collections.OrderedDict()
 _MAX_IDS_DEDUP = 1000
 
 # ── Rate limiting por número de teléfono ─────────────────────────────────────
 # Usa Redis si disponible (persistente), sino fallback a in-memory.
-from agent.rate_limiter import dentro_de_limite as _dentro_de_limite
-
-
 # ── Métricas en memoria para el endpoint /admin/metrics ──────────────────────
 import threading as _threading
 from datetime import UTC
+
+from agent.rate_limiter import dentro_de_limite as _dentro_de_limite
+
 
 class _Metricas:
     """Contadores atómicos simples para métricas de la aplicación."""
@@ -222,7 +235,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Importes locales para no agregar dependencia al boot.
         from agent.observability import (
-            asignar_nuevo_request_id, fijar_request_id, obtener_request_id,
+            asignar_nuevo_request_id,
+            fijar_request_id,
+            obtener_request_id,
         )
 
         inicio = monotonic()
@@ -634,8 +649,9 @@ async def admin_recordatorios(request: Request, telefono: str, token: str = ""):
         raise HTTPException(status_code=403, detail="Token inválido")
     if not _telefono_valido(telefono):
         raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
-    from agent.memory import obtener_recordatorios_activos, obtener_timezone
     from datetime import datetime as dt
+
+    from agent.memory import obtener_recordatorios_activos, obtener_timezone
     activos = await obtener_recordatorios_activos(telefono)
     offset = await obtener_timezone(telefono)
     ahora_utc = dt.utcnow()
@@ -743,7 +759,8 @@ async def google_oauth_callback(
     Intercambia el código por tokens, los guarda y confirma por WhatsApp.
     """
     import asyncio as _asyncio
-    from agent.google_calendar import intercambiar_codigo, decodificar_state
+
+    from agent.google_calendar import decodificar_state, intercambiar_codigo
 
     if error:
         logger.warning(f"[GOOGLE] OAuth rechazado: {error}")
@@ -910,7 +927,7 @@ async def _mensaje_ya_procesado(mensaje_id: str, telefono: str) -> bool:
         return True
 
     try:
-        from agent.memory import async_session, MensajeProcesado, _ES_POSTGRES
+        from agent.memory import _ES_POSTGRES, MensajeProcesado, async_session
         if _ES_POSTGRES:
             from sqlalchemy.dialects.postgresql import insert as _insert
         else:
@@ -1075,12 +1092,15 @@ async def procesar_webhook(request: Request):
             if msg.image_id and msg.image_caption:
                 try:
                     from agent.creativos.comandos import (
-                        es_comando_bg_remove, texto_bg_remove_preview,
-                        es_comando_video, parsear_video, texto_video_preview,
+                        es_comando_bg_remove,
+                        es_comando_video,
+                        parsear_video,
+                        texto_bg_remove_preview,
+                        texto_video_preview,
                     )
                     if es_comando_bg_remove(msg.image_caption):
-                        from agent.vision import descargar_imagen_meta
                         from agent.creativos.bg_remove import preparar_bg_remove_desde_bytes
+                        from agent.vision import descargar_imagen_meta
 
                         img_bytes, img_mime = await descargar_imagen_meta(msg.image_id)
                         if not img_bytes:
@@ -1102,8 +1122,8 @@ async def procesar_webhook(request: Request):
                         continue
 
                     if es_comando_video(msg.image_caption):
-                        from agent.vision import descargar_imagen_meta
                         from agent.creativos.video import preparar_video_desde_bytes
+                        from agent.vision import descargar_imagen_meta
 
                         datos_v = parsear_video(msg.image_caption)
                         prompt_v = (datos_v.get("prompt") or "").strip()
@@ -1171,7 +1191,7 @@ async def procesar_webhook(request: Request):
             # contactos (algunos tienen una entrada "Me" / "Yo"). Silencioso si no hay
             # match o si aún no autorizó Google — el onboarding tradicional lo cubrirá.
             try:
-                from agent.memory import obtener_onboarding, guardar_onboarding
+                from agent.memory import guardar_onboarding, obtener_onboarding
                 _ob = await obtener_onboarding(msg.telefono)
                 if not _ob or not (_ob.get("nombre") or "").strip():
                     from agent.google_contacts import buscar_por_telefono
@@ -1390,8 +1410,8 @@ async def procesar_webhook(request: Request):
 
             # ── Recordatorio en lenguaje natural ("recuérdame mañana 9am que...") ──
             try:
+                from agent.memory import guardar_recordatorio, obtener_timezone
                 from agent.reminders_nl import parsear as _parsear_nl
-                from agent.memory import obtener_timezone, guardar_recordatorio
                 _offset = await obtener_timezone(msg.telefono) or 0
                 _rec = _parsear_nl(msg.texto, offset_tz_minutos=_offset)
             except Exception:
@@ -1445,8 +1465,12 @@ async def procesar_webhook(request: Request):
             # ── Comandos de billing ("dona saldo", "dona recargar", "dona mis assets") ──
             try:
                 from agent.billing_commands import (
-                    es_comando_saldo, es_comando_recargar, es_comando_mis_assets,
-                    texto_saldo, texto_recargar, texto_mis_assets,
+                    es_comando_mis_assets,
+                    es_comando_recargar,
+                    es_comando_saldo,
+                    texto_mis_assets,
+                    texto_recargar,
+                    texto_saldo,
                 )
                 if es_comando_saldo(msg.texto):
                     await proveedor.enviar_mensaje(msg.telefono, await texto_saldo(msg.telefono))
@@ -1465,53 +1489,96 @@ async def procesar_webhook(request: Request):
 
             # ── Comandos creativos ("dona imagen <prompt>" + confirmar/cancelar) ──
             try:
-                from agent.creativos.comandos import (
-                    es_comando_imagen, parsear_imagen,
-                    es_comando_confirmar, es_comando_cancelar,
-                    es_solicitud_imagen_sin_sujeto,
-                    es_comando_bg_remove_ultima,
-                    es_comando_voz, parsear_voz,
-                    es_comando_documento, parsear_documento,
-                    es_comando_video, parsear_video,
-                    es_comando_video_avatar, parsear_video_avatar,
-                    texto_preview, texto_encolada, texto_sin_pendiente, texto_cancelada,
-                    texto_documento_preview, texto_documento_encolada,
-                    texto_video_preview, texto_video_encolada,
-                    texto_video_avatar_preview, texto_video_avatar_encolada,
-                    texto_pedir_sujeto,
-                    texto_bg_remove_preview, texto_bg_remove_encolada,
-                    texto_bg_remove_sin_imagen, texto_bg_remove_no_servible,
-                    texto_voz_preview, texto_voz_encolada,
-                    es_confirmar_inequivoco, es_cancelar_inequivoco,
-                    texto_sin_nada_que_confirmar, texto_sin_nada_que_cancelar,
-                    es_comando_ajustar, parsear_ajustar,
-                    texto_video_ajustado, texto_imagen_ajustada, texto_voz_ajustada,
-                )
-                from agent.creativos.imagen import (
-                    preparar_imagen, confirmar_imagen, cancelar_imagen,
-                    ajustar_imagen, obtener_pendiente,
+                from agent.creativos.bg_remove import (
+                    cancelar_bg_remove,
+                    confirmar_bg_remove,
+                    preparar_bg_remove_desde_ultimo_asset,
                 )
                 from agent.creativos.bg_remove import (
-                    preparar_bg_remove_desde_ultimo_asset,
-                    confirmar_bg_remove, cancelar_bg_remove,
                     obtener_pendiente as obtener_pendiente_bg,
                 )
-                from agent.creativos.voz import (
-                    preparar_voz, confirmar_voz, cancelar_voz,
-                    ajustar_voz, obtener_pendiente as obtener_pendiente_voz,
+                from agent.creativos.comandos import (
+                    es_cancelar_inequivoco,
+                    es_comando_ajustar,
+                    es_comando_bg_remove_ultima,
+                    es_comando_cancelar,
+                    es_comando_confirmar,
+                    es_comando_documento,
+                    es_comando_imagen,
+                    es_comando_video,
+                    es_comando_video_avatar,
+                    es_comando_voz,
+                    es_confirmar_inequivoco,
+                    es_solicitud_imagen_sin_sujeto,
+                    parsear_ajustar,
+                    parsear_documento,
+                    parsear_imagen,
+                    parsear_video,
+                    parsear_video_avatar,
+                    parsear_voz,
+                    texto_bg_remove_encolada,
+                    texto_bg_remove_no_servible,
+                    texto_bg_remove_preview,
+                    texto_bg_remove_sin_imagen,
+                    texto_cancelada,
+                    texto_documento_encolada,
+                    texto_documento_preview,
+                    texto_encolada,
+                    texto_imagen_ajustada,
+                    texto_pedir_sujeto,
+                    texto_preview,
+                    texto_sin_nada_que_cancelar,
+                    texto_sin_nada_que_confirmar,
+                    texto_sin_pendiente,
+                    texto_video_ajustado,
+                    texto_video_avatar_encolada,
+                    texto_video_avatar_preview,
+                    texto_video_encolada,
+                    texto_video_preview,
+                    texto_voz_ajustada,
+                    texto_voz_encolada,
+                    texto_voz_preview,
+                )
+                from agent.creativos.imagen import (
+                    ajustar_imagen,
+                    cancelar_imagen,
+                    confirmar_imagen,
+                    obtener_pendiente,
+                    preparar_imagen,
                 )
                 from agent.creativos.pdf import (
-                    preparar_documento, confirmar_documento, cancelar_documento,
+                    cancelar_documento,
+                    confirmar_documento,
+                    preparar_documento,
+                )
+                from agent.creativos.pdf import (
                     obtener_pendiente as obtener_pendiente_doc,
                 )
                 from agent.creativos.video import (
-                    preparar_video, confirmar_video, cancelar_video,
                     ajustar_video,
+                    cancelar_video,
+                    confirmar_video,
+                    preparar_video,
+                )
+                from agent.creativos.video import (
                     obtener_pendiente as obtener_pendiente_video,
                 )
                 from agent.creativos.video_avatar import (
-                    preparar_video_avatar, confirmar_video_avatar, cancelar_video_avatar,
+                    cancelar_video_avatar,
+                    confirmar_video_avatar,
+                    preparar_video_avatar,
+                )
+                from agent.creativos.video_avatar import (
                     obtener_pendiente as obtener_pendiente_video_avatar,
+                )
+                from agent.creativos.voz import (
+                    ajustar_voz,
+                    cancelar_voz,
+                    confirmar_voz,
+                    preparar_voz,
+                )
+                from agent.creativos.voz import (
+                    obtener_pendiente as obtener_pendiente_voz,
                 )
 
                 # Voz (TTS) — chequear ANTES de es_comando_imagen porque "hazme
@@ -1847,7 +1914,10 @@ async def procesar_webhook(request: Request):
                                     f"{_rep.get('mes'):02d}/{año}" if _rep.get("mes") else f"todo {año}"
                                 )
                                 try:
-                                    from agent.gmail import enviar_correo_con_adjunto, GmailScopeError
+                                    from agent.gmail import (
+                                        GmailScopeError,
+                                        enviar_correo_con_adjunto,
+                                    )
                                     ok_mail = await enviar_correo_con_adjunto(
                                         msg.telefono,
                                         email_destinatario,
@@ -1891,7 +1961,7 @@ async def procesar_webhook(request: Request):
                             # Backup en Google Drive (best-effort, no bloquea)
                             drive_link = None
                             try:
-                                from agent.google_drive import subir_archivo, compartir_con_link
+                                from agent.google_drive import compartir_con_link, subir_archivo
                                 subida = await subir_archivo(
                                     msg.telefono, filename, csv_bytes,
                                     mime_type="text/csv",
@@ -1967,8 +2037,10 @@ async def procesar_webhook(request: Request):
             # ── Onboarding de negocio: flujo guiado de configuración ────────
             try:
                 from agent.business.onboarding_negocio import (
-                    esta_en_onboarding_negocio, procesar_paso_onboarding,
-                    necesita_onboarding_negocio, iniciar_onboarding_negocio,
+                    esta_en_onboarding_negocio,
+                    iniciar_onboarding_negocio,
+                    necesita_onboarding_negocio,
+                    procesar_paso_onboarding,
                 )
                 if await esta_en_onboarding_negocio(msg.telefono):
                     resp_biz = await procesar_paso_onboarding(msg.telefono, msg.texto)
@@ -2015,7 +2087,7 @@ async def procesar_webhook(request: Request):
 
             # ── Dona 2.0: Detección NLP de sistemas del catálogo ────────────
             try:
-                from enhanced.nlp_detector import detectar_sistema, _pasa_filtro_rapido
+                from enhanced.nlp_detector import _pasa_filtro_rapido, detectar_sistema
                 if _pasa_filtro_rapido(msg.texto):
                     from enhanced.catalog import obtener_catalogo_activo
                     from enhanced.system_manager import gestor_sistemas
@@ -2215,8 +2287,9 @@ async def _actualizar_memoria_mirofish(telefono: str, texto: str):
          - Han pasado 7+ días desde la última sincronización.
     Corre en background — silencioso, sin interrumpir la experiencia del usuario.
     """
-    import agent.mirofish_client as mf
     from datetime import datetime
+
+    import agent.mirofish_client as mf
 
     try:
         estado = await obtener_mirofish_estado(telefono)
@@ -2362,7 +2435,7 @@ async def webhook_stripe(request: Request):
     y acredita créditos al usuario cuando corresponde.
     Idempotente: reentregas del mismo `session_id` no duplican créditos.
     """
-    from agent.billing import verificar_firma_stripe, procesar_evento_stripe
+    from agent.billing import procesar_evento_stripe, verificar_firma_stripe
 
     body = await request.body()
     sig = request.headers.get("stripe-signature", "")
@@ -2472,7 +2545,7 @@ async def internal_stripe_event(request: Request):
     invoice.id + stripe_session_id en TransaccionCredito). Este endpoint
     solo despacha.
     """
-    from agent.billing import procesar_evento_suscripcion, procesar_evento_stripe
+    from agent.billing import procesar_evento_stripe, procesar_evento_suscripcion
 
     body = await request.body()
     sig = request.headers.get("X-Internal-Signature", "")
@@ -2586,10 +2659,14 @@ async def internal_usuario_resumen(request: Request):
         404 → subscription_id no existe en suscripcion_stripe.
         200 → JSON con la estructura documentada en el cuerpo de la función.
     """
+    from sqlalchemy import desc, select
+
     from agent.memory import (
-        async_session, SuscripcionStripe, SaldoCreditos, TransaccionCredito,
+        SaldoCreditos,
+        SuscripcionStripe,
+        TransaccionCredito,
+        async_session,
     )
-    from sqlalchemy import select, desc
 
     body = await request.body()
     sig = request.headers.get("X-Internal-Signature", "")
@@ -2718,8 +2795,9 @@ async def internal_usuario_resumen(request: Request):
 async def _resolver_telefono_desde_subscription(subscription_id: str) -> str | None:
     """Helper · subscription_id → telefono usando suscripcion_stripe.
     Retorna None si la sub no existe."""
-    from agent.memory import async_session, SuscripcionStripe
     from sqlalchemy import select
+
+    from agent.memory import SuscripcionStripe, async_session
     if not subscription_id:
         return None
     async with async_session() as session:
@@ -2835,11 +2913,11 @@ async def admin_automation_acciones_generar(request: Request, token: str = ""):
     telefono = (payload.get("telefono") or "").strip()
     if not telefono:
         raise HTTPException(status_code=400, detail="telefono requerido")
+    from agent.automation.action_center import crear_accion
     from agent.automation.opportunities import (
         detectar_oportunidades_con_estado_para_telefono,
     )
     from agent.automation.playbooks import obtener_playbook
-    from agent.automation.action_center import crear_accion
     data = await detectar_oportunidades_con_estado_para_telefono(telefono)
     opps = data["oportunidades"]
     creadas = []
@@ -2908,10 +2986,11 @@ async def admin_automation_ejecutar(
     """
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
-    from agent.automation.execution import ejecutar_accion
-    from agent.memory import async_session
-    from agent.automation.models import AccionAutomatizacion
     from sqlalchemy import select
+
+    from agent.automation.execution import ejecutar_accion
+    from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
     async with async_session() as session:
         row = (await session.execute(
             select(AccionAutomatizacion).where(
@@ -2962,7 +3041,9 @@ async def admin_automation_prune_preview(
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.automation.pruning import (
-        pruning_acciones, pruning_reservas, pruning_audit_log,
+        pruning_acciones,
+        pruning_audit_log,
+        pruning_reservas,
     )
     try:
         a = await pruning_acciones(dias=dias_acciones, ejecutar_borrado=False)
@@ -3002,7 +3083,9 @@ async def admin_automation_prune_execute(
             detail="tabla debe ser 'all'|'acciones'|'reservas'|'audit_log'",
         )
     from agent.automation.pruning import (
-        pruning_acciones, pruning_reservas, pruning_audit_log,
+        pruning_acciones,
+        pruning_audit_log,
+        pruning_reservas,
     )
     out: dict = {}
     try:
@@ -3164,11 +3247,11 @@ async def internal_automation_acciones_generar(request: Request):
     telefono = await _resolver_telefono_desde_subscription(sub_id)
     if not telefono:
         raise HTTPException(status_code=404, detail="subscription_no_persistida")
+    from agent.automation.action_center import crear_accion
     from agent.automation.opportunities import (
         detectar_oportunidades_con_estado_para_telefono,
     )
     from agent.automation.playbooks import obtener_playbook
-    from agent.automation.action_center import crear_accion
     data = await detectar_oportunidades_con_estado_para_telefono(telefono)
     opps = data["oportunidades"]
     creadas = []
@@ -3204,9 +3287,10 @@ async def internal_automation_acciones_generar(request: Request):
 
 async def _accion_pertenece_a_telefono(accion_id: int, telefono: str) -> bool:
     """Verifica que una acción pertenece al telefono · evita IDOR."""
-    from agent.memory import async_session
-    from agent.automation.models import AccionAutomatizacion
     from sqlalchemy import select
+
+    from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
     async with async_session() as session:
         row = (await session.execute(
             select(AccionAutomatizacion).where(
@@ -3263,11 +3347,12 @@ async def internal_automation_ejecutar(request: Request):
         raise HTTPException(status_code=404, detail="subscription_no_persistida")
     if not await _accion_pertenece_a_telefono(accion_id, telefono):
         raise HTTPException(status_code=404, detail="accion_no_existe")
-    from agent.automation.execution import ejecutar_accion
+    from sqlalchemy import select
+
     from agent.automation.action_center import _a_dict
+    from agent.automation.execution import ejecutar_accion
     from agent.automation.models import AccionAutomatizacion
     from agent.memory import async_session
-    from sqlalchemy import select
     async with async_session() as session:
         row = (await session.execute(
             select(AccionAutomatizacion).where(
@@ -3344,13 +3429,14 @@ async def internal_automation_high_confirmar(request: Request):
     if not await _accion_pertenece_a_telefono(accion_id, telefono):
         raise HTTPException(status_code=404, detail="accion_no_existe")
 
+    from sqlalchemy import select
+
+    from agent.automation.action_center import _a_dict
     from agent.automation.executors.send_message import (
         confirmar_high_whatsapp_dedicado,
     )
-    from agent.automation.action_center import _a_dict
     from agent.automation.models import AccionAutomatizacion
     from agent.memory import async_session
-    from sqlalchemy import select
 
     resultado = await confirmar_high_whatsapp_dedicado(accion_id, confirmacion, telefono)
     if resultado.get("estado_final") != "completed":

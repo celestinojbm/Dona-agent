@@ -17,10 +17,10 @@ El worker tiene un dispatch map para saber qué función ejecutar.
 
 from __future__ import annotations
 
-import os
-import json
 import asyncio
+import json
 import logging
+import os
 from datetime import datetime
 from typing import Any
 
@@ -39,7 +39,7 @@ def backend_activo() -> str:
 # ── Persistencia del estado del job ─────────────────────────────────────────
 
 async def _crear_fila(telefono: str, tipo: str, params: dict[str, Any], backend: str) -> int:
-    from agent.memory import async_session, JobCreativo
+    from agent.memory import JobCreativo, async_session
 
     async with async_session() as session:
         row = JobCreativo(
@@ -64,8 +64,9 @@ async def _set_estado(
     asset_id_resultado: int | None = None,
     incrementar_intentos: bool = False,
 ) -> None:
-    from agent.memory import async_session, JobCreativo
     from sqlalchemy import update
+
+    from agent.memory import JobCreativo, async_session
 
     valores: dict[str, Any] = {
         "estado": estado,
@@ -100,8 +101,9 @@ async def marcar_error(job_id: int, error_msg: str) -> None:
 # ── API: Consulta ───────────────────────────────────────────────────────────
 
 async def obtener_estado(job_id: int) -> dict | None:
-    from agent.memory import async_session, JobCreativo
     from sqlalchemy import select
+
+    from agent.memory import JobCreativo, async_session
 
     async with async_session() as session:
         row = (await session.execute(
@@ -113,8 +115,9 @@ async def obtener_estado(job_id: int) -> dict | None:
 
 
 async def listar_jobs_usuario(telefono: str, limite: int = 10) -> list[dict]:
-    from agent.memory import async_session, JobCreativo
     from sqlalchemy import select
+
+    from agent.memory import JobCreativo, async_session
 
     async with async_session() as session:
         rows = (await session.execute(

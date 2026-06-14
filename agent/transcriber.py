@@ -9,9 +9,10 @@ Orden de preferencia:
 Si ninguno está configurado, devuelve None y loggea una advertencia.
 """
 
-import os
 import io
 import logging
+import os
+
 import httpx
 
 logger = logging.getLogger("dona")

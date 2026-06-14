@@ -180,7 +180,7 @@ async def procesar_mensaje_onboarding(telefono: str, texto: str) -> str | None:
         None: Si el onboarding ya terminó (fase=4) o está en pausa (paso=99).
               En ese caso, el mensaje debe procesarse por el flujo normal de Dona.
     """
-    from agent.memory import obtener_onboarding, guardar_onboarding
+    from agent.memory import guardar_onboarding, obtener_onboarding
 
     estado = await obtener_onboarding(telefono)
 
@@ -222,7 +222,7 @@ async def procesar_mensaje_onboarding(telefono: str, texto: str) -> str | None:
         nombre = estado.get("nombre") or ""
         if texto.strip().lower() not in _PALABRAS_OMITIR:
             ciudad, pais = _extraer_ciudad_pais(texto)
-            from agent.memory import guardar_ubicacion, guardar_timezone
+            from agent.memory import guardar_timezone, guardar_ubicacion
             await guardar_ubicacion(telefono, ciudad=ciudad, pais=pais)
             # Inferir timezone IANA para soporte DST — una sola vez, en background no bloqueante
             iana_nombre, offset_actual = await _inferir_timezone_desde_ciudad(ciudad, pais)
@@ -303,7 +303,7 @@ async def iniciar_siguiente_fase(telefono: str, proveedor) -> bool:
     Llamada por el scheduler cuando han pasado 18+ horas desde el cierre de la fase anterior.
     Retorna True si se activó la fase, False si no aplica.
     """
-    from agent.memory import obtener_onboarding, guardar_onboarding
+    from agent.memory import guardar_onboarding, obtener_onboarding
 
     estado = await obtener_onboarding(telefono)
     if not estado or estado["paso"] != 99:
@@ -470,8 +470,8 @@ async def _inferir_timezone_desde_ciudad(ciudad: str, pais: str) -> tuple[str | 
     Se llama UNA sola vez al final del onboarding — nunca bloquea al usuario.
     El nombre IANA permite calcular correctamente el DST en cualquier momento futuro.
     """
-    from zoneinfo import ZoneInfo
     from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     try:
         from agent.llm import completar_texto

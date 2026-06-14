@@ -19,9 +19,9 @@ Para habilitarlo:
 
 import logging
 
+from agent.web_agent import session as _session
 from agent.web_agent.base import ContextoTarea, ResultadoTarea
 from agent.web_agent.registro import obtener as obtener_tarea
-from agent.web_agent import session as _session
 
 logger = logging.getLogger("dona")
 

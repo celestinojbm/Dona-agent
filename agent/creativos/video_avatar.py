@@ -16,9 +16,9 @@ Diseño (mismo patrón que video.py):
 
 from __future__ import annotations
 
-import os
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -261,7 +261,7 @@ async def preparar_video_avatar(
     avatar_id: str = "",
     voice_id: str = "",
 ) -> dict:
-    from agent.billing import obtener_saldo, COSTO_VIDEO_AVATAR
+    from agent.billing import COSTO_VIDEO_AVATAR, obtener_saldo
 
     texto = (texto or "").strip()
     if not texto:

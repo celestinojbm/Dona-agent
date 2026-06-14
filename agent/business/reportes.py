@@ -7,9 +7,13 @@ Genera reportes de negocio para integrar en morning brief y weekly review.
 import logging
 from datetime import datetime
 
-from agent.business.finanzas import resumen_financiero, top_productos_vendidos, obtener_perfil_negocio
-from agent.business.pedidos import listar_pedidos
 from agent.business.crm import obtener_seguimientos_pendientes
+from agent.business.finanzas import (
+    obtener_perfil_negocio,
+    resumen_financiero,
+    top_productos_vendidos,
+)
+from agent.business.pedidos import listar_pedidos
 
 logger = logging.getLogger("dona")
 

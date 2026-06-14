@@ -6,6 +6,7 @@ El usuario copia y publica — Dona no publica directamente.
 """
 
 import logging
+
 from agent.llm import completar_con_sistema
 
 logger = logging.getLogger("dona")

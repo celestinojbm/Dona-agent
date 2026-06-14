@@ -10,6 +10,7 @@ Usa Claude Haiku para inferencia, con pre-filtros baratos para evitar llamadas i
 """
 
 import logging
+
 from dotenv import load_dotenv
 
 load_dotenv()

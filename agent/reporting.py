@@ -12,15 +12,15 @@ Todas las funciones filtran estrictamente por `telefono` (tenant isolation) —
 nunca mezclan datos entre usuarios.
 """
 
-import io
 import csv
+import io
 import logging
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 
+from agent.business.models import Pedido, Transaccion
 from agent.memory import async_session
-from agent.business.models import Transaccion, Pedido
 
 logger = logging.getLogger("dona")
 

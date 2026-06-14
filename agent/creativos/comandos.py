@@ -11,8 +11,8 @@ determinísticos (no dependen de que Claude llame un tool).
 
 from __future__ import annotations
 
-import re
 import logging
+import re
 
 logger = logging.getLogger("dona")
 

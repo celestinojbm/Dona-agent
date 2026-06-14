@@ -17,14 +17,14 @@ Variables de entorno necesarias:
   BASE_URL               — URL pública del servidor (ej: https://dona.onrender.com)
 """
 
-import os
 import base64
-import hmac
 import hashlib
-import secrets
+import hmac
 import logging
+import os
+import secrets
 import urllib.parse
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from dotenv import load_dotenv
@@ -251,7 +251,7 @@ async def _obtener_token_valido(telefono: str) -> str | None:
     Si el token expiró, lo renueva automáticamente con el refresh_token.
     Retorna None si el usuario no tiene Google Calendar conectado.
     """
-    from agent.memory import obtener_google_auth, guardar_google_auth
+    from agent.memory import guardar_google_auth, obtener_google_auth
 
     auth = await obtener_google_auth(telefono)
     if not auth:

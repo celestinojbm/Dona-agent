@@ -23,9 +23,9 @@ Diseño (sigue el patrón de `imagen.py`):
 
 from __future__ import annotations
 
-import os
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -175,8 +175,8 @@ async def preparar_bg_remove_desde_bytes(
     Retorna dict con datos para preview al usuario (costo, saldo, alcanza).
     NO cobra, NO procesa.
     """
-    from agent.billing import COSTO_BG_REMOVE, obtener_saldo
     from agent import storage
+    from agent.billing import COSTO_BG_REMOVE, obtener_saldo
     from agent.creativos.pendientes import cancelar_otros_pendientes
 
     if not source_bytes:
@@ -240,8 +240,8 @@ async def preparar_bg_remove_desde_ultimo_asset(telefono: str) -> dict:
         queremos duplicar la descarga-y-subida acá)
       - {"estado": "ok", ...} con el preview normal
     """
-    from agent.billing import COSTO_BG_REMOVE, obtener_saldo
     from agent import storage
+    from agent.billing import COSTO_BG_REMOVE, obtener_saldo
     from agent.creativos.pendientes import cancelar_otros_pendientes
 
     assets = await storage.listar_assets_usuario(telefono, limite=10, tipo=None)

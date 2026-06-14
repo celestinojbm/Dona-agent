@@ -28,13 +28,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent.automation.costos import estimar_costo_playbook
 from agent.automation.permissions import (
     NivelRiesgo,
     clasificar_riesgo,
     requiere_aprobacion,
 )
-from agent.automation.costos import estimar_costo_playbook
-
 
 # ── Pasos por playbook ──────────────────────────────────────────────────────
 

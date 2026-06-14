@@ -6,14 +6,15 @@ Sistema de memoria de Dona. Guarda el historial de conversaciones
 por número de teléfono usando SQLite (local) o PostgreSQL (producción).
 """
 
-import os
 import json
 import logging
+import os
 from datetime import datetime, timedelta
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Text, DateTime, select, Integer, Boolean, update, text
+
 from dotenv import load_dotenv
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, select, text, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 load_dotenv()
 logger = logging.getLogger("dona")
@@ -2371,7 +2372,7 @@ async def borrar_datos_usuario(telefono: str) -> dict:
 
         # Tablas enhanced/ (si existen)
         try:
-            from enhanced.models import UserSystem, SystemActivityLog
+            from enhanced.models import SystemActivityLog, UserSystem
             r_sys = await session.execute(delete(UserSystem).where(UserSystem.telefono == telefono))
             conteos["sistemas_usuario"] = r_sys.rowcount
             r_log = await session.execute(delete(SystemActivityLog).where(SystemActivityLog.telefono == telefono))
@@ -2382,8 +2383,13 @@ async def borrar_datos_usuario(telefono: str) -> dict:
         # Tablas de business/ (negocio self-service)
         try:
             from agent.business.models import (
-                PerfilNegocio, ClienteNegocio, Producto, Transaccion,
-                Pedido, Seguimiento, Cotizacion,
+                ClienteNegocio,
+                Cotizacion,
+                Pedido,
+                PerfilNegocio,
+                Producto,
+                Seguimiento,
+                Transaccion,
             )
             for nombre, modelo, col in [
                 ("perfil_negocio", PerfilNegocio, PerfilNegocio.telefono),
@@ -2495,8 +2501,13 @@ async def exportar_datos_usuario(telefono: str) -> dict:
         # Tablas business (si existen)
         try:
             from agent.business.models import (
-                PerfilNegocio, ClienteNegocio, Producto, Transaccion,
-                Pedido, Seguimiento, Cotizacion,
+                ClienteNegocio,
+                Cotizacion,
+                Pedido,
+                PerfilNegocio,
+                Producto,
+                Seguimiento,
+                Transaccion,
             )
             await _dump("perfil_negocio", PerfilNegocio, PerfilNegocio.telefono)
             await _dump("productos_negocio", Producto, Producto.telefono)

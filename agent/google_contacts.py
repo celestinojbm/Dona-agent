@@ -9,8 +9,9 @@ Permite a Dona consultar los contactos del usuario para:
 Usa Google People API con scope `contacts.readonly`.
 """
 
-import re
 import logging
+import re
+
 import httpx
 
 logger = logging.getLogger("dona")

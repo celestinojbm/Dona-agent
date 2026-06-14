@@ -19,6 +19,7 @@ para no bloquear la respuesta principal.
 
 import json
 import logging
+
 from dotenv import load_dotenv
 
 load_dotenv()

@@ -14,6 +14,7 @@ o el opt-out TCPA dejaría de aplicarse.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+
 from fastapi import Request
 
 from agent.envio_gate import puede_enviar, registrar_envio_realizado

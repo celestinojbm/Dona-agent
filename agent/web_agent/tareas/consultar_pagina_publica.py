@@ -12,7 +12,7 @@ Parámetros esperados:
   - `timeout_ms` (int, opcional, default 15000): máximo tiempo de carga.
 """
 
-from agent.web_agent.base import WebAgentTarea, ResultadoTarea, ContextoTarea
+from agent.web_agent.base import ContextoTarea, ResultadoTarea, WebAgentTarea
 from agent.web_agent.registro import registrar
 
 

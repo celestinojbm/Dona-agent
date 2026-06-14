@@ -181,10 +181,10 @@ async def preview_confirmacion_high_whatsapp(
     # los límites bloquean, el owner lo ve aquí (y confirmar rechazaría
     # igual). Fail-closed: error evaluando → no hay preview accionable.
     from agent.automation.consent_terceros import (
-        evaluar_politica_envio_tercero,
-        componer_mensaje_primer_contacto,
-        obtener_nombre_owner,
         TEXTO_CONSENTIMIENTO_OWNER,
+        componer_mensaje_primer_contacto,
+        evaluar_politica_envio_tercero,
+        obtener_nombre_owner,
     )
 
     try:
@@ -403,9 +403,9 @@ async def confirmar_high_whatsapp_dedicado(
     # consentimiento del owner y queda registrado ANTES de ejecutar.
     # Fail-closed: si la política no se puede evaluar/registrar, NO se envía.
     from agent.automation.consent_terceros import (
+        TEXTO_CONSENTIMIENTO_OWNER,
         evaluar_politica_envio_tercero,
         registrar_consentimiento,
-        TEXTO_CONSENTIMIENTO_OWNER,
     )
 
     try:
@@ -562,11 +562,11 @@ async def ejecutor_enviar_mensaje_whatsapp(
     # Fail-closed: error evaluando → RuntimeError (libera la reserva).
     telefono_owner_accion = str(accion.get("telefono") or "")
     from agent.automation.consent_terceros import (
-        evaluar_politica_envio_tercero,
-        tiene_consentimiento_fresco,
         componer_mensaje_primer_contacto,
+        evaluar_politica_envio_tercero,
         obtener_nombre_owner,
         registrar_envio_tercero,
+        tiene_consentimiento_fresco,
     )
 
     try:
@@ -763,10 +763,11 @@ def _obtener_proveedor():
 
 
 async def _leer_accion_fresca(accion_id: int) -> dict[str, Any] | None:
-    from agent.memory import async_session
-    from agent.automation.models import AccionAutomatizacion
-    from agent.automation.action_center import _a_dict
     from sqlalchemy import select
+
+    from agent.automation.action_center import _a_dict
+    from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
     async with async_session() as s:
         row = (await s.execute(
             select(AccionAutomatizacion).where(
@@ -785,10 +786,11 @@ async def _leer_accion_fresca_para_actor(
     La condición de ownership vive en el SELECT (`id` + `telefono`) para no
     hidratar payloads HIGH ajenos antes de la barrera de pertenencia.
     """
-    from agent.memory import async_session
-    from agent.automation.models import AccionAutomatizacion
-    from agent.automation.action_center import _a_dict
     from sqlalchemy import select
+
+    from agent.automation.action_center import _a_dict
+    from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
 
     async with async_session() as s:
         row = (await s.execute(
@@ -804,9 +806,10 @@ async def _leer_result_actual(
     accion_id: int,
 ) -> dict[str, Any] | None:
     """Lee result_json fresco · None si la fila o el campo están vacíos."""
-    from agent.memory import async_session
-    from agent.automation.models import AccionAutomatizacion
     from sqlalchemy import select
+
+    from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
     async with async_session() as s:
         row = (await s.execute(
             select(AccionAutomatizacion).where(
@@ -823,9 +826,10 @@ async def _persistir_result_inline(
 ) -> None:
     """UPDATE result_json sin cambiar estado · invariante anti doble
     envío."""
-    from agent.memory import async_session
-    from agent.automation.models import AccionAutomatizacion
     from sqlalchemy import select
+
+    from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
     async with async_session() as s:
         row = (await s.execute(
             select(AccionAutomatizacion).where(

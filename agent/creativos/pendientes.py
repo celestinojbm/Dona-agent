@@ -39,7 +39,7 @@ _ETIQUETAS = {
 
 def _tipo_pendiente_activo(telefono: str) -> str | None:
     """Devuelve el tipo del pendiente actual si existe, o None."""
-    from agent.creativos import imagen, voz, pdf, video, video_avatar, bg_remove
+    from agent.creativos import bg_remove, imagen, pdf, video, video_avatar, voz
     if imagen.obtener_pendiente(telefono):
         return "imagen"
     if voz.obtener_pendiente(telefono):
@@ -67,7 +67,7 @@ def cancelar_otros_pendientes(telefono: str, excepto: str = "") -> str | None:
     preparar_X cancela todo y luego guarda el suyo propio (el orden garantiza
     que no se borre el que se acaba de crear).
     """
-    from agent.creativos import imagen, voz, pdf, video, video_avatar, bg_remove
+    from agent.creativos import bg_remove, imagen, pdf, video, video_avatar, voz
 
     tipo_cancelado: str | None = None
 

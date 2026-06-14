@@ -12,8 +12,9 @@ Modelos SQLAlchemy para el módulo de negocio de Dona:
 """
 
 from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, Text, Integer, Float, Boolean, DateTime
 
 from agent.memory import Base
 

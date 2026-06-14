@@ -6,13 +6,14 @@ Lógica de IA de Dona. Lee el system prompt de prompts.yaml,
 genera respuestas con Claude y maneja tool use para recordatorios.
 """
 
-import os
-import yaml
 import asyncio
 import logging
+import os
 import urllib.parse
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
+
+import yaml
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
@@ -1416,7 +1417,10 @@ async def _invocar_claude_gateado(api_kwargs: dict, telefono: str):
     cerrado) y consume el costo estimado tras la respuesta. Devuelve la
     respuesta de Anthropic."""
     from agent.presupuesto_runtime import (
-        reservar_llm, con_timeout_llm, consumir_llm, TimeoutPresupuesto,
+        TimeoutPresupuesto,
+        con_timeout_llm,
+        consumir_llm,
+        reservar_llm,
     )
 
     decision = reservar_llm(telefono)
@@ -1455,13 +1459,18 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         return obtener_mensaje_fallback()
 
     # ── Detección emocional (paralela con carga de timezone) ─────────────────
-    from agent.memory import (
-        obtener_timezone, obtener_onboarding, obtener_estado_emocional,
-        obtener_perfil_aprendizaje, obtener_memoria_largo_plazo,
-    )
     from agent.emotion import (
-        detectar_emocion, obtener_instrucciones_tono,
-        obtener_contexto_emocional_str, MENSAJE_CRISIS,
+        MENSAJE_CRISIS,
+        detectar_emocion,
+        obtener_contexto_emocional_str,
+        obtener_instrucciones_tono,
+    )
+    from agent.memory import (
+        obtener_estado_emocional,
+        obtener_memoria_largo_plazo,
+        obtener_onboarding,
+        obtener_perfil_aprendizaje,
+        obtener_timezone,
     )
 
     async def _none():
@@ -1500,7 +1509,8 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
 
     # ── Búsqueda vectorial (en paralelo con detección emocional) ─────────────────
     from agent.vector_memory import (
-        buscar_memoria_relevante, formatear_memoria_vectorial,
+        buscar_memoria_relevante,
+        formatear_memoria_vectorial,
         guardar_en_memoria_vectorial,
     )
     try:
@@ -1582,9 +1592,12 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     # si queda presupuesto global del mensaje. Error no transitorio → corta
     # directo al fallback (reintentar un request inválido nunca tiene éxito).
     import asyncio as _asyncio
+
+    from agent.presupuesto_runtime import (
+        cargar_config as _cargar_config_presupuesto,
+    )
     from agent.presupuesto_runtime import (
         presupuesto_actual as _presupuesto_vigente,
-        cargar_config as _cargar_config_presupuesto,
     )
     _pres_retry = _presupuesto_vigente()
     _config_retry = _pres_retry.config if _pres_retry is not None else _cargar_config_presupuesto()
@@ -1655,7 +1668,7 @@ async def _responder_con_fallback(system_prompt: str, mensajes: list, telefono: 
     de costo/llamadas), no se quema más presupuesto en el fallback.
     """
     # Gateo de presupuesto: una reserva para el intento de recuperación.
-    from agent.presupuesto_runtime import reservar_llm, consumir_llm
+    from agent.presupuesto_runtime import consumir_llm, reservar_llm
     if not reservar_llm(telefono).permitido:
         logger.warning("[BUDGET] Fallback omitido: presupuesto/kill-switch activo")
         return None
@@ -1715,9 +1728,11 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
             _ultimo_msg_usuario = m["content"].lower()
             break
     from agent.memory import (
-        guardar_recordatorio, guardar_timezone,
-        obtener_recordatorios_activos, cancelar_recordatorios_por_keyword,
+        cancelar_recordatorios_por_keyword,
+        guardar_recordatorio,
+        guardar_timezone,
         obtener_mirofish_estado,
+        obtener_recordatorios_activos,
     )
 
     resultados_herramientas = []
@@ -2109,7 +2124,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
         elif bloque.name == "leer_correos":
             try:
                 import agent.gmail as gmail
-                from agent.memory import obtener_proactividad, guardar_proactividad
+                from agent.memory import guardar_proactividad, obtener_proactividad
                 solo_no_leidos = bloque.input.get("solo_no_leidos", True)
                 max_res = min(bloque.input.get("max_resultados", 8), 15)
 
@@ -2887,7 +2902,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
 
         elif bloque.name == "crear_tarea_google":
             try:
-                from agent.google_tasks import crear_tarea, GoogleTasksScopeError
+                from agent.google_tasks import GoogleTasksScopeError, crear_tarea
                 titulo = (bloque.input.get("titulo") or "").strip()
                 if not titulo:
                     resultado = (
@@ -2970,7 +2985,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
 
         elif bloque.name == "completar_tarea_google":
             try:
-                from agent.google_tasks import completar_tarea, GoogleTasksScopeError
+                from agent.google_tasks import GoogleTasksScopeError, completar_tarea
                 lista_id = (bloque.input.get("lista_id") or "").strip()
                 tarea_id = (bloque.input.get("tarea_id") or "").strip()
                 if not lista_id or not tarea_id:
@@ -3050,8 +3065,9 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                     resultado = msg_q
                     resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
                     continue
-                from agent.business.crm import crear_seguimiento, buscar_cliente_por_nombre
                 from datetime import datetime as _dt_seg
+
+                from agent.business.crm import buscar_cliente_por_nombre, crear_seguimiento
                 fecha = _dt_seg.fromisoformat(bloque.input["fecha_programada"])
                 cliente_nombre = bloque.input.get("cliente_nombre", "")
                 # Intentar asociar con cliente existente
@@ -3077,8 +3093,8 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                     resultado = msg_q
                     resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
                     continue
-                from agent.business.finanzas import registrar_venta
                 from agent.business.crm import buscar_cliente_por_nombre
+                from agent.business.finanzas import registrar_venta
                 cliente_nombre = bloque.input.get("cliente_nombre", "")
                 cliente_id = None
                 if cliente_nombre:
@@ -3178,9 +3194,10 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                     resultado = msg_q
                     resultados_herramientas.append({"type": "tool_result", "tool_use_id": bloque.id, "content": resultado})
                     continue
-                from agent.business.pedidos import crear_pedido
-                from agent.business.crm import buscar_cliente_por_nombre
                 from datetime import datetime as _dt_ped
+
+                from agent.business.crm import buscar_cliente_por_nombre
+                from agent.business.pedidos import crear_pedido
                 cliente_nombre = bloque.input.get("cliente_nombre", "")
                 cliente_id = None
                 if cliente_nombre:
@@ -3262,7 +3279,7 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
 
         elif bloque.name == "generar_contenido_redes":
             try:
-                from agent.business.quotas import verificar_quota, registrar_uso_contenido
+                from agent.business.quotas import registrar_uso_contenido, verificar_quota
                 ok, msg_q = await verificar_quota(telefono, "contenido_dia")
                 if not ok:
                     resultado = msg_q

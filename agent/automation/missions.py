@@ -131,8 +131,8 @@ async def crear_mision_recuperar_lead(
     El destino se guarda completo (operativo, owner-scoped) pero el evento
     de audit usa solo el enmascarado.
     """
-    from agent.memory import async_session
     from agent.automation.models import MisionAutomation
+    from agent.memory import async_session
 
     mision = MisionAutomation(
         telefono=telefono,
@@ -175,8 +175,8 @@ async def obtener_mision(mision_id: int, telefono_owner: str) -> dict[str, Any] 
     """Lectura OWNER-SCOPED de una misión. Un dueño distinto del que la
     creó recibe None — no se revela ni la existencia ni la metadata (cierra
     el modo de fallo wrong-owner de la spec)."""
-    from agent.memory import async_session
     from agent.automation.models import MisionAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         row = (await session.execute(
@@ -192,8 +192,8 @@ async def obtener_mision(mision_id: int, telefono_owner: str) -> dict[str, Any] 
 
 async def listar_misiones(telefono_owner: str, limite: int = 20) -> list[dict[str, Any]]:
     """Lista las misiones del owner, más recientes primero. Owner-scoped."""
-    from agent.memory import async_session
     from agent.automation.models import MisionAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         rows = (await session.execute(
@@ -226,8 +226,8 @@ async def _cerrar_mision(
     if reason_code not in REASON_CODES_MISION:
         raise ValueError(f"razón no cerrada: {reason_code}")
 
-    from agent.memory import async_session
     from agent.automation.models import MisionAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         row = (await session.execute(
@@ -353,8 +353,8 @@ async def _generar_draft(telefono: str, prompt: str) -> tuple[str | None, str]:
 
     El draft NO cobra créditos (billing); solo consume presupuesto de runtime.
     Los créditos del ENVÍO se reservan en la ejecución HIGH (M0-4)."""
-    from agent.presupuesto_runtime import reservar_llm_aux
     import agent.llm as _llm
+    from agent.presupuesto_runtime import reservar_llm_aux
 
     decision = reservar_llm_aux(telefono)
     if not decision.permitido:
@@ -435,8 +435,8 @@ async def preparar_recuperar_lead(
         return {"ok": False, "reason_code": razon, "mision_id": mision_id}
 
     # Guardar el draft en el estado operativo (owner-scoped) de la misión.
-    from agent.memory import async_session
     from agent.automation.models import MisionAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         row = (await session.execute(
@@ -600,8 +600,9 @@ async def enlazar_accion_high_recuperar_lead(
     # entre el claim y el set de accion_id, la misión queda needs_approval SIN
     # acción: estado recuperable y NO enviable (no hay acción que confirmar).
     from sqlalchemy import update
-    from agent.memory import async_session
+
     from agent.automation.models import MisionAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         res = await session.execute(
@@ -703,8 +704,8 @@ async def marcar_completada(
 ) -> dict[str, Any] | None:
     """Marca la misión como `completed` (owner-scoped, idempotente sobre
     terminales). Sin reason_code: completed no es un cierre por razón."""
-    from agent.memory import async_session
     from agent.automation.models import MisionAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         row = (await session.execute(
@@ -877,9 +878,11 @@ async def _reconciliar_una_mision(
         return mision
 
     mision_id = mision["id"]
-    from sqlalchemy import select as _select, update as _update
+    from sqlalchemy import select as _select
+    from sqlalchemy import update as _update
+
+    from agent.automation.models import AccionAutomatizacion, MisionAutomation
     from agent.memory import async_session
-    from agent.automation.models import MisionAutomation, AccionAutomatizacion
 
     async with async_session() as session:
         acc = (await session.execute(
@@ -959,8 +962,9 @@ async def reconciliar_misiones_recuperar_lead(
     para el mismo owner (es tarea de mantenimiento/preflight, naturalmente
     serializada)."""
     from sqlalchemy import select as _select
+
+    from agent.automation.models import AccionAutomatizacion, MisionAutomation
     from agent.memory import async_session
-    from agent.automation.models import MisionAutomation, AccionAutomatizacion
 
     relinkeadas = revertidas = completadas = canceladas = 0
 
@@ -1070,10 +1074,12 @@ async def _eventos_de_mision(mision_id: int, accion_id, telefono_owner: str) -> 
     de misión llevan `mision_id` en payload_summary; los `high_*` llevan
     accion_id. Owner-scoped por telefono_short. NUNCA lee destino/cuerpo
     (solo nombres de evento)."""
-    from sqlalchemy import select as _select, or_
-    from agent.memory import async_session
-    from agent.automation.models import AuditLogAutomatizacion
+    from sqlalchemy import or_
+    from sqlalchemy import select as _select
+
     from agent.automation.audit import _short_telefono
+    from agent.automation.models import AuditLogAutomatizacion
+    from agent.memory import async_session
 
     tel_short = _short_telefono(telefono_owner)
     # payload_summary va con sort_keys → "mision_id": <id> seguido de , o }
@@ -1142,9 +1148,11 @@ async def metricas_misiones(telefono_owner: str) -> dict[str, Any]:
     (M0-5): totales por estado, completadas-con-evidencia, y desglose de
     reason_codes de las bloqueadas/fallidas. Métrica norte = completadas con
     evidencia."""
-    from sqlalchemy import select as _select, func
-    from agent.memory import async_session
+    from sqlalchemy import func
+    from sqlalchemy import select as _select
+
     from agent.automation.models import MisionAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         por_estado = dict((await session.execute(

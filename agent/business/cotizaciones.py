@@ -8,10 +8,11 @@ Items almacenados como JSON para flexibilidad.
 import json
 import logging
 from datetime import datetime
+
 from sqlalchemy import select
 
-from agent.memory import async_session
 from agent.business.models import Cotizacion
+from agent.memory import async_session
 
 logger = logging.getLogger("dona")
 

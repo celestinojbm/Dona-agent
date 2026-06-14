@@ -13,10 +13,11 @@ Se ejecuta cada hora via el scheduler.
   5. Weekly Review    — resumen semanal los viernes
 """
 
-import os
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
+
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
@@ -40,7 +41,10 @@ async def _invocar_claude_proactivo(api_kwargs: dict, telefono: str):
     (verificar_proactividad abre uno por usuario). Bloqueo/timeout →
     None: el disparador degrada a no-enviar (nunca mensaje a medias)."""
     from agent.presupuesto_runtime import (
-        reservar_llm, con_timeout_llm, consumir_llm, TimeoutPresupuesto,
+        TimeoutPresupuesto,
+        con_timeout_llm,
+        consumir_llm,
+        reservar_llm,
     )
 
     decision = reservar_llm(telefono)
@@ -242,8 +246,8 @@ async def verificar_proactividad(proveedor):
     Evalúa disparadores y envía mensajes proactivos cuando corresponde.
     """
     from agent.memory import (
-        obtener_usuarios_proactividad_activos,
         obtener_timezone,
+        obtener_usuarios_proactividad_activos,
     )
 
     try:
@@ -290,7 +294,7 @@ async def _obtener_ubicacion_usuario(telefono: str) -> dict:
     """
     Retorna ubicación del usuario con la ciudad efectiva (temporal si de viaje, base si no).
     """
-    from agent.memory import obtener_ubicacion, obtener_ciudad_actual
+    from agent.memory import obtener_ciudad_actual, obtener_ubicacion
     ub = await obtener_ubicacion(telefono)
     if not ub:
         return {"ciudad": None, "pais": None, "industria": None}
@@ -554,11 +558,11 @@ async def _disparador_conflict(telefono: str, nombre: str, contexto: str) -> str
     Usa Claude + MiroFish para detectar conflictos entre tareas/relaciones.
     Solo se llama cada 6 horas por usuario.
     """
-    from agent.memory import (
-        obtener_recordatorios_proximas_horas,
-        obtener_mirofish_estado,
-    )
     import agent.mirofish_client as mf
+    from agent.memory import (
+        obtener_mirofish_estado,
+        obtener_recordatorios_proximas_horas,
+    )
 
     try:
         proximos = await obtener_recordatorios_proximas_horas(telefono, horas=48)
@@ -720,9 +724,11 @@ async def _disparador_noticias(telefono: str, nombre: str, contexto: str) -> str
     Máximo 1 vez por semana, y solo artículos no enviados antes.
     """
     from agent.memory import (
-        obtener_proactividad, ya_enviada_noticia, marcar_noticia_enviada,
+        marcar_noticia_enviada,
+        obtener_proactividad,
+        ya_enviada_noticia,
     )
-    from agent.real_world import obtener_noticias, extraer_industria
+    from agent.real_world import extraer_industria, obtener_noticias
 
     try:
         # No repetir si ya se envió esta semana
@@ -810,8 +816,8 @@ async def _disparador_consejo_estrategico(telefono: str, nombre: str, contexto: 
     Solo se activa si MiroFish está disponible y el usuario tiene grafo construido.
     Se ejecuta máx cada 12 horas para no ser invasivo.
     """
-    from agent.memory import obtener_mirofish_estado
     import agent.mirofish_client as mf
+    from agent.memory import obtener_mirofish_estado
 
     try:
         if not mf._disponible():
