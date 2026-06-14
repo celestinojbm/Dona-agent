@@ -23,7 +23,6 @@ from typing import Any
 from sqlalchemy import select, update
 
 from agent.automation.permissions import (
-    NivelRiesgo,
     calcular_next_required_action,
     clasificar_riesgo,
     estado_inicial_para_riesgo,

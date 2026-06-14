@@ -131,7 +131,7 @@ async def pruning_reservas(
     """
     from agent.memory import async_session
     from agent.automation.models import (
-        ReservaCreditoAutomation, AccionAutomatizacion,
+        ReservaCreditoAutomation,
     )
 
     if dias < 30:

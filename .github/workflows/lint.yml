@@ -1,0 +1,40 @@
+name: Lint (ruff)
+
+# Gate de lint del backend. Ruff con ruleset por ratchet (ver pyproject.toml).
+# Informativo bajo la branch protection ligera actual; util como segundo par de
+# ojos antes de merge.
+
+on:
+  pull_request:
+    paths:
+      - 'agent/**'
+      - 'pyproject.toml'
+      - 'requirements-dev.txt'
+      - '.github/workflows/lint.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'agent/**'
+      - 'pyproject.toml'
+      - 'requirements-dev.txt'
+      - '.github/workflows/lint.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    name: Ruff (lint backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install ruff==0.15.17
+      - run: ruff check agent

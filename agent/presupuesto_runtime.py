@@ -566,7 +566,7 @@ async def con_timeout_llm(coro, telefono: str = ""):
         razon = "timeout_budget_global"
     try:
         return await asyncio.wait_for(coro, timeout=limite)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _emitir_evento(
             razon, owner_short=telefono[-4:] if telefono else "?",
             limite_s=round(limite, 1),
@@ -588,7 +588,7 @@ async def con_timeout_tool(coro, telefono: str = "", lenta: bool = False):
         razon = "timeout_budget_global"
     try:
         return await asyncio.wait_for(coro, timeout=limite)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _emitir_evento(
             razon, owner_short=telefono[-4:] if telefono else "?",
             limite_s=round(limite, 1),

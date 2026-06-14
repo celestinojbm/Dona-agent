@@ -59,7 +59,7 @@ async def generar_contenido(
 
     resultado = await completar_con_sistema(system, prompt, max_tokens=400)
     if not resultado:
-        return f"No pude generar el contenido. Intenta describir mejor el tema."
+        return "No pude generar el contenido. Intenta describir mejor el tema."
 
     logger.info(f"[CONTENIDO] Generado tipo={tipo} tema='{tema[:50]}'")
     return resultado

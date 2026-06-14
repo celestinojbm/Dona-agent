@@ -66,7 +66,7 @@ async def obtener_uso(telefono: str) -> dict:
 
 async def _contar_recurso(telefono: str, recurso: str) -> int:
     """Cuenta cuántos recursos tiene el usuario."""
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     async with async_session() as session:
         if recurso == "clientes":

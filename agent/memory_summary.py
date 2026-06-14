@@ -18,7 +18,6 @@ Flujo:
   4. El resumen se inyecta en cargar_system_prompt() de brain.py
 """
 
-import os
 import logging
 from dotenv import load_dotenv
 

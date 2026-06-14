@@ -15,8 +15,7 @@ nunca mezclan datos entre usuarios.
 import io
 import csv
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import datetime, timedelta, UTC
 
 from sqlalchemy import select, and_
 
@@ -28,11 +27,11 @@ logger = logging.getLogger("dona")
 
 def _rango_mes_utc(año: int, mes: int) -> tuple[datetime, datetime]:
     """Devuelve (inicio, fin_exclusivo) del mes en UTC."""
-    inicio = datetime(año, mes, 1, tzinfo=timezone.utc).replace(tzinfo=None)
+    inicio = datetime(año, mes, 1, tzinfo=UTC).replace(tzinfo=None)
     if mes == 12:
-        fin = datetime(año + 1, 1, 1, tzinfo=timezone.utc).replace(tzinfo=None)
+        fin = datetime(año + 1, 1, 1, tzinfo=UTC).replace(tzinfo=None)
     else:
-        fin = datetime(año, mes + 1, 1, tzinfo=timezone.utc).replace(tzinfo=None)
+        fin = datetime(año, mes + 1, 1, tzinfo=UTC).replace(tzinfo=None)
     return inicio, fin
 
 

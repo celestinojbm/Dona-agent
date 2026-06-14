@@ -155,7 +155,7 @@ async def _verificar_y_enviar_recordatorios(proveedor):
             _verificar_y_enviar_recordatorios_impl(proveedor),
             timeout=_JOB_TIMEOUT_SEGUNDOS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error(
             f"[SCHEDULER] _verificar_y_enviar_recordatorios cancelado por timeout "
             f"({_JOB_TIMEOUT_SEGUNDOS}s) — posible conexión de DB colgada"
@@ -256,7 +256,7 @@ async def _verificar_recordatorios_google_calendar(proveedor):
             _verificar_recordatorios_google_calendar_impl(proveedor),
             timeout=_JOB_TIMEOUT_SEGUNDOS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error(
             f"[SCHEDULER] _verificar_recordatorios_google_calendar cancelado por timeout "
             f"({_JOB_TIMEOUT_SEGUNDOS}s)"

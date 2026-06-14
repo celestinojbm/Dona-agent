@@ -19,7 +19,7 @@ al flujo de LLM normal.
 """
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 
 _MESES = {
@@ -88,7 +88,7 @@ def parsear(texto: str, ahora_utc: datetime | None = None, offset_tz_minutos: in
     """
     if not texto:
         return None
-    ahora_utc = ahora_utc or datetime.now(tz=timezone.utc).replace(tzinfo=None)
+    ahora_utc = ahora_utc or datetime.now(tz=UTC).replace(tzinfo=None)
 
     match_prefijo = _PREFIJO.match(texto)
     if not match_prefijo:

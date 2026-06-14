@@ -18,7 +18,6 @@ Los 4 patrones que aprende:
 Mínimo 20 eventos para activar el análisis.
 """
 
-import os
 import logging
 from collections import Counter
 from datetime import datetime, timedelta

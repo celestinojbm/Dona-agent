@@ -17,6 +17,7 @@ import asyncio
 import logging
 import httpx
 from dotenv import load_dotenv
+from datetime import UTC
 
 load_dotenv()
 logger = logging.getLogger("dona")
@@ -350,8 +351,8 @@ async def guardar_insight_en_zep(
     if not _disponible():
         return False
     try:
-        from datetime import datetime, timezone
-        fecha = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        from datetime import datetime
+        fecha = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
         resumen = contenido_reporte[:2000] if len(contenido_reporte) > 2000 else contenido_reporte
         async with httpx.AsyncClient(timeout=TIMEOUT_LARGO) as client:
             r = await client.post(

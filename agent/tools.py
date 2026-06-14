@@ -10,12 +10,11 @@ NOTA: Antes de Fase 1, estos datos se almacenaban en diccionarios en memoria
 y se perdían en cada restart. Ahora persisten en PostgreSQL.
 """
 
-import os
 import yaml
 import logging
 from datetime import datetime
 
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update, delete
 
 logger = logging.getLogger("dona")
 
@@ -23,7 +22,7 @@ logger = logging.getLogger("dona")
 def cargar_info_negocio() -> dict:
     """Carga la configuración de Dona desde business.yaml."""
     try:
-        with open("config/business.yaml", "r", encoding="utf-8") as f:
+        with open("config/business.yaml", encoding="utf-8") as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
         logger.error("config/business.yaml no encontrado")
