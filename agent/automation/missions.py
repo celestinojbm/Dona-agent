@@ -693,3 +693,358 @@ async def enlazar_accion_high_recuperar_lead(
         # el camino dedicado; el generic execute sigue bloqueado.
         "next_required_action": "aprobar_y_confirmar_envio_dedicado",
     }
+
+
+# ── M0-4 · completitud tras confirmación dedicada + reconciliación ───────
+
+
+async def marcar_completada(
+    mision_id: int, telefono_owner: str,
+) -> dict[str, Any] | None:
+    """Marca la misión como `completed` (owner-scoped, idempotente sobre
+    terminales). Sin reason_code: completed no es un cierre por razón."""
+    from agent.memory import async_session
+    from agent.automation.models import MisionAutomation
+
+    async with async_session() as session:
+        row = (await session.execute(
+            select(MisionAutomation).where(
+                MisionAutomation.id == mision_id,
+                MisionAutomation.telefono == telefono_owner,
+            )
+        )).scalar_one_or_none()
+        if row is None:
+            return None
+        if row.estado in _ESTADOS_TERMINALES:
+            return _mision_a_dict(row)   # idempotente
+        row.estado = "completed"
+        row.reason_code = ""
+        row.completed_at = datetime.utcnow()
+        row.updated_at = datetime.utcnow()
+        await session.commit()
+        await session.refresh(row)
+        result = _mision_a_dict(row)
+
+    await registrar_evento(
+        evento="mission_recover_lead_completed",
+        telefono=telefono_owner,
+        accion_id=result.get("accion_id"),
+        riesgo="high",
+        payload={"mision_id": mision_id, "estado": "completed"},
+    )
+    return result
+
+
+# Errores del confirmador dedicado que NO son fallas de envío: el owner aún
+# puede reintentar (la misión NO se cierra; queda en needs_approval).
+_ERRORES_REINTENTABLES = {"confirmacion_invalida", "accion_no_aprobada"}
+
+
+async def confirmar_recuperar_lead(
+    mision_id: int, telefono_owner: str, confirmacion: str,
+) -> dict[str, Any]:
+    """Wrapper ESTRECHO de confirmación de la misión (M0-4): revalida owner,
+    tipo y acción enlazada, DELEGA al confirmador HIGH dedicado existente
+    (`confirmar_high_whatsapp_dedicado`) y SINCRONIZA el estado de la misión
+    con el resultado. NO implementa provider propio, NO auto-aprueba, NO
+    relaja la confirmación literal `ENVIAR` (criterio Hermes).
+
+    Mapeo de resultado → misión:
+      - completed → misión `completed`.
+      - falla de envío real (provider/policy) → misión `failed`/`blocked` con
+        razón cerrada.
+      - error reintentable (confirmación inválida / acción no aprobada) → la
+        misión NO se toca (sigue `needs_approval`); el owner puede reintentar.
+
+    Idempotente: misión ya `completed` → devuelve idempotente sin re-enviar.
+    Antes de delegar corre la reconciliación de ESTA misión (preflight) para
+    sanar el residual de crash de M0-3 (needs_approval sin accion_id).
+    """
+    mision = await obtener_mision(mision_id, telefono_owner)
+    if mision is None:
+        return {"ok": False, "error": "mision_no_existe_o_ajena", "mision_id": mision_id}
+    if mision.get("tipo") != TIPO_RECUPERAR_LEAD:
+        return {"ok": False, "error": "tipo_no_soportado", "mision_id": mision_id}
+
+    # Guard TERMINAL completo: una misión ya cerrada NO se re-confirma ni se
+    # delega (delegar podría re-enviar si la acción quedó `approved`). Solo
+    # `completed` responde idempotente; el resto de terminales es un error
+    # explícito SIN tocar al provider.
+    if mision["estado"] in _ESTADOS_TERMINALES:
+        if mision["estado"] == "completed":
+            return {
+                "ok": True, "mision_id": mision_id, "estado": "completed",
+                "accion_id": mision.get("accion_id"), "idempotent": True,
+            }
+        return {
+            "ok": False, "error": "mision_terminal",
+            "estado": mision["estado"], "mision_id": mision_id,
+        }
+
+    # Preflight de reconciliación de ESTA misión (sana el residual de crash).
+    mision = await _reconciliar_una_mision(mision, telefono_owner)
+
+    accion_id = mision.get("accion_id")
+    if not accion_id:
+        # Sin acción enlazada (ni siquiera tras reconciliar) → no se puede
+        # confirmar; el owner debe re-preparar/enlazar.
+        return {"ok": False, "error": "sin_accion_enlazada",
+                "estado": mision.get("estado"), "mision_id": mision_id}
+
+    # Delegar al confirmador HIGH dedicado existente (claim atómico + 2.5 +
+    # ejecución idempotente viven ahí; aquí NO se duplica nada).
+    from agent.automation.executors.send_message import confirmar_high_whatsapp_dedicado
+    res = await confirmar_high_whatsapp_dedicado(accion_id, confirmacion, telefono_owner)
+    estado_final = res.get("estado_final", "")
+    error = str(res.get("error") or "")
+    estado_accion = str(res.get("estado") or "")
+
+    # La acción YA está completada (este envío o uno previo: un crash pudo
+    # dejar la acción `completed` sin completar la misión, y el confirmador
+    # entonces responde estado_final=failed/error=accion_no_aprobada con
+    # estado=completed). En todos esos casos el mensaje SÍ salió → la misión
+    # se sincroniza a completed, no se deja colgada en needs_approval.
+    if estado_final == "completed" or estado_accion == "completed":
+        await marcar_completada(mision_id, telefono_owner)
+        return {
+            "ok": True, "mision_id": mision_id, "estado": "completed",
+            "accion_id": accion_id,
+            "idempotent": bool((res.get("result") or {}).get("idempotent"))
+                or estado_final != "completed",
+        }
+
+    # No completó. ¿Reintentable (no tocar la misión) o falla real (cerrar)?
+    if error in _ERRORES_REINTENTABLES:
+        return {
+            "ok": False, "error": error, "mision_id": mision_id,
+            "estado": mision.get("estado"), "reintentable": True,
+        }
+
+    # Duplicado / claim perdido: NO es una falla — otra confirmación
+    # concurrente está (o terminó de) enviar. NUNCA cerrar la misión como
+    # failed por esto: sincronizar desde el estado real. (Cierra el bug de
+    # que el perdedor del claim marcaba failed pisando el completed del
+    # ganador.)
+    if any(k in error for k in ("claim_lost", "ya_en_ejecucion", "duplicate")):
+        actual = await obtener_mision(mision_id, telefono_owner)
+        if actual and actual["estado"] == "completed":
+            return {
+                "ok": True, "mision_id": mision_id, "estado": "completed",
+                "accion_id": accion_id, "idempotent": True,
+            }
+        return {
+            "ok": True, "mision_id": mision_id, "accion_id": accion_id,
+            "estado": (actual or {}).get("estado", "needs_approval"),
+            "en_proceso": True,
+        }
+
+    # Falla real de envío/política → cerrar la misión con razón cerrada.
+    reason = _reason_code_por_fallo_envio(error)
+    if reason == "policy_blocked" or reason == "third_party_consent_required":
+        await marcar_bloqueada(mision_id, telefono_owner, reason)
+        estado_mision = "blocked"
+    else:
+        await marcar_fallida(mision_id, telefono_owner, reason)
+        estado_mision = "failed"
+    return {
+        "ok": False, "error": error, "reason_code": reason,
+        "estado": estado_mision, "mision_id": mision_id, "accion_id": accion_id,
+    }
+
+
+def _reason_code_por_fallo_envio(error: str) -> str:
+    """Mapea el error del confirmador dedicado a un reason_code cerrado."""
+    if error in ("politica_terceros_error",):
+        return "policy_blocked"
+    if error.startswith("limite_"):
+        return "policy_blocked"
+    if "consent" in error:
+        return "third_party_consent_required"
+    if "claim" in error or "ya_en_ejecucion" in error:
+        return "claim_lost"
+    return "provider_failed"
+
+
+async def _reconciliar_una_mision(
+    mision: dict[str, Any], telefono_owner: str,
+) -> dict[str, Any]:
+    """Sana el residual de crash de M0-3 para UNA misión (preflight de la
+    confirmación): si está `needs_approval` sin `accion_id`, busca una acción
+    `enviar_mensaje_whatsapp` con opportunity_id `mision-<id>` del owner y la
+    relinkea; si no hay, revierte a `draft`. Devuelve la misión actualizada.
+    No toca misiones sanas."""
+    if mision.get("estado") != "needs_approval" or mision.get("accion_id"):
+        return mision
+
+    mision_id = mision["id"]
+    from sqlalchemy import select as _select, update as _update
+    from agent.memory import async_session
+    from agent.automation.models import MisionAutomation, AccionAutomatizacion
+
+    async with async_session() as session:
+        acc = (await session.execute(
+            _select(AccionAutomatizacion).where(
+                AccionAutomatizacion.telefono == telefono_owner,
+                AccionAutomatizacion.opportunity_id == f"mision-{mision_id}",
+                AccionAutomatizacion.tipo_accion == "enviar_mensaje_whatsapp",
+                AccionAutomatizacion.estado.in_(("needs_approval", "approved")),
+            ).order_by(AccionAutomatizacion.id.asc())
+        )).scalars().first()
+
+        if acc is not None:
+            # Relinkear (guard accion_id IS NULL — no pisa un relink concurrente)
+            await session.execute(
+                _update(MisionAutomation)
+                .where(
+                    MisionAutomation.id == mision_id,
+                    MisionAutomation.telefono == telefono_owner,
+                    MisionAutomation.accion_id.is_(None),
+                )
+                .values(accion_id=acc.id, updated_at=datetime.utcnow())
+            )
+            await session.commit()
+            nueva_accion, nuevo_estado = acc.id, "needs_approval"
+        else:
+            # Sin acción que relinkear → revertir a draft para re-preparar.
+            await session.execute(
+                _update(MisionAutomation)
+                .where(
+                    MisionAutomation.id == mision_id,
+                    MisionAutomation.telefono == telefono_owner,
+                    MisionAutomation.estado == "needs_approval",
+                    MisionAutomation.accion_id.is_(None),
+                )
+                .values(estado="draft", updated_at=datetime.utcnow())
+            )
+            await session.commit()
+            nueva_accion, nuevo_estado = None, "draft"
+
+    await registrar_evento(
+        evento="mission_recover_lead_reconciled",
+        telefono=telefono_owner,
+        accion_id=nueva_accion,
+        riesgo="high",
+        payload={
+            "mision_id": mision_id,
+            "accion_recuperada": nueva_accion is not None,
+            "estado_resultante": nuevo_estado,
+        },
+    )
+    return await obtener_mision(mision_id, telefono_owner) or mision
+
+
+async def reconciliar_misiones_recuperar_lead(
+    telefono_owner: str,
+) -> dict[str, Any]:
+    """Reconciliación post-crash del owner (residual M0-3, aprobado por Hermes
+    para M0-4). Tres saneos, todos OWNER-SCOPED:
+      (a) misión `needs_approval` sin `accion_id` → relinkear acción
+          `mision-*` válida o revertir a `draft`;
+      (b) misión no-terminal CON acción enlazada YA `completed` → marcar la
+          misión `completed` (un crash post-envío pudo dejarla colgada);
+      (c) acción `enviar_mensaje_whatsapp` con opportunity_id `mision-*`,
+          confirmable (needs_approval/approved), cuya misión del MISMO owner
+          NO la apunta → cancelarla (huérfana no enviable).
+    Devuelve contadores. Idempotente.
+
+    SINGLE-FLIGHT POR OWNER (asunción operativa): dentro de UNA corrida, (a)
+    relink precede a (c) cancel, y (c) revalida `m.accion_id == aid` justo
+    antes de cancelar — así una acción que (a) acaba de relinkear NO se
+    cancela. El único residual (Codex, acotado) es correr DOS reconciliaciones
+    del mismo owner EN PARALELO: la otra podría relinkear entre la revalidación
+    y el cancel de ésta. Impacto acotado: NO hay doble envío ni doble cobro (la
+    garantía vive en el claim atómico del ejecutor + límites 2.5); el peor caso
+    es cancelar una acción recién relinkeada → el confirmar de esa misión falla
+    y el owner re-prepara. Mitigación: no disparar reconciliación concurrente
+    para el mismo owner (es tarea de mantenimiento/preflight, naturalmente
+    serializada)."""
+    from sqlalchemy import select as _select
+    from agent.memory import async_session
+    from agent.automation.models import MisionAutomation, AccionAutomatizacion
+
+    relinkeadas = revertidas = completadas = canceladas = 0
+
+    # (a) Misiones needs_approval sin accion_id
+    async with async_session() as session:
+        pendientes = (await session.execute(
+            _select(MisionAutomation).where(
+                MisionAutomation.telefono == telefono_owner,
+                MisionAutomation.estado == "needs_approval",
+                MisionAutomation.accion_id.is_(None),
+            )
+        )).scalars().all()
+        ids_pendientes = [m.id for m in pendientes]
+
+    for mid in ids_pendientes:
+        m = await obtener_mision(mid, telefono_owner)
+        if not m:
+            continue
+        antes = m.get("accion_id")
+        m2 = await _reconciliar_una_mision(m, telefono_owner)
+        if m2.get("accion_id") and not antes:
+            relinkeadas += 1
+        elif m2.get("estado") == "draft":
+            revertidas += 1
+
+    # (b) Misiones no-terminales cuya acción enlazada ya está `completed`
+    async with async_session() as session:
+        filas = (await session.execute(
+            _select(MisionAutomation.id, AccionAutomatizacion.estado)
+            .join(AccionAutomatizacion, AccionAutomatizacion.id == MisionAutomation.accion_id)
+            .where(
+                MisionAutomation.telefono == telefono_owner,
+                MisionAutomation.estado.notin_(tuple(_ESTADOS_TERMINALES)),
+                AccionAutomatizacion.estado == "completed",
+            )
+        )).all()
+        ids_a_completar = [row[0] for row in filas]
+    for mid in ids_a_completar:
+        if await marcar_completada(mid, telefono_owner):
+            completadas += 1
+
+    # (c) Acciones mision-* confirmables huérfanas (la misión del MISMO owner
+    # no las apunta). Se revalida justo antes de cancelar (evita un TOCTOU
+    # donde un enlace concurrente las vuelva legítimas entre listar y cancelar).
+    async with async_session() as session:
+        candidatas_ids = (await session.execute(
+            _select(AccionAutomatizacion.id, AccionAutomatizacion.opportunity_id).where(
+                AccionAutomatizacion.telefono == telefono_owner,
+                AccionAutomatizacion.tipo_accion == "enviar_mensaje_whatsapp",
+                AccionAutomatizacion.opportunity_id.like("mision-%"),
+                AccionAutomatizacion.estado.in_(("needs_approval", "approved")),
+            )
+        )).all()
+
+    from agent.automation.action_center import cancelar_accion
+    for aid, opp in candidatas_ids:
+        try:
+            mid = int(str(opp).split("-", 1)[1])
+        except (ValueError, IndexError):
+            continue
+        # Revalidación owner-scoped JUSTO antes de cancelar.
+        async with async_session() as session:
+            m = (await session.execute(
+                _select(MisionAutomation).where(
+                    MisionAutomation.id == mid,
+                    MisionAutomation.telefono == telefono_owner,
+                )
+            )).scalar_one_or_none()
+            acc = (await session.execute(
+                _select(AccionAutomatizacion).where(AccionAutomatizacion.id == aid)
+            )).scalar_one_or_none()
+        # Sigue huérfana si: la acción aún es confirmable Y ninguna misión del
+        # owner la apunta (misión inexistente/ajena, o apunta a otra acción).
+        if acc is None or acc.estado not in ("needs_approval", "approved"):
+            continue
+        if m is not None and m.accion_id == aid:
+            continue   # se enlazó entre listar y ahora → ya NO es huérfana
+        try:
+            await cancelar_accion(aid)
+            canceladas += 1
+        except Exception as e:
+            logger.error(f"[M0-4] no se pudo cancelar acción huérfana {aid} ({type(e).__name__}: {e})")
+
+    return {
+        "relinkeadas": relinkeadas, "revertidas": revertidas,
+        "completadas": completadas, "canceladas": canceladas,
+    }
