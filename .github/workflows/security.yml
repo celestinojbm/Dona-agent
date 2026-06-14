@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read  # gitleaks-action lista los commits del PR via API
 
 concurrency:
   group: security-${{ github.ref }}
@@ -30,8 +31,11 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install "pip-audit>=2.7,<3"
+      # CVE-2025-71176 es de pytest (dep de TEST, no afecta runtime de prod); se
+      # remediara sacando pytest a requirements-dev.txt en un PR aparte.
+      # cryptography ya esta parchada (>=46.0.7) en requirements.txt.
       - name: Auditar requirements.txt (CVEs conocidos)
-        run: pip-audit -r requirements.txt --progress-spinner off
+        run: pip-audit -r requirements.txt --ignore-vuln CVE-2025-71176 --progress-spinner off
 
   gitleaks:
     name: gitleaks (secret scan)
