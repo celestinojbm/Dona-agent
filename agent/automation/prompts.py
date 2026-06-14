@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # Tope por campo de perfil que pasamos al LLM. Mantiene prompts cortos
 # y evita filtrar dumps grandes pegados por el usuario.
 MAX_CHARS_POR_CAMPO = 400

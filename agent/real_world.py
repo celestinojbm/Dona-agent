@@ -10,11 +10,12 @@ Conecta a Dona con APIs externas:
 Si una API key no está configurada, esa función retorna None silenciosamente.
 """
 
-import os
 import hashlib
 import logging
-import httpx
+import os
 from datetime import datetime
+
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()

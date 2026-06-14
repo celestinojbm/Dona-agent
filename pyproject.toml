@@ -3,7 +3,6 @@
 # Ruff (lint) — adopcion por RATCHET: arrancamos con reglas de alta senal y bajo
 # ruido para no ahogar al dev solo. Backlog a habilitar incrementalmente (cada
 # uno en su PR):
-#   - "I"    orden de imports (isort)  -> ~237 cambios, diff grande
 #   - "E"    estilo pycodestyle
 #   - "S"    flake8-bandit (SAST)      -> con per-file-ignores para FPs ya vistos
 #            (google_calendar _FALLBACK_STATE_SECRET/_TOKEN_URL, welcome
@@ -17,7 +16,7 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["F", "UP", "B"]
+select = ["F", "I", "UP", "B"]
 # UP042 (str,Enum -> StrEnum) NO se aplica: cambia __str__ y NivelRiesgo es zona
 # roja (clasificacion de riesgo). Revisar manualmente si se quiere migrar.
 ignore = ["B904", "F841", "E501", "UP042"]

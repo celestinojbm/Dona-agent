@@ -20,9 +20,9 @@ coincidir con los price objects en el dashboard de Stripe.
 
 from __future__ import annotations
 
-import os
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -213,8 +213,9 @@ class SaldoInsuficienteError(Exception):
 
 async def obtener_saldo(telefono: str) -> int:
     """Retorna el saldo actual. 0 si no hay fila."""
-    from agent.memory import async_session, SaldoCreditos
     from sqlalchemy import select
+
+    from agent.memory import SaldoCreditos, async_session
 
     async with async_session() as session:
         row = (await session.execute(
@@ -225,8 +226,9 @@ async def obtener_saldo(telefono: str) -> int:
 
 async def obtener_resumen(telefono: str) -> dict:
     """Saldo + totales + últimas transacciones (para `dona saldo`)."""
-    from agent.memory import async_session, SaldoCreditos, TransaccionCredito
     from sqlalchemy import select
+
+    from agent.memory import SaldoCreditos, TransaccionCredito, async_session
 
     async with async_session() as session:
         bal = (await session.execute(
@@ -280,8 +282,9 @@ async def cobrar(
     if creditos <= 0:
         raise ValueError("creditos debe ser > 0 en cobrar()")
 
-    from agent.memory import async_session, SaldoCreditos, TransaccionCredito
     from sqlalchemy import select, update
+
+    from agent.memory import SaldoCreditos, TransaccionCredito, async_session
 
     async with async_session() as session:
         # Asegurar que exista la fila
@@ -343,8 +346,9 @@ async def acreditar(
     if creditos <= 0:
         raise ValueError("creditos debe ser > 0 en acreditar()")
 
-    from agent.memory import async_session, SaldoCreditos, TransaccionCredito
     from sqlalchemy import select, update
+
+    from agent.memory import SaldoCreditos, TransaccionCredito, async_session
 
     async with async_session() as session:
         # Idempotencia
@@ -610,9 +614,10 @@ async def procesar_evento_suscripcion(evento: dict) -> dict:
     Retorna dict con ``handled: bool`` y contexto. Nunca propaga excepciones
     de DB hacia arriba (el llamador decide el status HTTP).
     """
-    from agent.memory import async_session, EventoStripeProcesado
     from sqlalchemy import select
     from sqlalchemy.exc import IntegrityError
+
+    from agent.memory import EventoStripeProcesado, async_session
 
     tipo = evento.get("type", "") or ""
     event_id = evento.get("id", "") or ""
@@ -681,8 +686,9 @@ async def _procesar_checkout_subscription(data: dict) -> dict:
     Los créditos se acreditan en invoice.payment_succeeded para que un
     checkout sin pago concretado (raro pero posible) no regale créditos.
     """
-    from agent.memory import async_session, SuscripcionStripe
     from sqlalchemy import select
+
+    from agent.memory import SuscripcionStripe, async_session
 
     subscription_id = (data.get("subscription") or "").strip()
     customer_id = (data.get("customer") or "").strip()
@@ -806,8 +812,9 @@ async def _procesar_invoice_payment_succeeded(data: dict) -> dict:
     Si la suscripción no existe en DB (race con checkout.session.completed),
     rechazamos. Stripe reintenta y debería llegar después.
     """
-    from agent.memory import async_session, SuscripcionStripe
     from sqlalchemy import select
+
+    from agent.memory import SuscripcionStripe, async_session
 
     invoice_id = (data.get("id") or "").strip()
     subscription_id = (data.get("subscription") or "").strip()
@@ -896,8 +903,9 @@ async def _procesar_subscription_updated(data: dict) -> dict:
     de Premium a Pro a mitad de periodo, los 100 créditos de este mes ya están
     acreditados; la próxima invoice traerá los 500 nuevos.
     """
-    from agent.memory import async_session, SuscripcionStripe
     from sqlalchemy import select
+
+    from agent.memory import SuscripcionStripe, async_session
 
     subscription_id = (data.get("id") or "").strip()
     if not subscription_id:
@@ -969,8 +977,9 @@ async def _procesar_subscription_deleted(data: dict) -> dict:
     ya pagó es suyo aunque haya cancelado. La próxima renovación simplemente
     no llegará (Stripe deja de generar invoices).
     """
-    from agent.memory import async_session, SuscripcionStripe
     from sqlalchemy import select
+
+    from agent.memory import SuscripcionStripe, async_session
 
     subscription_id = (data.get("id") or "").strip()
     if not subscription_id:

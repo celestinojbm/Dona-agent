@@ -16,9 +16,9 @@ Diseño (mismo patrón que imagen.py / bg_remove.py):
 
 from __future__ import annotations
 
-import os
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 

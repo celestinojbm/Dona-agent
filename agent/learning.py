@@ -21,6 +21,7 @@ Mínimo 20 eventos para activar el análisis.
 import logging
 from collections import Counter
 from datetime import datetime, timedelta
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -72,13 +73,15 @@ async def analizar_patrones(telefono: str) -> str | None:
     Retorna el perfil como texto listo para inyectar en el system prompt,
     o None si no hay suficientes datos.
     """
+    from sqlalchemy import select
+
     from agent.memory import (
-        obtener_eventos_comportamiento,
+        EventoEmocional,
+        async_session,
         contar_eventos_comportamiento,
         guardar_perfil_aprendizaje,
+        obtener_eventos_comportamiento,
     )
-    from agent.memory import EventoEmocional, async_session
-    from sqlalchemy import select
 
     total = await contar_eventos_comportamiento(telefono, dias=30)
     if total < MIN_EVENTOS:

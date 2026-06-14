@@ -352,9 +352,10 @@ def analizar_estado_perfil(perfil_dict: dict | None) -> dict[str, Any]:
 
 async def cargar_perfil_dict(telefono: str) -> dict | None:
     """Lee perfil_negocio de DB · retorna dict o None."""
-    from agent.memory import async_session
-    from agent.business.models import PerfilNegocio
     from sqlalchemy import select
+
+    from agent.business.models import PerfilNegocio
+    from agent.memory import async_session
     async with async_session() as session:
         result = await session.execute(
             select(PerfilNegocio).where(PerfilNegocio.telefono == telefono)

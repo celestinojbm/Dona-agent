@@ -7,31 +7,33 @@ Usa APScheduler con AsyncIOScheduler para correr dentro del proceso de FastAPI.
 Soporta recordatorios únicos y recurrentes (diario, semanal, dias_semana, mensual).
 """
 
-import os
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
+
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from agent.envio_gate import HORA_INICIO_ENVIOS_PROACTIVOS, contexto_envio_automatico
+from agent.learning import actualizar_perfiles_todos
 from agent.memory import (
-    obtener_recordatorios_pendientes,
-    marcar_recordatorio_enviado,
-    registrar_fallo_recordatorio,
-    obtener_usuarios_onboarding_pendientes,
-    claim_recordatorio_para_envio,
-    liberar_claim_recordatorio,
-    claim_gcal_enviado,
-    liberar_claim_gcal,
-    cancelar_recordatorio_por_id,
-    saltar_ocurrencias_atrasadas,
-    fecha_fin_efectiva_recordatorio,
-    obtener_timezone,
     _tipo_recurrencia,
+    cancelar_recordatorio_por_id,
+    claim_gcal_enviado,
+    claim_recordatorio_para_envio,
+    fecha_fin_efectiva_recordatorio,
+    liberar_claim_gcal,
+    liberar_claim_recordatorio,
+    marcar_recordatorio_enviado,
+    obtener_recordatorios_pendientes,
+    obtener_timezone,
+    obtener_usuarios_onboarding_pendientes,
+    registrar_fallo_recordatorio,
+    saltar_ocurrencias_atrasadas,
 )
 from agent.onboarding import iniciar_siguiente_fase
 from agent.proactivity import verificar_proactividad
-from agent.learning import actualizar_perfiles_todos
-from agent.envio_gate import contexto_envio_automatico, HORA_INICIO_ENVIOS_PROACTIVOS
 
 # Timeout máximo para jobs del scheduler (en segundos).
 # Si un job tarda más que esto, se cancela para no bloquear el event loop.
@@ -270,8 +272,9 @@ async def _gcal_ya_enviado(clave: str) -> bool:
     if clave in _recordatorios_gcal_enviados_mem:
         return True
     try:
-        from agent.memory import async_session, RecordatorioGCalEnviado
         from sqlalchemy import select
+
+        from agent.memory import RecordatorioGCalEnviado, async_session
         async with async_session() as session:
             result = await session.execute(
                 select(RecordatorioGCalEnviado).where(RecordatorioGCalEnviado.clave == clave)
@@ -287,7 +290,7 @@ async def _gcal_ya_enviado(clave: str) -> bool:
 async def _verificar_recordatorios_google_calendar_impl(proveedor):
     """Implementación real del job de Google Calendar (envuelta en timeout)."""
     import agent.google_calendar as gc
-    from agent.memory import obtener_todos_con_google_calendar, obtener_timezone
+    from agent.memory import obtener_timezone, obtener_todos_con_google_calendar
 
     usuarios = await obtener_todos_con_google_calendar()
     if not usuarios:
@@ -411,13 +414,14 @@ async def _verificar_seguimientos_vencidos(proveedor):
     Multi-tenant: cada seguimiento tiene su propio `telefono` (el dueño).
     """
     try:
-        from agent.business.models import Seguimiento
-        from agent.memory import async_session
-        from sqlalchemy import select, and_
+        from sqlalchemy import and_, select
+
         from agent.business.crm import (
             claim_seguimiento_para_envio,
             revertir_claim_seguimiento,
         )
+        from agent.business.models import Seguimiento
+        from agent.memory import async_session
 
         ahora = datetime.utcnow()
         async with async_session() as session:
@@ -647,8 +651,9 @@ async def _limpiar_datos_expirados():
     """
     from datetime import datetime, timedelta
     try:
-        from agent.memory import async_session, MensajeProcesado, RecordatorioGCalEnviado
         from sqlalchemy import delete
+
+        from agent.memory import MensajeProcesado, RecordatorioGCalEnviado, async_session
 
         async with async_session() as session:
             # Dedup: limpiar > 2 horas

@@ -11,8 +11,8 @@ Si OPENAI_API_KEY no está configurada, devuelve None silenciosamente para
 que el caller caiga al fallback de texto.
 """
 
-import os
 import logging
+import os
 
 logger = logging.getLogger("dona")
 

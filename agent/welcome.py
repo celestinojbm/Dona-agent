@@ -181,8 +181,9 @@ async def enviar_bienvenida_premium(
     es "enviado" o "dry_run" (el dry_run cuenta para que en dev/test
     el flag avance y permita testar la idempotencia).
     """
-    from agent.memory import async_session, SuscripcionStripe
     from sqlalchemy import select
+
+    from agent.memory import SuscripcionStripe, async_session
 
     # Idempotencia: relectura desde DB. El caller también verificó
     # antes de invocar, pero defensa en profundidad.
@@ -237,8 +238,8 @@ async def enviar_bienvenida_premium(
 
     # Envío real vía proveedor (Whapi en prod).
     try:
-        from agent.providers import obtener_proveedor
         from agent.envio_gate import contexto_envio_directo
+        from agent.providers import obtener_proveedor
         proveedor = obtener_proveedor()
         # Transaccional: bienvenida de la suscripción que el usuario acaba
         # de comprar (incluye su password del dashboard — debe llegar).
@@ -275,8 +276,9 @@ async def _marcar_enviado(subscription_id: str) -> None:
     Solo se llama tras éxito real ("enviado") o en DRY_RUN.
     Si la fila no existe (raro), no hace nada.
     """
-    from agent.memory import async_session, SuscripcionStripe
     from sqlalchemy import select
+
+    from agent.memory import SuscripcionStripe, async_session
 
     async with async_session() as session:
         sub = (await session.execute(

@@ -7,10 +7,11 @@ Integrado con CRM (asocia pedidos a clientes).
 
 import logging
 from datetime import datetime
+
 from sqlalchemy import select
 
-from agent.memory import async_session
 from agent.business.models import Pedido
+from agent.memory import async_session
 
 logger = logging.getLogger("dona")
 

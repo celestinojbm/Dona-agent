@@ -15,18 +15,19 @@ El backend se elige por env `JOBS_BACKEND`:
   - "inproc" → asyncio.create_task local (dev / sin Redis)
 """
 
-from agent.jobs.queue import (  # noqa: F401
-    encolar,
-    obtener_estado,
-    listar_jobs_usuario,
-    marcar_running,
-    marcar_done,
-    marcar_error,
-    backend_activo,
-)
-
 # Importar los módulos de handlers para que los decorators se ejecuten y
 # queden registrados en `_HANDLERS`. NO remover — sin esto los handlers no
 # están disponibles en runtime.
-from agent.jobs import worker  # noqa: F401,E402
-from agent.jobs import handlers_creativos  # noqa: F401,E402
+from agent.jobs import (
+    handlers_creativos,  # noqa: F401,E402
+    worker,  # noqa: F401,E402
+)
+from agent.jobs.queue import (  # noqa: F401
+    backend_activo,
+    encolar,
+    listar_jobs_usuario,
+    marcar_done,
+    marcar_error,
+    marcar_running,
+    obtener_estado,
+)

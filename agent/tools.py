@@ -10,11 +10,11 @@ NOTA: Antes de Fase 1, estos datos se almacenaban en diccionarios en memoria
 y se perdían en cada restart. Ahora persisten en PostgreSQL.
 """
 
-import yaml
 import logging
 from datetime import datetime
 
-from sqlalchemy import select, update, delete
+import yaml
+from sqlalchemy import delete, select, update
 
 logger = logging.getLogger("dona")
 
@@ -60,7 +60,7 @@ async def agregar_tarea(telefono: str, descripcion: str, prioridad: str = "norma
     Returns:
         La tarea creada con su ID
     """
-    from agent.memory import async_session, Tarea
+    from agent.memory import Tarea, async_session
 
     async with async_session() as session:
         tarea = Tarea(
@@ -84,7 +84,7 @@ async def agregar_tarea(telefono: str, descripcion: str, prioridad: str = "norma
 
 async def completar_tarea(telefono: str, tarea_id: int) -> bool:
     """Marca una tarea como completada. Retorna True si la encontró."""
-    from agent.memory import async_session, Tarea
+    from agent.memory import Tarea, async_session
 
     async with async_session() as session:
         result = await session.execute(
@@ -104,7 +104,7 @@ async def listar_tareas(telefono: str, solo_pendientes: bool = True) -> list[dic
         telefono: Número del usuario
         solo_pendientes: Si True, filtra las completadas
     """
-    from agent.memory import async_session, Tarea
+    from agent.memory import Tarea, async_session
 
     async with async_session() as session:
         query = select(Tarea).where(Tarea.telefono == telefono)
@@ -128,7 +128,7 @@ async def listar_tareas(telefono: str, solo_pendientes: bool = True) -> list[dic
 
 async def eliminar_tarea(telefono: str, tarea_id: int) -> bool:
     """Elimina una tarea por ID. Retorna True si la encontró."""
-    from agent.memory import async_session, Tarea
+    from agent.memory import Tarea, async_session
 
     async with async_session() as session:
         result = await session.execute(
@@ -150,7 +150,7 @@ async def agregar_recordatorio(telefono: str, descripcion: str, fecha_hora: str,
     Crea un recordatorio para el usuario.
     Usa la tabla Recordatorio de memory.py para persistencia y scheduling real.
     """
-    from agent.memory import async_session, Recordatorio
+    from agent.memory import Recordatorio, async_session
 
     fecha_dt = None
     try:
@@ -184,7 +184,7 @@ async def agregar_recordatorio(telefono: str, descripcion: str, fecha_hora: str,
 
 async def listar_recordatorios(telefono: str) -> list[dict]:
     """Retorna los recordatorios activos del usuario."""
-    from agent.memory import async_session, Recordatorio
+    from agent.memory import Recordatorio, async_session
 
     async with async_session() as session:
         result = await session.execute(
@@ -209,7 +209,7 @@ async def listar_recordatorios(telefono: str) -> list[dict]:
 
 async def cancelar_recordatorio(telefono: str, recordatorio_id: int) -> bool:
     """Cancela un recordatorio por ID. Retorna True si lo encontró."""
-    from agent.memory import async_session, Recordatorio
+    from agent.memory import Recordatorio, async_session
 
     async with async_session() as session:
         result = await session.execute(
@@ -236,7 +236,7 @@ async def agregar_a_lista(telefono: str, nombre_lista: str, item: str) -> dict:
         nombre_lista: Nombre de la lista (ej: "compras", "metas")
         item: Elemento a agregar
     """
-    from agent.memory import async_session, Lista, ItemLista
+    from agent.memory import ItemLista, Lista, async_session
 
     nombre_lista = nombre_lista.lower().strip()
 
@@ -271,7 +271,7 @@ async def agregar_a_lista(telefono: str, nombre_lista: str, item: str) -> dict:
 
 async def ver_lista(telefono: str, nombre_lista: str) -> list[dict]:
     """Retorna todos los ítems de una lista."""
-    from agent.memory import async_session, Lista, ItemLista
+    from agent.memory import ItemLista, Lista, async_session
 
     nombre_lista = nombre_lista.lower().strip()
 
@@ -304,7 +304,7 @@ async def ver_lista(telefono: str, nombre_lista: str) -> list[dict]:
 
 async def listar_nombres_listas(telefono: str) -> list[str]:
     """Retorna los nombres de todas las listas del usuario."""
-    from agent.memory import async_session, Lista
+    from agent.memory import Lista, async_session
 
     async with async_session() as session:
         result = await session.execute(
@@ -315,7 +315,7 @@ async def listar_nombres_listas(telefono: str) -> list[str]:
 
 async def tachar_de_lista(telefono: str, nombre_lista: str, item_id: int) -> bool:
     """Marca un ítem de lista como completado."""
-    from agent.memory import async_session, Lista, ItemLista
+    from agent.memory import ItemLista, Lista, async_session
 
     nombre_lista = nombre_lista.lower().strip()
 
@@ -354,7 +354,7 @@ async def agendar_evento(telefono: str, titulo: str, fecha_hora: str, descripcio
         fecha_hora: Cuándo ocurre (ej: "2026-03-20 15:00")
         descripcion: Detalles adicionales opcionales
     """
-    from agent.memory import async_session, EventoUsuario
+    from agent.memory import EventoUsuario, async_session
 
     async with async_session() as session:
         evento = EventoUsuario(
@@ -386,7 +386,7 @@ async def listar_eventos(telefono: str, fecha_filtro: str = None) -> list[dict]:
         telefono: Número del usuario
         fecha_filtro: Si se proporciona, filtra por esa fecha (ej: "2026-03-20")
     """
-    from agent.memory import async_session, EventoUsuario
+    from agent.memory import EventoUsuario, async_session
 
     async with async_session() as session:
         query = select(EventoUsuario).where(
@@ -414,7 +414,7 @@ async def listar_eventos(telefono: str, fecha_filtro: str = None) -> list[dict]:
 
 async def cancelar_evento(telefono: str, evento_id: int) -> bool:
     """Cancela un evento por ID. Retorna True si lo encontró."""
-    from agent.memory import async_session, EventoUsuario
+    from agent.memory import EventoUsuario, async_session
 
     async with async_session() as session:
         result = await session.execute(

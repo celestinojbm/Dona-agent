@@ -15,8 +15,8 @@ Filosofía (inspirada en Twin.so):
   4. Human-in-the-loop para MFA/captcha (se reenvía al usuario por WhatsApp).
 """
 
-from agent.web_agent.base import WebAgentTarea, ResultadoTarea, ContextoTarea
-from agent.web_agent.registro import registrar, obtener, nombres_registrados
+from agent.web_agent.base import ContextoTarea, ResultadoTarea, WebAgentTarea
+from agent.web_agent.registro import nombres_registrados, obtener, registrar
 from agent.web_agent.runner import ejecutar_tarea
 
 # Importar las tareas concretas dispara su auto-registro. Best-effort: si algún

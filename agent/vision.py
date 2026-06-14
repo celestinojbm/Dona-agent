@@ -4,11 +4,12 @@ Descarga imágenes de Meta Cloud API y las analiza con Claude Vision (claude-3-5
 Permite a Dona entender fotos, flyers, recibos, listas escritas a mano, etc.
 """
 
-import os
 import base64
 import logging
-import httpx
+import os
+
 import anthropic
+import httpx
 
 logger = logging.getLogger("dona")
 
@@ -134,7 +135,10 @@ async def analizar_imagen_con_claude(
     # reserva cupo principal del presupuesto del mensaje. Bloqueado →
     # None: el pipeline ya degrada (mensaje de "no pude procesarla").
     from agent.presupuesto_runtime import (
-        reservar_llm, con_timeout_llm, consumir_llm, TimeoutPresupuesto,
+        TimeoutPresupuesto,
+        con_timeout_llm,
+        consumir_llm,
+        reservar_llm,
     )
 
     decision = reservar_llm()

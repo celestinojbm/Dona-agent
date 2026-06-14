@@ -48,9 +48,9 @@ Razones de bloqueo (set CERRADO — no inventar strings nuevos en callers):
 
 from __future__ import annotations
 
+import logging
 import os
 import time
-import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field

@@ -165,8 +165,9 @@ async def _contar_mensajes_recientes(telefono: str, horas: int = 24) -> int:
     Retorna 0 si la tabla no existe o hay error (best-effort).
     """
     try:
-        from agent.memory import async_session, Mensaje
-        from sqlalchemy import select, and_, func
+        from sqlalchemy import and_, func, select
+
+        from agent.memory import Mensaje, async_session
 
         corte = datetime.utcnow() - timedelta(hours=horas)
         async with async_session() as session:

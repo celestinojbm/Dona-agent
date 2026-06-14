@@ -18,12 +18,12 @@ mockear una sin la otra.
 
 from __future__ import annotations
 
-import os
-import json
-import uuid
 import hashlib
+import json
 import logging
 import mimetypes
+import os
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -224,7 +224,7 @@ async def registrar_asset(
     """
     Inserta el registro en DB. Retorna el ID del asset.
     """
-    from agent.memory import async_session, AssetGenerado
+    from agent.memory import AssetGenerado, async_session
 
     async with async_session() as session:
         row = AssetGenerado(
@@ -272,8 +272,9 @@ async def subir_y_registrar(
 
 async def obtener_asset(asset_id: int) -> dict | None:
     """Recupera un asset por ID. Retorna dict con campos relevantes o None."""
-    from agent.memory import async_session, AssetGenerado
     from sqlalchemy import select
+
+    from agent.memory import AssetGenerado, async_session
 
     async with async_session() as session:
         row = (await session.execute(select(AssetGenerado).where(AssetGenerado.id == asset_id))).scalar_one_or_none()
@@ -284,8 +285,9 @@ async def obtener_asset(asset_id: int) -> dict | None:
 
 async def listar_assets_usuario(telefono: str, limite: int = 10, tipo: str | None = None) -> list[dict]:
     """Últimos N assets del usuario, opcionalmente filtrados por tipo."""
-    from agent.memory import async_session, AssetGenerado
     from sqlalchemy import select
+
+    from agent.memory import AssetGenerado, async_session
 
     async with async_session() as session:
         q = select(AssetGenerado).where(AssetGenerado.telefono == telefono)
@@ -301,8 +303,9 @@ async def eliminar_asset(asset_id: int, telefono: str) -> bool:
     Borra el asset del backend y lo marca en DB. El telefono se verifica
     para que un user no pueda borrar assets de otro (defensa en profundidad).
     """
-    from agent.memory import async_session, AssetGenerado
-    from sqlalchemy import select, delete
+    from sqlalchemy import delete, select
+
+    from agent.memory import AssetGenerado, async_session
 
     async with async_session() as session:
         row = (await session.execute(

@@ -195,8 +195,8 @@ async def registrar_evento(
         logger.warning(f"[AUDIT-AUT] evento inválido descartado: {evento!r}")
         return 0
 
-    from agent.memory import async_session
     from agent.automation.models import AuditLogAutomatizacion
+    from agent.memory import async_session
 
     safe = sanitizar_payload(payload or {})
     summary = json.dumps(safe, ensure_ascii=False, sort_keys=True)

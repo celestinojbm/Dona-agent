@@ -20,12 +20,11 @@ DEBUG nunca redacta: si necesitás ver PII real para diagnosticar, subí el nive
 con LOG_LEVEL=DEBUG (o ejecutás con ENVIRONMENT distinto de production).
 """
 
-import os
-import re
 import json
 import logging
-from datetime import datetime, UTC
-
+import os
+import re
+from datetime import UTC, datetime
 
 # ── Patrones de redaction ────────────────────────────────────────────────────
 

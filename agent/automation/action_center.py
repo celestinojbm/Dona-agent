@@ -22,6 +22,8 @@ from typing import Any
 
 from sqlalchemy import select, update
 
+from agent.automation.audit import registrar_evento
+from agent.automation.costos import estimar_costo_accion
 from agent.automation.permissions import (
     calcular_next_required_action,
     clasificar_riesgo,
@@ -29,8 +31,6 @@ from agent.automation.permissions import (
     requiere_aprobacion,
     transicion_valida,
 )
-from agent.automation.costos import estimar_costo_accion
-from agent.automation.audit import registrar_evento
 
 logger = logging.getLogger("dona")
 
@@ -73,8 +73,8 @@ async def crear_accion(
         si es duplicada idempotente, 'created':False y los datos
         existentes.
     """
-    from agent.memory import async_session
     from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
 
     riesgo = clasificar_riesgo(tipo_accion)
     estado_inicial = estado_inicial_para_riesgo(riesgo)
@@ -144,8 +144,8 @@ async def listar_acciones(
     limite: int = 50,
 ) -> list[dict[str, Any]]:
     """Lista acciones del usuario, opcionalmente filtradas por estado."""
-    from agent.memory import async_session
     from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
 
     async with async_session() as session:
         q = select(AccionAutomatizacion).where(
@@ -167,8 +167,8 @@ async def _cambiar_estado(
     result: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Helper interno · cambia estado validando la transición y emite audit."""
-    from agent.memory import async_session
     from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
 
     async with async_session() as session:
         row = (await session.execute(
@@ -248,8 +248,8 @@ async def intentar_marcar_running(
     actualizar estado desde un origen permitido a running; los demás reciben
     False y deben abortar antes del provider.
     """
-    from agent.memory import async_session
     from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
 
     ahora = datetime.utcnow()
     async with async_session() as session:

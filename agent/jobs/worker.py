@@ -21,12 +21,12 @@ Contrato del handler:
 
 from __future__ import annotations
 
-import os
 import logging
-from typing import Any
+import os
 from collections.abc import Awaitable, Callable
+from typing import Any
 
-from agent.jobs.queue import marcar_running, marcar_done, marcar_error
+from agent.jobs.queue import marcar_done, marcar_error, marcar_running
 
 logger = logging.getLogger("dona")
 

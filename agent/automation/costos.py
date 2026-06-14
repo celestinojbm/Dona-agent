@@ -13,7 +13,6 @@ externas, complejidad. Conservador hacia arriba para no subestimar.
 
 from __future__ import annotations
 
-
 # Costo en créditos por tipo de acción.
 # Default 5 si el tipo no está mapeado (mínimo seguro).
 COSTO_POR_TIPO_ACCION: dict[str, int] = {

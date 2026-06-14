@@ -44,37 +44,43 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 from collections.abc import Awaitable, Callable
+from typing import Any
 
-from agent.automation.permissions import (
-    NivelRiesgo,
-    esta_bloqueado_t21,
-)
-from agent.automation.audit import registrar_evento
 from agent.automation.action_center import (
     intentar_marcar_running,
     marcar_completada,
     marcar_fallida,
 )
+from agent.automation.audit import registrar_evento
 from agent.automation.credits import (
-    reservar as reservar_creditos,
-    confirmar as confirmar_creditos,
-    liberar as liberar_creditos,
     CreditosInsuficientesError,
 )
+from agent.automation.credits import (
+    confirmar as confirmar_creditos,
+)
+from agent.automation.credits import (
+    liberar as liberar_creditos,
+)
+from agent.automation.credits import (
+    reservar as reservar_creditos,
+)
+from agent.automation.permissions import (
+    NivelRiesgo,
+    esta_bloqueado_t21,
+)
 from agent.automation.prompts import (
-    construir_contexto_perfil,
-    SYSTEM_PROMPT_PLAN_SEMANAL,
+    SYSTEM_PROMPT_ANALIZAR_DIAGNOSTICO,
+    SYSTEM_PROMPT_BORRADOR_COPY_OFERTA,
     SYSTEM_PROMPT_CALENDARIO_CONTENIDO,
     SYSTEM_PROMPT_CHECKLIST_VENTAS,
-    SYSTEM_PROMPT_ANALIZAR_DIAGNOSTICO,
     SYSTEM_PROMPT_IDEA_OFERTA,
-    SYSTEM_PROMPT_PREPARAR_MENSAJE_WHATSAPP,
+    SYSTEM_PROMPT_PLAN_SEMANAL,
     SYSTEM_PROMPT_PREPARAR_CAMPANA_WHATSAPP,
-    SYSTEM_PROMPT_PREPARAR_PUBLICACION_REDES,
     SYSTEM_PROMPT_PREPARAR_EMAIL_SEGUIMIENTO,
-    SYSTEM_PROMPT_BORRADOR_COPY_OFERTA,
+    SYSTEM_PROMPT_PREPARAR_MENSAJE_WHATSAPP,
+    SYSTEM_PROMPT_PREPARAR_PUBLICACION_REDES,
+    construir_contexto_perfil,
 )
 
 logger = logging.getLogger("dona")
@@ -615,7 +621,6 @@ from agent.automation.executors.send_message import (
     ejecutor_enviar_mensaje_whatsapp as _ejecutor_enviar_mensaje_whatsapp,
 )
 
-
 # Mapping tipo_accion → ejecutor
 EJECUTORES_T21A: dict[str, Callable[..., Awaitable[dict]]] = {
     # LOW
@@ -818,9 +823,10 @@ async def ejecutar_accion(
 
 async def _cargar_perfil(telefono: str) -> dict[str, Any] | None:
     """Lee perfil_negocio · retorna dict o None si no existe."""
-    from agent.memory import async_session
-    from agent.business.models import PerfilNegocio
     from sqlalchemy import select
+
+    from agent.business.models import PerfilNegocio
+    from agent.memory import async_session
 
     async with async_session() as session:
         row = (await session.execute(

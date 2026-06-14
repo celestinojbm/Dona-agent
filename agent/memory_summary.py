@@ -19,6 +19,7 @@ Flujo:
 """
 
 import logging
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -65,10 +66,10 @@ async def actualizar_resumen_si_necesario(telefono: str) -> bool:
         True si se generó un resumen nuevo, False si todavía no era necesario.
     """
     from agent.memory import (
-        obtener_memoria_largo_plazo,
         guardar_memoria_largo_plazo,
-        obtener_ultimo_id_mensaje,
+        obtener_memoria_largo_plazo,
         obtener_mensajes_desde_id,
+        obtener_ultimo_id_mensaje,
     )
 
     try:

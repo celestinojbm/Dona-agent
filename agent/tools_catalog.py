@@ -59,7 +59,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 NivelRiesgo = Literal["leer", "preparar", "ejecutar"]
 CategoriaPermiso = Literal["autonomo", "aprobacion_simple", "aprobacion_fuerte"]
 

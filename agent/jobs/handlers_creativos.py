@@ -63,8 +63,8 @@ async def _handler_gen_imagen(telefono: str, params: dict[str, Any]) -> int | No
       - costo_creditos (int): ya cobrado por confirmar_imagen. Si la generación
         o el guardado fallan, se reembolsa acá y se notifica al usuario.
     """
-    from agent.creativos.imagen import generar_imagen, GeminiError
     from agent import storage
+    from agent.creativos.imagen import GeminiError, generar_imagen
 
     prompt = (params.get("prompt") or "").strip()
     calidad = params.get("calidad", "standard")
@@ -194,8 +194,8 @@ async def _handler_bg_remove(telefono: str, params: dict[str, Any]) -> int | Non
       - source_asset_id (int | None)
       - costo_creditos (int)
     """
-    from agent.creativos.bg_remove import remove_background, PhotoroomError
     from agent import storage
+    from agent.creativos.bg_remove import PhotoroomError, remove_background
 
     source_url = (params.get("source_url") or "").strip()
     source_mime = params.get("source_mime") or "image/jpeg"
@@ -319,8 +319,8 @@ async def _handler_gen_voz(telefono: str, params: dict[str, Any]) -> int | None:
       - voice_id (str)
       - costo_creditos (int)
     """
-    from agent.creativos.voz import text_to_speech, ElevenLabsError
     from agent import storage
+    from agent.creativos.voz import ElevenLabsError, text_to_speech
 
     texto = (params.get("texto") or "").strip()
     voice_id = params.get("voice_id")
@@ -421,8 +421,8 @@ async def _handler_gen_documento(telefono: str, params: dict[str, Any]) -> int |
       - emisor (dict): {nombre_negocio, moneda, ...}
       - costo_creditos (int)
     """
-    from agent.creativos.pdf import generar_pdf, PDFError
     from agent import storage
+    from agent.creativos.pdf import PDFError, generar_pdf
 
     tipo = (params.get("tipo") or "factura").lower()
     datos = params.get("datos") or {}
@@ -534,8 +534,8 @@ async def _handler_gen_video(telefono: str, params: dict[str, Any]) -> int | Non
       - duration_s (int): duración en segundos (5 o 10)
       - costo_creditos (int)
     """
-    from agent.creativos.video import generar_video, ReplicateError
     from agent import storage
+    from agent.creativos.video import ReplicateError, generar_video
 
     prompt = (params.get("prompt") or "").strip()
     image_url = params.get("image_url") or ""
@@ -653,8 +653,8 @@ async def _handler_gen_video_avatar(telefono: str, params: dict[str, Any]) -> in
       - voice_id (str)
       - costo_creditos (int)
     """
-    from agent.creativos.video_avatar import generar_video_avatar, HeyGenError
     from agent import storage
+    from agent.creativos.video_avatar import HeyGenError, generar_video_avatar
 
     texto = (params.get("texto") or "").strip()
     avatar_id = params.get("avatar_id") or ""

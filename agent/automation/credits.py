@@ -135,7 +135,7 @@ async def reservar(
         )
 
     # 4. Cobro real · billing.cobrar es atómico en su propia sesión
-    from agent.billing import cobrar, SaldoInsuficienteError
+    from agent.billing import SaldoInsuficienteError, cobrar
 
     try:
         await cobrar(
@@ -199,9 +199,9 @@ async def reservar(
 async def confirmar(accion_id: int) -> dict[str, Any] | None:
     """Confirma una reserva 'pending' · estado→'confirmed'. No-op si la
     reserva ya está confirmed/released/failed o no existe."""
-    from agent.memory import async_session
-    from agent.automation.models import ReservaCreditoAutomation
     from agent.automation.audit import registrar_evento
+    from agent.automation.models import ReservaCreditoAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         row = (await session.execute(
@@ -236,10 +236,10 @@ async def liberar(
 
     No-op si la reserva ya está confirmed/released/failed o no existe.
     """
-    from agent.memory import async_session
-    from agent.automation.models import ReservaCreditoAutomation
     from agent.automation.audit import registrar_evento
+    from agent.automation.models import ReservaCreditoAutomation
     from agent.billing import acreditar
+    from agent.memory import async_session
 
     async with async_session() as session:
         row = (await session.execute(
@@ -287,8 +287,8 @@ async def liberar(
 
 async def obtener_reserva(accion_id: int) -> dict[str, Any] | None:
     """Lee la reserva asociada · útil para tests y diagnóstico."""
-    from agent.memory import async_session
     from agent.automation.models import ReservaCreditoAutomation
+    from agent.memory import async_session
     async with async_session() as session:
         row = (await session.execute(
             select(ReservaCreditoAutomation).where(
@@ -383,8 +383,8 @@ async def reconciliar_reservas(
     En dry_run sólo cuenta cuántas filas serían tocadas (promoted vs
     marked_failed vs intactas).
     """
-    from agent.memory import async_session
     from agent.automation.models import ReservaCreditoAutomation
+    from agent.memory import async_session
 
     if limit < 1 or limit > 5000:
         raise ValueError("limit debe estar entre 1 y 5000")
@@ -469,8 +469,8 @@ async def _persistir_reserva(
     sustituir_si_existe: bool,
 ) -> dict[str, Any]:
     """UPSERT · respeta UNIQUE(accion_id)."""
-    from agent.memory import async_session
     from agent.automation.models import ReservaCreditoAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         existing = (await session.execute(
@@ -512,8 +512,8 @@ async def _actualizar_estado_y_tx(
     transaccion_credito_id: int | None,
 ) -> dict[str, Any] | None:
     """UPDATE estado y opcionalmente la FK a TransaccionCredito."""
-    from agent.memory import async_session
     from agent.automation.models import ReservaCreditoAutomation
+    from agent.memory import async_session
 
     async with async_session() as session:
         row = (await session.execute(
@@ -539,7 +539,7 @@ async def _ultima_tx_id_para_accion(
     acción. Match por (job_id=accion_id, telefono, delta=-creditos),
     elige la más reciente. Retorna su id o None.
     """
-    from agent.memory import async_session, TransaccionCredito
+    from agent.memory import TransaccionCredito, async_session
     async with async_session() as session:
         rows = (await session.execute(
             select(TransaccionCredito)

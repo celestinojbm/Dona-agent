@@ -7,10 +7,11 @@ Todas las funciones reciben telefono (del dueño del negocio) para aislar datos.
 
 import logging
 from datetime import datetime
-from sqlalchemy import select, or_, update
 
-from agent.memory import async_session
+from sqlalchemy import or_, select, update
+
 from agent.business.models import ClienteNegocio, Seguimiento
+from agent.memory import async_session
 
 logger = logging.getLogger("dona")
 

@@ -16,10 +16,10 @@ Diseño (mismo patrón que voz.py / imagen.py):
 
 from __future__ import annotations
 
-import os
-import re
 import asyncio
 import logging
+import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 

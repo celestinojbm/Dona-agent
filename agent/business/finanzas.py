@@ -7,11 +7,12 @@ Todo por conversación de WhatsApp.
 
 import logging
 from datetime import datetime, timedelta
-from sqlalchemy import select, func
 
-from agent.memory import async_session
-from agent.business.models import Transaccion, Producto, PerfilNegocio
+from sqlalchemy import func, select
+
 from agent.business.crm import actualizar_compras_cliente
+from agent.business.models import PerfilNegocio, Producto, Transaccion
+from agent.memory import async_session
 
 logger = logging.getLogger("dona")
 

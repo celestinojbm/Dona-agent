@@ -22,9 +22,9 @@ Tipos soportados:
 from __future__ import annotations
 
 import io
-import os
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -164,14 +164,18 @@ async def generar_pdf(
 
     # Intento reportlab; si no está, stub.
     try:
-        from reportlab.lib.pagesizes import LETTER  # type: ignore
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.units import inch
         from reportlab.lib import colors
-        from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        )
         from reportlab.lib.enums import TA_RIGHT
+        from reportlab.lib.pagesizes import LETTER  # type: ignore
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import inch
+        from reportlab.platypus import (
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
     except ImportError:
         logger.warning("[PDF] reportlab no instalado — retornando stub PDF")
         return _STUB_PDF, {
@@ -434,9 +438,10 @@ async def obtener_emisor(telefono: str) -> dict:
     Si no hay perfil, retorna valores genéricos.
     """
     try:
-        from agent.memory import async_session
-        from agent.business.models import PerfilNegocio
         from sqlalchemy import select
+
+        from agent.business.models import PerfilNegocio
+        from agent.memory import async_session
 
         async with async_session() as session:
             row = (await session.execute(
@@ -492,7 +497,7 @@ async def preparar_documento(
     Extrae datos del `cuerpo` (texto libre), guarda pendiente y retorna preview.
     NO cobra, NO genera el PDF. Se guarda datos normalizados + emisor.
     """
-    from agent.billing import obtener_saldo, COSTO_DOCUMENTO
+    from agent.billing import COSTO_DOCUMENTO, obtener_saldo
     from agent.creativos.pendientes import cancelar_otros_pendientes
 
     tipo = (tipo or "factura").lower()

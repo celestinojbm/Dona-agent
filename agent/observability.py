@@ -31,7 +31,6 @@ import logging
 import secrets
 from contextvars import ContextVar
 
-
 _REQUEST_ID_PREFIX = "req_"
 _REQUEST_ID_HEX_LEN = 12
 

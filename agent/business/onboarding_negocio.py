@@ -35,9 +35,10 @@ Privacidad (T2.0.E.1):
 import logging
 from datetime import datetime
 
-from agent.memory import async_session
-from agent.business.models import PerfilNegocio
 from sqlalchemy import select
+
+from agent.business.models import PerfilNegocio
+from agent.memory import async_session
 
 logger = logging.getLogger("dona")
 

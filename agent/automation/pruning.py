@@ -31,7 +31,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 
 logger = logging.getLogger("dona")
 
@@ -61,8 +61,8 @@ async def pruning_acciones(
     transacción. Si la candidata excede max_delete, sólo borra las más
     viejas hasta llenar max_delete y reporta cuántas quedaron.
     """
-    from agent.memory import async_session
     from agent.automation.models import AccionAutomatizacion
+    from agent.memory import async_session
 
     if dias < 30:
         raise ValueError("dias debe ser >= 30 · regla anti-borrado-corto")
@@ -129,10 +129,10 @@ async def pruning_reservas(
     accion también esté en estado terminal y vieja. Esto evita romper
     trazabilidad de acciones activas que aún referencian su reserva.
     """
-    from agent.memory import async_session
     from agent.automation.models import (
         ReservaCreditoAutomation,
     )
+    from agent.memory import async_session
 
     if dias < 30:
         raise ValueError("dias debe ser >= 30")
@@ -199,8 +199,8 @@ async def pruning_audit_log(
     Default 365 días · más conservador que acciones/reservas porque el
     audit log es crítico para CCPA/CPRA y para investigar incidentes.
     """
-    from agent.memory import async_session
     from agent.automation.models import AuditLogAutomatizacion
+    from agent.memory import async_session
 
     if dias < 90:
         raise ValueError("dias debe ser >= 90 para audit log (compliance)")

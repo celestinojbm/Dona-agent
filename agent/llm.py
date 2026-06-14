@@ -30,8 +30,8 @@ acción NO debe usar este módulo: eso es trabajo principal y va gateado
 por brain (reservar_llm).
 """
 
-import os
 import logging
+import os
 
 logger = logging.getLogger("dona")
 
@@ -72,7 +72,7 @@ async def _completar(mensajes_openai: list, system: str | None, max_tokens: int,
     """Núcleo gateado: una reserva auxiliar cubre el intento lógico
     (DeepSeek + fallback Haiku). Timeout del guard por proveedor; el costo
     se consume con el proveedor que respondió."""
-    from agent.presupuesto_runtime import con_timeout_llm, consumir_llm, TimeoutPresupuesto
+    from agent.presupuesto_runtime import TimeoutPresupuesto, con_timeout_llm, consumir_llm
 
     # Intento 1: DeepSeek
     if _deepseek:

@@ -10,8 +10,8 @@ Si ENCRYPTION_KEY no está configurada, opera en modo transparente (sin cifrado)
 para no romper deploys existentes. Loguea un warning en cada arranque.
 """
 
-import os
 import logging
+import os
 
 from agent.entorno import es_entorno_estricto
 
