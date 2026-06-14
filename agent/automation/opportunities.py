@@ -38,7 +38,7 @@ from agent.automation.playbooks import obtener_playbook
 def _id_oportunidad(telefono: str, tipo: str) -> str:
     """ID determinístico para idempotencia. Hash truncado del par
     (telefono, tipo) · evita PII en el ID."""
-    h = hashlib.sha256(f"{telefono}:{tipo}".encode("utf-8")).hexdigest()
+    h = hashlib.sha256(f"{telefono}:{tipo}".encode()).hexdigest()
     return f"opp_{h[:16]}"
 
 

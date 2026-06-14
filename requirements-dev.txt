@@ -1,0 +1,4 @@
+# Dependencias solo de desarrollo/CI — NO se instalan en la imagen de produccion.
+# (produccion usa requirements.txt). Instalar con: pip install -r requirements-dev.txt
+-r requirements.txt
+ruff==0.15.17

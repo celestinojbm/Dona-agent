@@ -24,7 +24,7 @@ import hashlib
 import secrets
 import logging
 import urllib.parse
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, UTC
 
 import httpx
 from dotenv import load_dotenv
@@ -319,7 +319,7 @@ async def listar_eventos_hoy(telefono: str, offset_min: int = 0) -> list[dict]:
         return []
 
     # Rango "hoy" calculado en la hora local del usuario
-    ahora_utc = datetime.now(timezone.utc)
+    ahora_utc = datetime.now(UTC)
     offset = timedelta(minutes=offset_min)
     ahora_local = ahora_utc + offset
     inicio_dia_local = ahora_local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -630,7 +630,7 @@ async def obtener_proximos_eventos(
     if not token:
         return []
 
-    ahora_utc = datetime.now(timezone.utc)
+    ahora_utc = datetime.now(UTC)
     fin_ventana = ahora_utc + timedelta(hours=ventana_horas)
 
     # Buscar eventos en la próxima ventana
@@ -667,7 +667,7 @@ async def obtener_proximos_eventos(
                     # Parsear el inicio del evento
                     inicio_dt = datetime.fromisoformat(inicio_str)
                     if inicio_dt.tzinfo is None:
-                        inicio_dt = inicio_dt.replace(tzinfo=timezone.utc)
+                        inicio_dt = inicio_dt.replace(tzinfo=UTC)
 
                     # Calcular cuántos minutos faltan
                     minutos_restantes = (inicio_dt - ahora_utc).total_seconds() / 60

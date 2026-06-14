@@ -130,6 +130,7 @@ from agent.rate_limiter import dentro_de_limite as _dentro_de_limite
 
 # ── Métricas en memoria para el endpoint /admin/metrics ──────────────────────
 import threading as _threading
+from datetime import UTC
 
 class _Metricas:
     """Contadores atómicos simples para métricas de la aplicación."""
@@ -458,9 +459,9 @@ async def admin_metrics(request: Request, token: str = ""):
     """Métricas de la aplicación: requests, errores, latencia, mensajes."""
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
-    from datetime import datetime as _dt, timezone as _tz
+    from datetime import datetime as _dt
     data = metricas.snapshot()
-    data["timestamp"] = _dt.now(_tz.utc).isoformat()
+    data["timestamp"] = _dt.now(UTC).isoformat()
     data["uptime_info"] = "desde último deploy"
     return data
 
@@ -634,7 +635,7 @@ async def admin_recordatorios(request: Request, telefono: str, token: str = ""):
     if not _telefono_valido(telefono):
         raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
     from agent.memory import obtener_recordatorios_activos, obtener_timezone
-    from datetime import datetime as dt, timedelta
+    from datetime import datetime as dt
     activos = await obtener_recordatorios_activos(telefono)
     offset = await obtener_timezone(telefono)
     ahora_utc = dt.utcnow()
@@ -764,7 +765,7 @@ async def google_oauth_callback(
         return HTMLResponse(_html_oauth_resultado(exito=False, mensaje="Enlace inválido."))
 
     if not _telefono_valido(telefono):
-        logger.warning(f"[GOOGLE] Teléfono inválido tras decodificar state")
+        logger.warning("[GOOGLE] Teléfono inválido tras decodificar state")
         return HTMLResponse(_html_oauth_resultado(exito=False, mensaje="Enlace inválido."))
 
     exito, email = await intercambiar_codigo(code, telefono)
@@ -1321,7 +1322,6 @@ async def procesar_webhook(request: Request):
                    "!borrar mis datos", "borrar mis datos", "eliminar mis datos",
                    "dona borrar mis datos", "dona eliminar mis datos",
                ):
-                from enhanced.safe_module import tiene_confirmacion_pendiente as _tcp
                 # Usar flujo de confirmación CONFIRMAR
                 if _texto_lower == "confirmar":
                     pass  # Se maneja arriba en confirmaciones pendientes
@@ -1962,7 +1962,7 @@ async def procesar_webhook(request: Request):
                 else:
                     logger.info(f"[ONBOARDING] Mensaje fuera de flujo, pasa a Claude: '{msg.texto[:60]}'")
             elif _onboarding_activo and _es_imagen:
-                logger.info(f"[ONBOARDING] Imagen recibida durante onboarding — pasa a Claude sin avanzar estado")
+                logger.info("[ONBOARDING] Imagen recibida durante onboarding — pasa a Claude sin avanzar estado")
 
             # ── Onboarding de negocio: flujo guiado de configuración ────────
             try:
@@ -2064,7 +2064,7 @@ async def procesar_webhook(request: Request):
                     ),
                     timeout=90.0,
                 )
-            except _asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error(f"[WEBHOOK] Claude API timeout (90s) para {msg.telefono}")
                 respuesta = "Disculpa, tardé demasiado en procesar tu mensaje. ¿Puedes intentarlo de nuevo?"
 
@@ -2131,7 +2131,7 @@ _KEYWORDS_CONTEXTO = {
     "reunión", "reunion", "proyecto", "contrato", "llamada", "cita",
     "cliente", "socio", "proveedor", "equipo", "empresa", "acuerdo",
     "presentación", "presentacion", "negociación", "negociacion",
-    "propuesta", "junta", "entrevista", "socio", "alianza",
+    "propuesta", "junta", "entrevista", "alianza",
 }
 
 
@@ -2216,7 +2216,7 @@ async def _actualizar_memoria_mirofish(telefono: str, texto: str):
     Corre en background — silencioso, sin interrumpir la experiencia del usuario.
     """
     import agent.mirofish_client as mf
-    from datetime import timezone as tz
+    from datetime import datetime
 
     try:
         estado = await obtener_mirofish_estado(telefono)
@@ -2243,8 +2243,8 @@ async def _actualizar_memoria_mirofish(telefono: str, texto: str):
         dias_sin_sync = 999
         if ultima_sync:
             # Normalizar a UTC para comparar
-            ahora_utc = datetime.utcnow().replace(tzinfo=tz.utc)
-            sync_utc = ultima_sync.replace(tzinfo=tz.utc) if ultima_sync.tzinfo is None else ultima_sync
+            ahora_utc = datetime.utcnow().replace(tzinfo=UTC)
+            sync_utc = ultima_sync.replace(tzinfo=UTC) if ultima_sync.tzinfo is None else ultima_sync
             dias_sin_sync = (ahora_utc - sync_utc).days
 
         necesita_sync = (
@@ -2908,7 +2908,6 @@ async def admin_automation_ejecutar(
     """
     if not _verificar_admin(request, token):
         raise HTTPException(status_code=403, detail="Token inválido")
-    from agent.automation.action_center import listar_acciones
     from agent.automation.execution import ejecutar_accion
     from agent.memory import async_session
     from agent.automation.models import AccionAutomatizacion

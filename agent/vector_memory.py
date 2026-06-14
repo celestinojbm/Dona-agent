@@ -9,11 +9,9 @@ Si no hay OPENAI_API_KEY, los embeddings quedan desactivados silenciosamente.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import unicodedata
-from typing import Optional
 
 import httpx
 
@@ -68,7 +66,7 @@ def _limpiar_texto(texto: str) -> str:
     return texto.strip()
 
 
-async def generar_embedding(texto: str) -> Optional[list[float]]:
+async def generar_embedding(texto: str) -> list[float] | None:
     """
     Genera un embedding de 1536 dimensiones para el texto dado.
     Usa la API REST de OpenAI directamente con httpx para evitar

@@ -13,6 +13,7 @@ import base64
 import logging
 import mimetypes
 import re
+from typing import TYPE_CHECKING
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -20,6 +21,9 @@ from email.utils import formatdate
 from email import encoders
 
 import httpx
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 logger = logging.getLogger("dona")
 

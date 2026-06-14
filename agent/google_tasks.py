@@ -17,8 +17,7 @@ Endpoints cubiertos (v1):
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, UTC
 
 import httpx
 
@@ -137,7 +136,7 @@ async def crear_tarea(
     notas: str = "",
     vencimiento_iso: str | None = None,
     lista_id: str | None = None,
-) -> Optional[dict]:
+) -> dict | None:
     """
     Crea una tarea. `vencimiento_iso` debe ser RFC3339 (ej: "2026-04-20T00:00:00.000Z").
     Google Tasks ignora la hora del vencimiento (solo la fecha importa).
@@ -206,7 +205,7 @@ async def completar_tarea(telefono: str, lista_id: str, tarea_id: str) -> bool:
                 },
                 json={
                     "status": "completed",
-                    "completed": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "completed": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                 },
             )
             if resp.status_code == 403:

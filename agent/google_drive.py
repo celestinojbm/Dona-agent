@@ -10,7 +10,6 @@ Requiere scope: https://www.googleapis.com/auth/drive.file
 
 import json
 import logging
-from typing import Optional
 
 import httpx
 
@@ -31,7 +30,7 @@ async def subir_archivo(
     nombre: str,
     contenido: bytes,
     mime_type: str = "application/octet-stream",
-    carpeta_id: Optional[str] = None,
+    carpeta_id: str | None = None,
     descripcion: str = "",
 ) -> dict | None:
     """
@@ -68,7 +67,7 @@ async def subir_archivo(
         f"{json.dumps(metadata)}\r\n"
         f"--{boundary}\r\n"
         f"Content-Type: {mime_type}\r\n\r\n"
-    ).encode("utf-8") + contenido + f"\r\n--{boundary}--".encode("utf-8")
+    ).encode() + contenido + f"\r\n--{boundary}--".encode()
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -85,7 +84,7 @@ async def subir_archivo(
                 },
             )
             if resp.status_code == 403:
-                logger.warning(f"[DRIVE] 403 — falta scope drive.file (re-autorizar)")
+                logger.warning("[DRIVE] 403 — falta scope drive.file (re-autorizar)")
                 return None
             if resp.status_code not in (200, 201):
                 logger.error(f"[DRIVE] Upload falló {resp.status_code}: {resp.text[:300]}")

@@ -13,7 +13,7 @@ Fases:
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 logger = logging.getLogger("dona")
 
@@ -250,7 +250,7 @@ async def _avanzar_fase(telefono: str, estado: dict, respuesta_usuario: str) -> 
     Acumula la respuesta del usuario, la envía a MiroFish en background,
     y retorna el siguiente mensaje del flujo.
     """
-    from agent.memory import guardar_onboarding, guardar_mirofish_estado, obtener_mirofish_estado
+    from agent.memory import guardar_onboarding
 
     fase = estado["fase"]
     paso = estado["paso"]
@@ -470,7 +470,7 @@ async def _inferir_timezone_desde_ciudad(ciudad: str, pais: str) -> tuple[str | 
     Se llama UNA sola vez al final del onboarding — nunca bloquea al usuario.
     El nombre IANA permite calcular correctamente el DST en cualquier momento futuro.
     """
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    from zoneinfo import ZoneInfo
     from datetime import datetime
 
     try:

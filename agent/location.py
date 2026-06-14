@@ -9,7 +9,6 @@ Detecta dos situaciones de ubicación:
 Usa Claude Haiku para inferencia, con pre-filtros baratos para evitar llamadas innecesarias.
 """
 
-import os
 import logging
 from dotenv import load_dotenv
 

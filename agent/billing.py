@@ -22,11 +22,9 @@ from __future__ import annotations
 
 import os
 import json
-import hmac
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 logger = logging.getLogger("dona")
 
@@ -346,7 +344,7 @@ async def acreditar(
         raise ValueError("creditos debe ser > 0 en acreditar()")
 
     from agent.memory import async_session, SaldoCreditos, TransaccionCredito
-    from sqlalchemy import select, update, insert
+    from sqlalchemy import select, update
 
     async with async_session() as session:
         # Idempotencia

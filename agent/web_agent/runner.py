@@ -18,7 +18,6 @@ Para habilitarlo:
 """
 
 import logging
-from typing import Optional
 
 from agent.web_agent.base import ContextoTarea, ResultadoTarea
 from agent.web_agent.registro import obtener as obtener_tarea

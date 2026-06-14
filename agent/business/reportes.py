@@ -5,7 +5,7 @@ Genera reportes de negocio para integrar en morning brief y weekly review.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from agent.business.finanzas import resumen_financiero, top_productos_vendidos, obtener_perfil_negocio
 from agent.business.pedidos import listar_pedidos
@@ -59,7 +59,7 @@ async def generar_reporte_diario(telefono: str) -> str | None:
     try:
         fin = await resumen_financiero(telefono, "mes")
         if fin["ventas"]["count"] > 0:
-            lineas.append(f"\n💰 *Mes actual:*")
+            lineas.append("\n💰 *Mes actual:*")
             lineas.append(f"  Ventas: {moneda}{fin['ventas']['total']:,.0f} ({fin['ventas']['count']} transacciones)")
             if fin["gastos"]["total"] > 0:
                 lineas.append(f"  Gastos: {moneda}{fin['gastos']['total']:,.0f}")
@@ -101,7 +101,7 @@ async def generar_reporte_semanal(telefono: str) -> str | None:
     try:
         top = await top_productos_vendidos(telefono, dias=7, limite=3)
         if top:
-            lineas.append(f"\n🏆 *Más vendidos esta semana:*")
+            lineas.append("\n🏆 *Más vendidos esta semana:*")
             for i, p in enumerate(top, 1):
                 lineas.append(f"  {i}. {p['producto']} — {moneda}{p['total']:,.0f} ({p['cantidad']}x)")
     except Exception as e:

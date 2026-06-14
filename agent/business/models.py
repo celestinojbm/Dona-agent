@@ -11,9 +11,9 @@ Modelos SQLAlchemy para el módulo de negocio de Dona:
 - Cotizacion: presupuestos y cotizaciones
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, Text, Integer, Float, Boolean, DateTime, Date
+from sqlalchemy import String, Text, Integer, Float, Boolean, DateTime
 
 from agent.memory import Base
 

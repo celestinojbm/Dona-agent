@@ -171,7 +171,7 @@ async def generar_pdf(
         from reportlab.platypus import (
             SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
         )
-        from reportlab.lib.enums import TA_RIGHT, TA_LEFT
+        from reportlab.lib.enums import TA_RIGHT
     except ImportError:
         logger.warning("[PDF] reportlab no instalado — retornando stub PDF")
         return _STUB_PDF, {

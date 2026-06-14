@@ -24,7 +24,7 @@ import os
 import re
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 
 # ── Patrones de redaction ────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ class JsonFormatter(logging.Formatter):
         mensaje = redactar_pii(mensaje_raw) if debe_redactar else mensaje_raw
 
         entry = {
-            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
             "level": record.levelname,
             "logger": record.name,
             "msg": mensaje,

@@ -9,7 +9,7 @@ por número de teléfono usando SQLite (local) o PostgreSQL (producción).
 import os
 import json
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import String, Text, DateTime, select, Integer, Boolean, update, text
@@ -2296,7 +2296,7 @@ async def borrar_datos_usuario(telefono: str) -> dict:
     Returns:
         dict con el conteo de registros eliminados por tabla.
     """
-    from sqlalchemy import delete, or_
+    from sqlalchemy import delete
 
     conteos = {}
 

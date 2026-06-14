@@ -117,7 +117,7 @@ def generar_token(telefono: str) -> str:
     if not telefono:
         raise ValueError("telefono vacío")
     nonce = secrets.token_urlsafe(12)
-    payload = f"{nonce}|{telefono}".encode("utf-8")
+    payload = f"{nonce}|{telefono}".encode()
     firma = hmac.new(_secreto(), payload, hashlib.sha256).hexdigest()
     return f"{_b64u(payload)}.{firma}"
 

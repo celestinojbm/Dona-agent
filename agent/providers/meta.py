@@ -19,7 +19,6 @@ import hashlib
 import logging
 import time as _time
 import httpx
-from typing import Optional
 from pydantic import BaseModel, Field, ValidationError
 from fastapi import Request
 from agent.providers.base import ProveedorWhatsApp, MensajeEntrante, BotonRespuesta, OpcionLista
@@ -58,12 +57,12 @@ class MetaMensaje(BaseModel):
     # Campo 'from' es palabra reservada en Python → alias
     from_number: str = Field("", alias="from")
 
-    text: Optional[dict] = None
-    audio: Optional[MetaMediaPayload] = None
-    voice: Optional[MetaMediaPayload] = None
-    image: Optional[MetaMediaPayload] = None
-    sticker: Optional[MetaMediaPayload] = None
-    document: Optional[MetaMediaPayload] = None
+    text: dict | None = None
+    audio: MetaMediaPayload | None = None
+    voice: MetaMediaPayload | None = None
+    image: MetaMediaPayload | None = None
+    sticker: MetaMediaPayload | None = None
+    document: MetaMediaPayload | None = None
 
     class Config:
         populate_by_name = True

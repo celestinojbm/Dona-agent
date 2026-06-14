@@ -243,7 +243,6 @@ async def verificar_proactividad(proveedor):
     """
     from agent.memory import (
         obtener_usuarios_proactividad_activos,
-        guardar_proactividad,
         obtener_timezone,
     )
 
@@ -450,7 +449,7 @@ async def _generar_morning_brief(
             f"1. Saludar con '{saludo} {nombre or ''}' y el día de la semana\n"
             f"2. Mencionar el clima brevemente si hay algo relevante (lluvia, temperatura extrema)\n"
             f"3. Mencionar el recordatorio más importante si hay alguno\n"
-            + (f"4. Incluir un dato clave de su negocio (pedidos pendientes, ventas del mes, seguimientos)\n" if negocio_str else "")
+            + ("4. Incluir un dato clave de su negocio (pedidos pendientes, ventas del mes, seguimientos)\n" if negocio_str else "")
             + f"{'5' if negocio_str else '4'}. Una motivación corta alineada con sus metas\n"
             f"{'6' if negocio_str else '5'}. Terminar con una pregunta de acción concreta\n"
             f"{'7' if negocio_str else '6'}. Emojis con moderación (máx 3)\n\n"
@@ -638,7 +637,7 @@ async def _generar_weekly_review(telefono: str, nombre: str, contexto: str) -> s
             + f"Metas y proyectos del usuario:\n{contexto_resumido}\n\n"
             f"El mensaje debe:\n"
             f"1. Reconocer que terminó otra semana\n"
-            + (f"2. Mencionar resultados clave del negocio (ventas, clientes, tendencias)\n" if negocio_str else "")
+            + ("2. Mencionar resultados clave del negocio (ventas, clientes, tendencias)\n" if negocio_str else "")
             + f"{'3' if negocio_str else '2'}. Conectar la próxima semana con sus metas grandes\n"
             f"{'4' if negocio_str else '3'}. Destacar la prioridad más importante para el lunes\n"
             f"{'5' if negocio_str else '4'}. Terminar con una pregunta motivadora\n"
@@ -721,8 +720,7 @@ async def _disparador_noticias(telefono: str, nombre: str, contexto: str) -> str
     Máximo 1 vez por semana, y solo artículos no enviados antes.
     """
     from agent.memory import (
-        obtener_proactividad, guardar_proactividad,
-        ya_enviada_noticia, marcar_noticia_enviada,
+        obtener_proactividad, ya_enviada_noticia, marcar_noticia_enviada,
     )
     from agent.real_world import obtener_noticias, extraer_industria
 
@@ -768,7 +766,7 @@ async def _disparador_noticias(telefono: str, nombre: str, contexto: str) -> str
             f"📰 {nombre}, vi esta noticia sobre *{industria}* que podría interesarte:\n\n"
             f"_{articulo['titulo']}_\n"
             + (f"{resumen_corto}\n\n" if resumen_corto else "\n")
-            + f"¿Quieres que te haga un resumen o la analizamos juntos?"
+            + "¿Quieres que te haga un resumen o la analizamos juntos?"
         )
 
     except Exception as e:
