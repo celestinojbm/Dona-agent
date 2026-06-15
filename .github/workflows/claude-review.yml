@@ -3,10 +3,10 @@ name: Claude Review
 # Capa 3 del stack: 2º revisor IA en cada PR (patrón "un agente propone, otro
 # verifica"). Es ASESOR — comenta, NO bloquea el merge (el gate duro es pytest).
 #
-# INERTE hasta que agregues el secret ANTHROPIC_API_KEY al repo:
-#   GitHub → Settings → Secrets and variables → Actions → New repository secret.
-# Sin el secret, el paso se salta y el check queda verde (no rompe PRs).
-# Costo aprox: ~$0.05/PR en Sonnet (<$5/mes a ~50 PRs).
+# Auth: secret ANTHROPIC_API_KEY (LLM) + el GITHUB_TOKEN del CI para postear
+# comentarios — NO requiere instalar la GitHub App de Claude. Sin el secret el
+# paso se salta (check verde). continue-on-error → aunque el review falle, nunca
+# bloquea el PR. Costo aprox: ~$0.05/PR en Sonnet (<$5/mes a ~50 PRs).
 
 on:
   pull_request:
@@ -38,11 +38,14 @@ jobs:
       # sin romper PRs hasta que actives ANTHROPIC_API_KEY.
       - name: Claude Code Review
         if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        continue-on-error: true  # asesor: aunque el review falle, NUNCA bloquea el PR
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
-          track_progress: true
-          claude_args: "--max-turns 20"
+          # GITHUB_TOKEN del CI para postear (sin GitHub App). Por eso no se usa
+          # track_progress: su flujo de inline-comments depende de la App.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: '--max-turns 40 --allowed-tools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"'
           prompt: |
             Revisa este PR de Dona (asistente de IA por WhatsApp, EN PRODUCCIÓN, marco TCPA/CCPA).
             Enfócate en CORRECCIÓN y en las invariantes críticas del proyecto (ver CLAUDE.md):
