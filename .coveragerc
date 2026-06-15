@@ -1,0 +1,16 @@
+# Configuracion de cobertura (coverage.py) para el backend de Dona.
+[run]
+source = agent
+branch = True
+omit =
+    agent/**/__init__.py
+
+[report]
+show_missing = True
+skip_covered = False
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    \.\.\.
