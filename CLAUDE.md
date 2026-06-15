@@ -129,9 +129,10 @@ Ver `README.md` para el mapa completo de módulos.
 ## 5. Testing
 
 ```bash
-pytest                    # 370+ tests, ~50s
+pytest                    # 1237 tests, ~8 min
 pytest -x --ff            # fail-fast
 pytest -k <keyword>       # filtra por nombre
+pytest --cov=agent        # con cobertura (CI: piso 46% + diff-cover 80% en código nuevo)
 ```
 
 Reglas:
