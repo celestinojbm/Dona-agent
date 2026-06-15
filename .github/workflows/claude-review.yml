@@ -45,7 +45,7 @@ jobs:
           # GITHUB_TOKEN del CI para postear (sin GitHub App). Por eso no se usa
           # track_progress: su flujo de inline-comments depende de la App.
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          claude_args: '--max-turns 20 --allowed-tools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"'
+          claude_args: '--max-turns 40 --allowed-tools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"'
           prompt: |
             Revisa este PR de Dona (asistente de IA por WhatsApp, EN PRODUCCIÓN, marco TCPA/CCPA).
             Enfócate en CORRECCIÓN y en las invariantes críticas del proyecto (ver CLAUDE.md):
