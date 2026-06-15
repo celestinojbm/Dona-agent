@@ -38,11 +38,14 @@ jobs:
 
       # conftest.py fija ENVIRONMENT=test, DATABASE_URL sqlite y claves fake:
       # la suite es autocontenida (SQLite en archivo temporal, sin secretos reales).
+      # Umbral global ANTI-REGRESION: baseline medido = 48%; piso en 46% (margen
+      # 2pt para fluctuacion). No deja que la cobertura del repo baje; subirlo a
+      # medida que se agrega cobertura.
       - name: Correr pytest con cobertura
-        run: python -m pytest -q --cov=agent --cov-report=xml --cov-report=term-missing
+        run: python -m pytest -q --cov=agent --cov-report=xml --cov-report=term-missing --cov-fail-under=46
 
       # En PRs: el codigo NUEVO/MODIFICADO debe estar bien cubierto (no fuerza
-      # subir la cobertura del legacy). El umbral global se mide y fija aparte.
+      # subir la cobertura del legacy de golpe).
       - name: Cobertura del diff (solo PRs)
         if: github.event_name == 'pull_request'
         run: |
