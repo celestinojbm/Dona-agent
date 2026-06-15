@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # diff-cover necesita historia para comparar con origin/main
 
       - name: Configurar Python 3.11
         uses: actions/setup-python@v6
@@ -29,12 +31,20 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Instalar dependencias
+      - name: Instalar dependencias (incluye pytest-cov + diff-cover)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
 
       # conftest.py fija ENVIRONMENT=test, DATABASE_URL sqlite y claves fake:
       # la suite es autocontenida (SQLite en archivo temporal, sin secretos reales).
-      - name: Correr pytest
-        run: python -m pytest -q
+      - name: Correr pytest con cobertura
+        run: python -m pytest -q --cov=agent --cov-report=xml --cov-report=term-missing
+
+      # En PRs: el codigo NUEVO/MODIFICADO debe estar bien cubierto (no fuerza
+      # subir la cobertura del legacy). El umbral global se mide y fija aparte.
+      - name: Cobertura del diff (solo PRs)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin main --quiet
+          diff-cover coverage.xml --compare-branch=origin/main --fail-under=80
