@@ -543,6 +543,26 @@ async def procesar_evento_stripe(evento: dict) -> dict:
     if tipo != "checkout.session.completed":
         return {"handled": False, "reason": f"evento ignorado: {tipo}"}
 
+    # Fail-closed (Fable5 · 3.2): solo acreditar compras de pago único REALMENTE
+    # pagadas. Las suscripciones (mode='subscription') las acredita el ciclo de
+    # invoice (no este path); y un checkout con payment_status != 'paid' NUNCA
+    # regala créditos, aunque llegue directo a /webhook/stripe saltándose el
+    # ruteo por mode del bridge.
+    mode = data.get("mode")
+    if mode != "payment":
+        logger.warning(
+            f"[BILLING] checkout.session.completed mode={mode!r} != 'payment' "
+            f"(id={data.get('id', '')}); no se acredita por este path"
+        )
+        return {"handled": False, "reason": f"mode no es payment: {mode}"}
+    payment_status = data.get("payment_status")
+    if payment_status != "paid":
+        logger.warning(
+            f"[BILLING] checkout no pagado (payment_status={payment_status!r}, "
+            f"id={data.get('id', '')}); no se acredita"
+        )
+        return {"handled": False, "reason": f"checkout no pagado: {payment_status}"}
+
     telefono = data.get("client_reference_id") or (data.get("metadata") or {}).get("telefono", "")
     creditos_raw = (data.get("metadata") or {}).get("creditos", "")
     session_id = data.get("id", "")
