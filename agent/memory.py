@@ -847,6 +847,18 @@ async def obtener_historial(telefono: str, limite: int = 20) -> list[dict]:  # n
 # Tipos de recurrencia con período menor a un día.
 RECURRENCIAS_SUB_DIARIAS = {"cada_30_minutos", "cada_hora", "horario"}
 
+# Conjunto canónico de tipos de recurrencia que el scheduler sabe avanzar
+# (intervalos fijos + calendario). Cualquier otro tipo —p.ej. alucinado por el
+# LLM, que deja 'recurrencia.tipo' libre en el schema de la tool— NO se persiste
+# como recurrencia: el scheduler no podría calcular su próxima ocurrencia y
+# quedaría sin tope. Validación server-side; no dependemos del enum de la tool.
+TIPOS_RECURRENCIA_VALIDOS = RECURRENCIAS_SUB_DIARIAS | {
+    "diario",
+    "semanal",
+    "dias_semana",
+    "mensual",
+}
+
 # fecha_fin default para recurrencias sub-diarias creadas sin límite explícito.
 DIAS_FECHA_FIN_DEFAULT_SUB_DIARIA = 7
 
@@ -979,6 +991,16 @@ async def guardar_recordatorio(
     Recurrencias sub-diarias sin fecha_fin reciben un límite default de
     DIAS_FECHA_FIN_DEFAULT_SUB_DIARIA días — "cada 30 minutos para siempre"
     no es un default aceptable (Fase 0 · 2.4)."""
+    # 2.4: un tipo de recurrencia desconocido (el schema de la tool lo deja
+    # libre) no es agendable — el scheduler no puede avanzarlo y quedaría sin
+    # tope. Degradar a recordatorio de una sola vez explícito, en vez de
+    # persistir una recurrencia que se auto-cancelaría tras un único envío.
+    if recurrencia and recurrencia.get("tipo", "") not in TIPOS_RECURRENCIA_VALIDOS:
+        logger.warning(
+            f"Recordatorio con recurrencia desconocida "
+            f"({recurrencia.get('tipo')!r}): se guarda como una sola vez."
+        )
+        recurrencia = None
     if (
         fecha_fin is None
         and recurrencia
