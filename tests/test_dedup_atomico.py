@@ -79,10 +79,13 @@ async def test_db_caida_degrada_a_memoria_best_effort(main, monkeypatch, caplog)
     monkeypatch.setattr(agent.memory, "async_session", _boom)
     main._mensajes_procesados_mem.clear()
 
+    fallos_antes = main.metricas.snapshot()["dedup_db_fallos"]
     with caplog.at_level(logging.WARNING, logger="dona"):
         r1 = await main._mensaje_ya_procesado("wamid.dberr", "5551234567")
     assert r1 is False  # degrada: trata como nuevo (best-effort), procesa
     assert any("DEDUP" in rec.message for rec in caplog.records), "debe loguear WARNING"
+    # 1.1: el fallo de DB del dedup queda registrado como métrica observable.
+    assert main.metricas.snapshot()["dedup_db_fallos"] == fallos_antes + 1
     # En el MISMO worker, la memoria sí bloquea el duplicado inmediato.
     assert await main._mensaje_ya_procesado("wamid.dberr", "5551234567") is True
 
