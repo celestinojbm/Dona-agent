@@ -630,6 +630,8 @@ class TestLegacyOneTimeIntacto:
             "data": {
                 "object": {
                     "id": "cs_legacy_001",
+                    "mode": "payment",
+                    "payment_status": "paid",
                     "client_reference_id": "5551231234",
                     "metadata": {"telefono": "5551231234", "creditos": "100"},
                 }
