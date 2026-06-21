@@ -238,6 +238,29 @@ class TestFechaFin:
         )
         assert r.fecha_fin is None
 
+    async def test_recurrencia_desconocida_se_degrada_a_una_vez(self, entorno):
+        """2.4: un tipo de recurrencia fuera del set canónico (p.ej. alucinado
+        por el LLM, que deja el tipo libre en el schema) NO se persiste como
+        recurrencia — se guarda como una sola vez, evitando una recurrencia que
+        el scheduler no sabría acotar (quedaría sin tope / se auto-cancelaría)."""
+        memoria, _ = entorno
+        r = await memoria.guardar_recordatorio(
+            TEL, "algo raro", datetime.utcnow() + timedelta(minutes=10),
+            recurrencia={"tipo": "cada_minuto"},
+        )
+        assert r.recurrencia is None   # degradado a una sola vez
+        assert r.fecha_fin is None
+
+    async def test_recurrencia_valida_se_conserva(self, entorno):
+        """Una recurrencia válida (semanal) sí se persiste como recurrencia."""
+        memoria, _ = entorno
+        r = await memoria.guardar_recordatorio(
+            TEL, "reporte", datetime.utcnow() + timedelta(hours=1),
+            recurrencia={"tipo": "semanal", "dia": 0},
+        )
+        assert r.recurrencia is not None
+        assert json.loads(r.recurrencia)["tipo"] == "semanal"
+
     async def test_fecha_fin_explicita_se_respeta(self, entorno):
         memoria, _ = entorno
         fin = datetime.utcnow() + timedelta(days=2)

@@ -158,6 +158,8 @@ class TestProcesarEventoStripe:
             "type": "checkout.session.completed",
             "data": {"object": {
                 "id": "cs_test_abc",
+                "mode": "payment",
+                "payment_status": "paid",
                 "client_reference_id": "5551234567",
                 "metadata": {"telefono": "5551234567", "paquete": "100", "creditos": "100"},
             }},
@@ -182,6 +184,8 @@ class TestProcesarEventoStripe:
             "type": "checkout.session.completed",
             "data": {"object": {
                 "id": "cs_dup",
+                "mode": "payment",
+                "payment_status": "paid",
                 "client_reference_id": "5551",
                 "metadata": {"telefono": "5551", "creditos": "500"},
             }},
@@ -190,6 +194,58 @@ class TestProcesarEventoStripe:
         # Reentrega
         await db.procesar_evento_stripe(evento)
         assert await db.obtener_saldo("5551") == 500  # no duplicado
+
+    @pytest.mark.asyncio
+    async def test_checkout_unpaid_no_acredita(self, db):
+        # Fable5 · 3.2: payment_status != 'paid' NUNCA acredita (fail-closed),
+        # aunque traiga telefono+creditos válidos.
+        evento = {
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "id": "cs_unpaid",
+                "mode": "payment",
+                "payment_status": "unpaid",
+                "client_reference_id": "5559999",
+                "metadata": {"telefono": "5559999", "creditos": "100"},
+            }},
+        }
+        r = await db.procesar_evento_stripe(evento)
+        assert r["handled"] is False
+        assert await db.obtener_saldo("5559999") == 0
+
+    @pytest.mark.asyncio
+    async def test_checkout_mode_subscription_no_acredita(self, db):
+        # Fable5 · 3.2: mode='subscription' no se acredita por este path (lo
+        # maneja el ciclo de invoice); evita crédito indebido si llega directo.
+        evento = {
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "id": "cs_sub",
+                "mode": "subscription",
+                "payment_status": "paid",
+                "client_reference_id": "5558888",
+                "metadata": {"telefono": "5558888", "creditos": "100"},
+            }},
+        }
+        r = await db.procesar_evento_stripe(evento)
+        assert r["handled"] is False
+        assert await db.obtener_saldo("5558888") == 0
+
+    @pytest.mark.asyncio
+    async def test_checkout_sin_payment_status_no_acredita(self, db):
+        # Fail-closed ante evento sin payment_status (no se asume pagado).
+        evento = {
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "id": "cs_nostatus",
+                "mode": "payment",
+                "client_reference_id": "5557777",
+                "metadata": {"telefono": "5557777", "creditos": "100"},
+            }},
+        }
+        r = await db.procesar_evento_stripe(evento)
+        assert r["handled"] is False
+        assert await db.obtener_saldo("5557777") == 0
 
 
 class TestVerificarFirmaDev:

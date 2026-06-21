@@ -156,6 +156,7 @@ class _Metricas:
         self.latencia_sum_ms = 0.0
         self.latencia_count = 0
         self.requests_lentos = 0  # > 5s
+        self.dedup_db_fallos = 0  # fallos de DB en el dedup (degradó a memoria)
 
         # T1.6 — buckets por status (2xx / 4xx / 5xx) y por ruta crítica.
         # Aditivos: no rompen los contadores anteriores.
@@ -201,6 +202,12 @@ class _Metricas:
         with self._lock:
             self.mensajes_procesados += 1
 
+    def registrar_dedup_db_fallo(self):
+        """Incrementa cuando el dedup atómico no pudo persistir en la DB y
+        degradó al fallback in-memory per-worker (1.1 · observabilidad)."""
+        with self._lock:
+            self.dedup_db_fallos += 1
+
     def snapshot(self) -> dict:
         with self._lock:
             avg = (self.latencia_sum_ms / self.latencia_count) if self.latencia_count else 0
@@ -211,6 +218,7 @@ class _Metricas:
                 "mensajes_procesados": self.mensajes_procesados,
                 "latencia_promedio_ms": round(avg, 1),
                 "requests_lentos_5s": self.requests_lentos,
+                "dedup_db_fallos": self.dedup_db_fallos,
                 # T1.6: buckets nuevos sin sustituir los anteriores.
                 "por_status_class": dict(self.por_status_class),
                 "endpoints_criticos": {
@@ -963,6 +971,7 @@ async def _mensaje_ya_procesado(mensaje_id: str, telefono: str) -> bool:
         logger.warning(
             f"[DEDUP] Error DB, degradando a memoria per-worker: {type(e).__name__}: {e}"
         )
+        metricas.registrar_dedup_db_fallo()
         ya_estaba = mensaje_id in _mensajes_procesados_mem
         _recordar_en_memoria(mensaje_id)
         return ya_estaba

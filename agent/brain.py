@@ -44,6 +44,12 @@ if _OPENAI_KEY:
 # (en memoria: válido para Render single-worker free tier)
 _borradores_pendientes: dict[str, dict] = {}
 
+# Cap de tamaño de entrada del usuario (Fable5 · 4.1): trunca mensajes
+# desmesurados antes de construir el request LLM, para que un input gigante no
+# dispare tokens/costo. ~8000 chars ≈ 2000 tokens; los mensajes legítimos
+# (incl. transcripciones de voz) caen muy por debajo.
+_MAX_LONGITUD_MENSAJE_USUARIO = 8000
+
 # ── Sanitización de datos externos (anti prompt injection) ───────────────────
 import re as _re
 
@@ -1458,6 +1464,16 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     if not mensaje or len(mensaje.strip()) < 2:
         return obtener_mensaje_fallback()
 
+    # Cap de tamaño de entrada (Fable5 · 4.1): trunca un mensaje desmesurado
+    # antes de construir el request, para que no dispare tokens/costo. El
+    # presupuesto runtime es el segundo cinturón.
+    if len(mensaje) > _MAX_LONGITUD_MENSAJE_USUARIO:
+        logger.warning(
+            f"[INPUT] Mensaje de {len(mensaje)} chars truncado a "
+            f"{_MAX_LONGITUD_MENSAJE_USUARIO} (...{telefono[-4:]})"
+        )
+        mensaje = mensaje[:_MAX_LONGITUD_MENSAJE_USUARIO]
+
     # ── Detección emocional (paralela con carga de timezone) ─────────────────
     from agent.emotion import (
         MENSAJE_CRISIS,
@@ -1668,7 +1684,7 @@ async def _responder_con_fallback(system_prompt: str, mensajes: list, telefono: 
     de costo/llamadas), no se quema más presupuesto en el fallback.
     """
     # Gateo de presupuesto: una reserva para el intento de recuperación.
-    from agent.presupuesto_runtime import consumir_llm, reservar_llm
+    from agent.presupuesto_runtime import con_timeout_llm, consumir_llm, reservar_llm
     if not reservar_llm(telefono).permitido:
         logger.warning("[BUDGET] Fallback omitido: presupuesto/kill-switch activo")
         return None
@@ -1679,10 +1695,13 @@ async def _responder_con_fallback(system_prompt: str, mensajes: list, telefono: 
     # Intento 1: DeepSeek
     if _deepseek_client:
         try:
-            resp = await _deepseek_client.chat.completions.create(
-                model="deepseek-chat",
-                max_tokens=1024,
-                messages=mensajes_openai,
+            resp = await con_timeout_llm(
+                _deepseek_client.chat.completions.create(
+                    model="deepseek-chat",
+                    max_tokens=1024,
+                    messages=mensajes_openai,
+                ),
+                telefono,
             )
             texto = resp.choices[0].message.content
             logger.info(f"[FALLBACK] DeepSeek respondió ({resp.usage.total_tokens} tokens)")
@@ -1697,10 +1716,13 @@ async def _responder_con_fallback(system_prompt: str, mensajes: list, telefono: 
     # Intento 2: GPT-4o
     if _openai_client:
         try:
-            resp = await _openai_client.chat.completions.create(
-                model="gpt-4o",
-                max_tokens=1024,
-                messages=mensajes_openai,
+            resp = await con_timeout_llm(
+                _openai_client.chat.completions.create(
+                    model="gpt-4o",
+                    max_tokens=1024,
+                    messages=mensajes_openai,
+                ),
+                telefono,
             )
             texto = resp.choices[0].message.content
             logger.info(f"[FALLBACK] GPT-4o respondió ({resp.usage.total_tokens} tokens)")

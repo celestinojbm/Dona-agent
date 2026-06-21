@@ -53,6 +53,7 @@ def _evento_topup(
             "object": {
                 "id": session_id,
                 "mode": "payment",   # ← clave del dispatch T1.7
+                "payment_status": "paid",  # checkout pagado (Fase 0 · 3.2)
                 "client_reference_id": telefono,
                 "metadata": {
                     "kind": "topup",

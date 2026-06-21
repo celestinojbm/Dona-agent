@@ -381,6 +381,65 @@ class TestFallbackGateado:
         assert "texto del fallback" in resp
 
 
+# ── 3b. Timeout en fallback + cap de entrada (4.1) ───────────────────────
+
+
+class TestFallbackTimeoutYCapEntrada:
+    async def test_fallback_colgado_no_cuelga(self, monkeypatch):
+        """4.1: un fallback (DeepSeek) que se cuelga queda acotado por
+        con_timeout_llm — el guard lo corta y la respuesta vuelve segura en
+        vez de colgar el request para siempre."""
+        monkeypatch.setattr(brain, "seleccionar_tools", lambda m, t: [])
+        # Primario falla con error NO transitorio → sin retry, directo al fallback.
+        _mock_create(monkeypatch, lambda n: Exception("400 invalid_request_error"))
+
+        colgado = {"n": 0}
+
+        class _DeepseekColgado:
+            def __init__(self):
+                colg = colgado
+
+                class _Completions:
+                    async def create(self, **kwargs):
+                        colg["n"] += 1
+                        await asyncio.sleep(5)  # se cuelga
+                        raise AssertionError("no debería completar tras el timeout")
+
+                class _Chat:
+                    completions = _Completions()
+
+                self.chat = _Chat()
+
+        monkeypatch.setattr(brain, "_deepseek_client", _DeepseekColgado())
+        monkeypatch.setattr(brain, "_openai_client", None)
+
+        pres = pr.PresupuestoMensaje(TEL, config=_config_con(llm_timeout_segundos=0.05))
+        token = pr._presupuesto_actual.set(pres)
+        try:
+            resp = await brain.generar_respuesta("hola", [], telefono=TEL)
+        finally:
+            pr._presupuesto_actual.reset(token)
+
+        assert colgado["n"] == 1                # el fallback se intentó una vez
+        assert isinstance(resp, str) and resp   # respuesta segura, sin colgarse
+        assert pr.snapshot_eventos().get("timeout_llm", 0) >= 1
+
+    async def test_mensaje_gigante_se_trunca(self, monkeypatch, sin_fallback):
+        """4.1: un mensaje desmesurado se trunca al cap antes de construir el
+        request — no se manda completo al provider (anti blowup de tokens)."""
+        monkeypatch.setattr(brain, "seleccionar_tools", lambda m, t: [])
+        llamadas = _mock_create(monkeypatch, lambda n: _resp_texto("ok"))
+
+        cap = brain._MAX_LONGITUD_MENSAJE_USUARIO
+        gigante = "A" * (cap + 5000)
+        resp = await brain.generar_respuesta(gigante, [], telefono=TEL)
+
+        assert isinstance(resp, str) and resp
+        enviado = str(llamadas["kwargs"][0]["messages"])
+        assert ("A" * (cap + 1)) not in enviado   # no se mandó el mensaje completo
+        assert ("A" * 200) in enviado             # pero sí su prefijo real (truncado)
+
+
 # ── 4. Tool-loop adversarial ─────────────────────────────────────────────
 
 
