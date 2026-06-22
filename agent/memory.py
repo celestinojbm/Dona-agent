@@ -6,6 +6,7 @@ Sistema de memoria de Dona. Guarda el historial de conversaciones
 por número de teléfono usando SQLite (local) o PostgreSQL (producción).
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -684,56 +685,118 @@ async def _migrar_columnas():
                 logger.error(f"[DB] Migración FALLÓ: {sql.strip()[:80]} — {e}")
 
 
+# Clave fija para pg_advisory_xact_lock: serializa el DDL de arranque entre
+# workers/pods concurrentes (un solo create_all a la vez → sin races de DDL).
+# Valor arbitrario estable ('dona' en hex).
+_LOCK_KEY_INIT_DB = 0x646F6E61
+
+
 async def inicializar_db():
-    """Crea las tablas si no existen y aplica migraciones."""
+    """Crea las tablas si no existen y aplica migraciones.
+
+    Fail-closed (0.3): en entorno estricto, si el esquema no se puede crear ni
+    verificar tras reintentos, ABORTA el arranque en vez de seguir con un
+    esquema roto (antes: '# No relanzar' → fail-open, errores silenciosos en
+    cada query). Un pg_advisory_xact_lock serializa el DDL entre workers
+    concurrentes (evita races de create_all). Dev/test: lenient (loguea)."""
     # Registrar modelos cuyas tablas se crean por create_all pero cuyos módulos
-    # solo se importan lazy desde sus endpoints (no en el arranque normal).
-    # El import fuerza el registro de la tabla en Base.metadata.
+    # solo se importan lazy desde sus endpoints. El import fuerza el registro en
+    # Base.metadata.
     from agent.dashboard_lockout import DashboardLoginIntento  # noqa: F401
+    from agent.entorno import es_entorno_estricto
 
     tablas_esperadas = set(Base.metadata.tables.keys())
     logger.info(f"[DB] Driver: {'PostgreSQL/asyncpg' if _ES_POSTGRES else 'SQLite'}")
     logger.info(f"[DB] Tablas en metadata ({len(tablas_esperadas)}): {sorted(tablas_esperadas)}")
 
-    try:
-        async with engine.begin() as conn:
-            # Paso 1: create_all — crea las tablas que no existen
-            logger.info("[DB] Ejecutando create_all...")
-            await conn.run_sync(Base.metadata.create_all)
-            logger.info("[DB] create_all completado")
+    estricto = es_entorno_estricto()
+    intentos = 3 if estricto else 1
+    ultimo_error: Exception | None = None
 
-            # Paso 2: verificar qué tablas existen realmente en el schema public
-            if _ES_POSTGRES:
-                resultado = await conn.execute(text(
-                    "SELECT table_name FROM information_schema.tables "
-                    "WHERE table_schema = 'public' ORDER BY table_name"
-                ))
-                tablas_en_db = {row[0] for row in resultado.fetchall()}
-                logger.info(f"[DB] Tablas en Supabase/public: {sorted(tablas_en_db)}")
+    for intento in range(1, intentos + 1):
+        try:
+            async with engine.begin() as conn:
+                if _ES_POSTGRES:
+                    # Lock de transacción (se libera al commit): solo un worker
+                    # corre el DDL a la vez; el resto espera y ve las tablas ya
+                    # creadas (create_all es idempotente).
+                    await conn.execute(
+                        text("SELECT pg_advisory_xact_lock(:k)").bindparams(
+                            k=_LOCK_KEY_INIT_DB
+                        )
+                    )
 
-                faltantes = tablas_esperadas - tablas_en_db
-                if faltantes:
-                    logger.warning(f"[DB] Tablas faltantes después de create_all: {sorted(faltantes)}")
-                    # Forzar creación explícita con CREATE TABLE IF NOT EXISTS
-                    for nombre in sorted(faltantes):
-                        tabla = Base.metadata.tables[nombre]
-                        # Usar CreateTable de SQLAlchemy para generar el DDL correcto
-                        from sqlalchemy.schema import CreateTable
-                        ddl_str = str(CreateTable(tabla).compile(conn.dialect))
-                        # Insertar IF NOT EXISTS manualmente
-                        ddl_str = ddl_str.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1)
-                        logger.info(f"[DB] Creando tabla '{nombre}' explícitamente...")
-                        await conn.execute(text(ddl_str))
-                        logger.info(f"[DB] Tabla '{nombre}' creada OK")
-                else:
-                    logger.info("[DB] Todas las tablas presentes en Supabase ✓")
+                # Paso 1: create_all — crea las tablas que no existen
+                logger.info("[DB] Ejecutando create_all...")
+                await conn.run_sync(Base.metadata.create_all)
+                logger.info("[DB] create_all completado")
 
-    except Exception as e:
-        logger.error(f"[DB] ERROR en inicializar_db (create_all): {type(e).__name__}: {e}", exc_info=True)
-        # No relanzar — el servidor debe arrancar aunque la DB tenga un timeout momentáneo
+                # Paso 2: verificar qué tablas existen realmente en schema public
+                if _ES_POSTGRES:
+                    resultado = await conn.execute(text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema = 'public' ORDER BY table_name"
+                    ))
+                    tablas_en_db = {row[0] for row in resultado.fetchall()}
+                    logger.info(f"[DB] Tablas en Supabase/public: {sorted(tablas_en_db)}")
 
-    # Paso 3: migraciones de columnas — FUERA del engine.begin() principal
-    # Cada migración corre en su propia transacción para evitar cascading failures
+                    faltantes = tablas_esperadas - tablas_en_db
+                    if faltantes:
+                        logger.warning(f"[DB] Tablas faltantes después de create_all: {sorted(faltantes)}")
+                        # Forzar creación explícita con CREATE TABLE IF NOT EXISTS
+                        for nombre in sorted(faltantes):
+                            tabla = Base.metadata.tables[nombre]
+                            from sqlalchemy.schema import CreateTable
+                            # compile(dialect=...) — pasar el dialect como `bind`
+                            # posicional fallaba con AttributeError (bind.dialect).
+                            ddl_str = str(CreateTable(tabla).compile(dialect=conn.dialect))
+                            ddl_str = ddl_str.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1)
+                            logger.info(f"[DB] Creando tabla '{nombre}' explícitamente...")
+                            await conn.execute(text(ddl_str))
+                            logger.info(f"[DB] Tabla '{nombre}' creada OK")
+                        # Re-verificar: si TODAVÍA faltan, es un fallo real de
+                        # esquema (no un timeout) — no se puede operar así.
+                        resultado2 = await conn.execute(text(
+                            "SELECT table_name FROM information_schema.tables "
+                            "WHERE table_schema = 'public'"
+                        ))
+                        faltantes_post = tablas_esperadas - {row[0] for row in resultado2.fetchall()}
+                        if faltantes_post:
+                            raise RuntimeError(
+                                f"[DB] Tablas faltantes tras create_all + creación "
+                                f"explícita: {sorted(faltantes_post)}"
+                            )
+                    else:
+                        logger.info("[DB] Todas las tablas presentes en Supabase ✓")
+
+            ultimo_error = None
+            break
+        except Exception as e:
+            ultimo_error = e
+            logger.error(
+                f"[DB] ERROR en inicializar_db (intento {intento}/{intentos}): "
+                f"{type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            if intento < intentos:
+                await asyncio.sleep(2 * intento)  # backoff lineal para transitorios
+
+    if ultimo_error is not None:
+        if estricto:
+            # Fail-closed: arrancar con un esquema roto es peor que no arrancar
+            # (errores silenciosos en cada query). Render reintenta el deploy.
+            raise RuntimeError(
+                f"[DB] inicializar_db falló tras {intentos} intento(s) en entorno "
+                f"estricto — se aborta el arranque para no operar con un esquema "
+                f"incompleto: {type(ultimo_error).__name__}: {ultimo_error}"
+            ) from ultimo_error
+        logger.error(
+            "[DB] inicializar_db falló; en entorno no-estricto (dev/test) se "
+            "continúa para no bloquear el desarrollo."
+        )
+
+    # Paso 3: migraciones de columnas — FUERA del engine.begin() principal.
+    # Cada migración corre en su propia transacción para evitar cascading failures.
     await _migrar_columnas()
     logger.info("[DB] Migraciones aplicadas")
 

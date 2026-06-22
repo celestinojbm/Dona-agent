@@ -58,13 +58,24 @@ _fernet = _inicializar_fernet()
 
 
 def cifrar(valor: str) -> str:
-    """Cifra un string. Si no hay clave configurada, retorna el valor original."""
+    """Cifra un string. Si no hay clave configurada, retorna el valor original.
+
+    Fail-closed (0.4): si el cifrado ESTÁ activo pero `encrypt` falla, NO degrada
+    a texto plano. En entorno estricto relanza para no persistir un secreto sin
+    cifrar (un token OAuth en claro es inaceptable); en dev/test loguea y
+    devuelve el original. `descifrar` sí queda fail-open a propósito (compat con
+    valores legacy/migración en texto plano)."""
     if not _fernet or not valor:
         return valor
     try:
         return _fernet.encrypt(valor.encode()).decode()
     except Exception as e:
         logger.error(f"[CRYPTO] Error cifrando: {e}")
+        if es_entorno_estricto():
+            raise RuntimeError(
+                f"[CRYPTO] Error cifrando un valor sensible en entorno estricto: "
+                f"{e}. Se aborta para no almacenarlo en texto plano."
+            ) from e
         return valor
 
 
