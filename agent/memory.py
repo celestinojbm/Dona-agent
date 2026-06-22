@@ -747,7 +747,9 @@ async def inicializar_db():
                         for nombre in sorted(faltantes):
                             tabla = Base.metadata.tables[nombre]
                             from sqlalchemy.schema import CreateTable
-                            ddl_str = str(CreateTable(tabla).compile(conn.dialect))
+                            # compile(dialect=...) — pasar el dialect como `bind`
+                            # posicional fallaba con AttributeError (bind.dialect).
+                            ddl_str = str(CreateTable(tabla).compile(dialect=conn.dialect))
                             ddl_str = ddl_str.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1)
                             logger.info(f"[DB] Creando tabla '{nombre}' explícitamente...")
                             await conn.execute(text(ddl_str))

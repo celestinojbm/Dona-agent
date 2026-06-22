@@ -105,3 +105,123 @@ async def test_inicializar_db_lenient_en_dev(monkeypatch):
     monkeypatch.setattr(memory, "_migrar_columnas", _noop_async)
     # No debe relanzar.
     await memory.inicializar_db()
+
+
+# ── 0.3 · rama Postgres (advisory lock + verificación de tablas) ───────────
+# Los tests normales corren en SQLite, así que la rama `if _ES_POSTGRES:` no se
+# ejerce. Estos la cubren con una conexión fake (incluye la verificación y el
+# fail-closed del esquema incompleto).
+
+
+class _FakeResultRows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def fetchall(self):
+        return self._rows
+
+
+class _FakeConnPG:
+    """Conexión Postgres fake: responde a la query de information_schema con
+    una cola de respuestas (una por llamada; reusa la última al agotarse) y
+    registra el DDL de creación explícita."""
+
+    def __init__(self, info_responses):
+        from sqlalchemy.dialects.postgresql import dialect as _pg
+
+        self.dialect = _pg()
+        self._info = list(info_responses)
+        self._last = info_responses[-1] if info_responses else []
+        self.ddl = []
+
+    async def run_sync(self, _fn):
+        return None  # create_all: no-op (las tablas las simula information_schema)
+
+    async def execute(self, stmt, *_a, **_k):
+        s = str(stmt)
+        if "information_schema" in s:
+            rows = self._info.pop(0) if self._info else self._last
+            return _FakeResultRows(rows)
+        if "CREATE TABLE" in s:
+            self.ddl.append(s)
+        return _FakeResultRows([])
+
+
+class _FakeBeginCtx:
+    def __init__(self, conn):
+        self._c = conn
+
+    async def __aenter__(self):
+        return self._c
+
+    async def __aexit__(self, *_a):
+        return False
+
+
+class _FakeEnginePG:
+    def __init__(self, conn):
+        self._c = conn
+
+    def begin(self):
+        return _FakeBeginCtx(self._c)
+
+
+def _filas(tablas):
+    return [(t,) for t in tablas]
+
+
+async def test_inicializar_db_postgres_crea_tablas_faltantes(monkeypatch):
+    """Rama Postgres: tras create_all falta una tabla → se crea explícita y la
+    re-verificación la encuentra → arranca OK."""
+    import agent.entorno
+    import agent.memory as memory
+
+    monkeypatch.setattr(agent.entorno, "es_entorno_estricto", lambda: True)
+    monkeypatch.setattr(memory, "_ES_POSTGRES", True)
+    monkeypatch.setattr(memory, "_migrar_columnas", _noop_async)
+
+    todas = sorted(memory.Base.metadata.tables.keys())
+    falta = todas[0]
+    conn = _FakeConnPG([_filas(todas[1:]), _filas(todas)])  # 1ra: falta; re-verify: todas
+    monkeypatch.setattr(memory, "engine", _FakeEnginePG(conn))
+
+    await memory.inicializar_db()  # no relanza
+    assert any(falta in ddl for ddl in conn.ddl)  # se forzó la creación de la faltante
+
+
+async def test_inicializar_db_postgres_todas_presentes(monkeypatch):
+    """Rama Postgres: todas las tablas presentes tras create_all → sin DDL extra."""
+    import agent.entorno
+    import agent.memory as memory
+
+    monkeypatch.setattr(agent.entorno, "es_entorno_estricto", lambda: False)
+    monkeypatch.setattr(memory, "_ES_POSTGRES", True)
+    monkeypatch.setattr(memory, "_migrar_columnas", _noop_async)
+
+    todas = sorted(memory.Base.metadata.tables.keys())
+    conn = _FakeConnPG([_filas(todas)])
+    monkeypatch.setattr(memory, "engine", _FakeEnginePG(conn))
+
+    await memory.inicializar_db()
+    assert conn.ddl == []  # no hizo falta crear nada
+
+
+async def test_inicializar_db_postgres_esquema_incompleto_aborta(monkeypatch):
+    """Fail-closed (0.3): si tras create_all + creación explícita la tabla SIGUE
+    faltando (fallo real de esquema), en estricto se aborta el arranque."""
+    import agent.entorno
+    import agent.memory as memory
+
+    monkeypatch.setattr(agent.entorno, "es_entorno_estricto", lambda: True)
+    monkeypatch.setattr(asyncio, "sleep", _noop_async)
+    monkeypatch.setattr(memory, "_ES_POSTGRES", True)
+    monkeypatch.setattr(memory, "_migrar_columnas", _noop_async)
+
+    todas = sorted(memory.Base.metadata.tables.keys())
+    # information_schema SIEMPRE devuelve el set sin la primera tabla → faltante
+    # persistente tanto en la verificación inicial como en la re-verificación.
+    conn = _FakeConnPG([_filas(todas[1:])])
+    monkeypatch.setattr(memory, "engine", _FakeEnginePG(conn))
+
+    with pytest.raises(RuntimeError):
+        await memory.inicializar_db()
