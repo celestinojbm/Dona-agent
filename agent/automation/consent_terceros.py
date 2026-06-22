@@ -111,11 +111,17 @@ async def _destino_respondio_desde(destino: str, desde: datetime) -> bool:
 
     from agent.memory import Mensaje, async_session
 
+    # Normalizar igual que destino_hablo_con_dona: Mensaje.telefono se guarda en
+    # forma de webhook y el caller pasa el destino del owner — comparar por la
+    # misma clave canónica o el lookup devuelve False de más (2.5).
+    destino_norm = normalizar_destino(destino)
+    if not destino_norm:
+        return False
     async with async_session() as session:
         result = await session.execute(
             select(
                 exists().where(
-                    Mensaje.telefono == destino,
+                    Mensaje.telefono == destino_norm,
                     Mensaje.role == "user",
                     Mensaje.timestamp > desde,
                 )
