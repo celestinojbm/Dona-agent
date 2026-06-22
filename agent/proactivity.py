@@ -153,6 +153,20 @@ async def _persistir_proactividad_con_retry(
     raise TCPAOptOutError(str(ultimo_error))
 
 
+def _claves_optout(telefono: str) -> list[str]:
+    """Representaciones bajo las que se persiste el opt-out: el teléfono tal
+    cual llegó (formato del proveedor — es la clave del motor de proactividad
+    y del owner) y su clave canónica en dígitos si difiere. Así el gate
+    encuentra el opt-out tanto si lee el teléfono crudo (owner/motor) como el
+    numero_destino normalizado de un tercero (2.5). Se escriben en sync (mismo
+    estado) en STOP/START, así nunca queda una fila 'stale enabled' que el
+    motor pudiera seleccionar."""
+    from agent.envio_gate import clave_canonica
+
+    clave = clave_canonica(telefono)
+    return [telefono, clave] if clave != telefono else [telefono]
+
+
 async def manejar_stop_tcpa(telefono: str) -> str:
     """Desactiva toda proactividad. Persiste de forma DURABLE (con retry); si la
     persistencia falla tras reintentos, lanza ``TCPAOptOutError`` en vez de
@@ -163,7 +177,8 @@ async def manejar_stop_tcpa(telefono: str) -> str:
     # a los reintentos, el gate de envíos igual bloquea AUTOMATICO/PROACTIVO
     # en este worker. Cinturón best-effort; la durabilidad real es el write.
     registrar_supresion_emergencia(telefono)
-    await _persistir_proactividad_con_retry(telefono, proactive_enabled=False)
+    for clave in _claves_optout(telefono):
+        await _persistir_proactividad_con_retry(clave, proactive_enabled=False)
     logger.info(f"[TCPA] Opt-out registrado (durable) para {telefono}")
     return (
         "✅ Has sido dado de baja de mensajes proactivos de Dona.\n\n"
@@ -178,7 +193,8 @@ async def manejar_start_tcpa(telefono: str) -> str:
     ``TCPAOptOutError`` si no se pudo grabar tras reintentos."""
     from agent.envio_gate import limpiar_supresion_emergencia
 
-    await _persistir_proactividad_con_retry(telefono, proactive_enabled=True)
+    for clave in _claves_optout(telefono):
+        await _persistir_proactividad_con_retry(clave, proactive_enabled=True)
     # Solo tras persistir el re-opt-in se levanta la supresión de emergencia.
     limpiar_supresion_emergencia(telefono)
     logger.info(f"[TCPA] Re-opt-in registrado (durable) para {telefono}")
@@ -200,14 +216,16 @@ async def manejar_comando_proactividad(telefono: str, texto: str) -> str:
     cmd = texto.strip().lower()
 
     if cmd in ("dona pausa", "dona pausar", "dona silencio"):
-        await guardar_proactividad(telefono, proactive_enabled=False)
+        for clave in _claves_optout(telefono):
+            await guardar_proactividad(clave, proactive_enabled=False)
         return (
             "Entendido, no te enviaré mensajes proactivos hasta que me digas. "
             "Sigo disponible cuando me escribas 🤫"
         )
 
     if cmd in ("dona actívate", "dona activar", "dona activa"):
-        await guardar_proactividad(telefono, proactive_enabled=True)
+        for clave in _claves_optout(telefono):
+            await guardar_proactividad(clave, proactive_enabled=True)
         # Coherencia con el re-opt-in: si había supresión de emergencia por
         # un STOP previo, levantarla también por esta vía.
         from agent.envio_gate import limpiar_supresion_emergencia

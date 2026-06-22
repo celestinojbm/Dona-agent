@@ -74,6 +74,28 @@ _ctx_envio: ContextVar[tuple[str, str | None] | None] = ContextVar(
 _supresion_emergencia: set[str] = set()
 
 
+# ── Normalización de teléfono · clave canónica del opt-out (2.5) ───────────
+# Cada proveedor entrega el teléfono distinto: whapi '<dígitos>@s.whatsapp.net',
+# meta '<dígitos>' (campo from), twilio 'whatsapp:+<dígitos>'; y el owner tipea
+# numero_destino con '+' opcional. El opt-out y la supresión deben comparar por
+# IDENTIDAD del número, no por el formato crudo: si no, un STOP de un tercero
+# (guardado bajo su chat_id) no matchea cuando el gate llega con el
+# numero_destino del owner, y el mensaje sale pese al opt-out (riesgo TCPA).
+
+
+def normalizar_telefono(telefono: str) -> str:
+    """Solo dígitos — colapsa los formatos de los 3 proveedores al mismo
+    número. Misma forma canónica que consent_terceros.normalizar_destino."""
+    return "".join(c for c in str(telefono or "") if c.isdigit())
+
+
+def clave_canonica(telefono: str) -> str:
+    """Clave canónica del opt-out: los dígitos del teléfono, o —si no hay
+    dígitos (id de grupo/alfanumérico)— el valor crudo. El fallback al crudo
+    evita que entradas sin dígitos colapsen todas a '' y compartan una fila."""
+    return normalizar_telefono(telefono) or str(telefono or "")
+
+
 @contextmanager
 def contexto_envio_directo(telefono: str):
     """Marca los envíos a `telefono` dentro del bloque como DIRECTO."""
@@ -138,18 +160,20 @@ def _tipo_efectivo(telefono_destino: str) -> str:
 
 def registrar_supresion_emergencia(telefono: str) -> None:
     """Suprime envíos AUTOMATICO/PROACTIVO a `telefono` en este worker,
-    independientemente de lo que diga (o no pueda decir) la DB."""
-    _supresion_emergencia.add(telefono)
+    independientemente de lo que diga (o no pueda decir) la DB. Se indexa por
+    la clave canónica (dígitos) para que un STOP entrante y un envío saliente
+    con formatos distintos del mismo número coincidan (2.5)."""
+    _supresion_emergencia.add(clave_canonica(telefono))
     logger.warning(f"[GATE] Supresión de emergencia registrada para {telefono}")
 
 
 def limpiar_supresion_emergencia(telefono: str) -> None:
     """Levanta la supresión de emergencia (re-opt-in vía START)."""
-    _supresion_emergencia.discard(telefono)
+    _supresion_emergencia.discard(clave_canonica(telefono))
 
 
 def esta_suprimido_emergencia(telefono: str) -> bool:
-    return telefono in _supresion_emergencia
+    return clave_canonica(telefono) in _supresion_emergencia
 
 
 # ── Gate principal ───────────────────────────────────────────────────────
@@ -175,10 +199,19 @@ async def puede_enviar(telefono: str) -> bool:
         return False
 
     # ── Opt-out TCPA (proactive_enabled) — fail-closed ──────────────────
+    # Se evalúa por IDENTIDAD del número (clave canónica en dígitos) ADEMÁS del
+    # teléfono crudo: un STOP de un tercero se persiste bajo sus dígitos, pero
+    # el gate llega con el numero_destino que tipeó el owner (con '+' u otro
+    # formato del proveedor). Leer ambas representaciones evita perder el
+    # opt-out de un tercero por mismatch de formato (2.5).
     from agent.memory import obtener_proactividad
 
+    clave = clave_canonica(telefono)
     try:
-        config = await obtener_proactividad(telefono)
+        config_canon = (
+            await obtener_proactividad(clave) if clave != telefono else None
+        )
+        config_exact = await obtener_proactividad(telefono)
     except Exception as e:
         logger.critical(
             f"[GATE] FAIL-CLOSED: error leyendo opt-out de {telefono} "
@@ -186,8 +219,15 @@ async def puede_enviar(telefono: str) -> bool:
         )
         return False
 
-    # Sin fila → usuario nunca tocó su proactividad → habilitado (misma
-    # semántica que obtener_usuarios_proactividad_activos).
+    # La fila CANÓNICA (en dígitos) es autoritativa si existe: los STOP/START
+    # nuevos la escriben bajo la identidad del número, así un opt-out de un
+    # tercero (canónica disabled) se respeta aunque el gate llegue con otro
+    # formato, y un re-opt-in posterior (canónica enabled) deja pasar sin que
+    # una representación cruda vieja lo trabe. Si NO hay fila canónica, se cae a
+    # la cruda (filas pre-existentes del owner — sin migración). Sin fila →
+    # nunca tocó su proactividad → habilitado.
+    config = config_canon if config_canon is not None else config_exact
+
     if config is not None and not config.get("proactive_enabled", True):
         logger.info(
             f"[GATE] Envío bloqueado tipo={tipo} motivo=optout tel={telefono}"
