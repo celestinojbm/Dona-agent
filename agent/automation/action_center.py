@@ -166,7 +166,13 @@ async def _cambiar_estado(
     error_message: str = "",
     result: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Helper interno · cambia estado validando la transición y emite audit."""
+    """Helper interno · cambia estado validando la transición y emite audit.
+
+    Fase 1 · 3.4: la transición es un UPDATE condicional WHERE estado=<leído>,
+    no un read-check-write. Si otra task transicionó la fila entre la lectura y
+    la escritura, el rowcount es 0: no se pisa su cambio ni se emite audit
+    duplicado. (El camino de dinero ya lo serializa intentar_marcar_running; esto
+    es defensa en profundidad para el resto de las transiciones.)"""
     from agent.automation.models import AccionAutomatizacion
     from agent.memory import async_session
 
@@ -178,37 +184,59 @@ async def _cambiar_estado(
         )).scalar_one_or_none()
         if row is None:
             return None
-        if not transicion_valida(row.estado, estado_destino):
+        estado_origen = row.estado
+        if not transicion_valida(estado_origen, estado_destino):
             logger.warning(
                 f"[ACT-CENTER] transición inválida accion_id={accion_id} "
-                f"actual={row.estado} destino={estado_destino}"
+                f"actual={estado_origen} destino={estado_destino}"
             )
             return _a_dict(row)
-        row.estado = estado_destino
-        row.updated_at = datetime.utcnow()
+
+        ahora = datetime.utcnow()
+        valores: dict[str, Any] = {"estado": estado_destino, "updated_at": ahora}
         if estado_destino == "approved":
-            row.approved_at = datetime.utcnow()
+            valores["approved_at"] = ahora
         elif estado_destino == "rejected":
-            row.rejected_at = datetime.utcnow()
+            valores["rejected_at"] = ahora
         elif estado_destino == "completed":
-            row.completed_at = datetime.utcnow()
+            valores["completed_at"] = ahora
         if error_message:
-            row.error_message = error_message[:500]
+            valores["error_message"] = error_message[:500]
         if result is not None:
-            row.result_json = json.dumps(result, ensure_ascii=False, sort_keys=True)
+            valores["result_json"] = json.dumps(result, ensure_ascii=False, sort_keys=True)
+
+        res = await session.execute(
+            update(AccionAutomatizacion)
+            .where(
+                AccionAutomatizacion.id == accion_id,
+                AccionAutomatizacion.estado == estado_origen,
+            )
+            .values(**valores)
+        )
         await session.commit()
-        await session.refresh(row)
+        gano = int(getattr(res, "rowcount", 0) or 0) == 1
+
+        # Re-leer el estado real tras el UPDATE (gane o pierda la carrera) para
+        # devolver el shape consistente que esperan los callers.
+        row = (await session.execute(
+            select(AccionAutomatizacion).where(
+                AccionAutomatizacion.id == accion_id
+            )
+        )).scalar_one_or_none()
+        if row is None:
+            return None
         result_dict = _a_dict(row)
         telefono = row.telefono
         riesgo = row.riesgo
 
-    await registrar_evento(
-        evento=evento,
-        telefono=telefono,
-        accion_id=accion_id,
-        riesgo=riesgo,
-        payload={"estado": estado_destino},
-    )
+    if gano:
+        await registrar_evento(
+            evento=evento,
+            telefono=telefono,
+            accion_id=accion_id,
+            riesgo=riesgo,
+            payload={"estado": estado_destino},
+        )
     return result_dict
 
 

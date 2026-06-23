@@ -406,6 +406,26 @@ class TransaccionCredito(Base):
     creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class IdempotenciaCredito(Base):
+    """Cerrojo de idempotencia ATÓMICO para acreditaciones (Fase 1 · 3.1).
+
+    `acreditar()` deduplicaba por `stripe_session_id` con un SELECT-then-INSERT
+    que racea bajo concurrencia (dos entregas del mismo evento Stripe → doble
+    crédito). Esta tabla da la barrera atómica: `acreditar` inserta la `clave`
+    en la MISMA transacción que el incremento de saldo; un segundo INSERT con la
+    misma PK lanza IntegrityError y TODA la transacción (incluido el saldo) hace
+    rollback → no doble-acredita ni en reentrega secuencial ni concurrente.
+
+    Tabla NUEVA y vacía a propósito: evita retrofittear un UNIQUE sobre
+    transacciones_credito (que con duplicados previos haría fallar el índice, y
+    el filtro de _migrar_columnas se tragaría el error en silencio dejando el
+    fix inerte). La crea create_all (fail-closed por 0.3)."""
+    __tablename__ = "idempotencia_credito"
+
+    clave: Mapped[str] = mapped_column(String(250), primary_key=True)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class SuscripcionStripe(Base):
     """
     Suscripción Stripe activa de un usuario (T1.3.A).
