@@ -49,7 +49,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger("dona")
@@ -241,47 +241,53 @@ async def liberar(
     from agent.billing import acreditar
     from agent.memory import async_session
 
-    async with async_session() as session:
-        row = (await session.execute(
-            select(ReservaCreditoAutomation).where(
-                ReservaCreditoAutomation.accion_id == accion_id
-            )
-        )).scalar_one_or_none()
-        if row is None:
-            return None
-        if row.estado != "pending":
-            return _to_dict(row)
-        creditos = int(row.creditos)
-        telefono = row.telefono
+    reserva = await obtener_reserva(accion_id)
+    if reserva is None or reserva["estado"] != "pending":
+        return reserva
+    creditos = int(reserva["creditos"])
+    telefono = reserva["telefono"]
 
+    # Reembolso EXACTAMENTE-UNA-VEZ (Fase 1 · 3.3): el idempotency_key
+    # `refund:{accion_id}` hace que dos liberar() concurrentes —o un reintento
+    # tras crash— acrediten UNA sola vez (el cerrojo atómico de
+    # idempotencia_credito dedupe). Va ANTES del flip de estado, así no hay
+    # ventana de under-refund: si crashea tras reembolsar y antes del flip, la
+    # reserva sigue 'pending' y un reintento re-acredita idempotente (no-op) y
+    # completa el flip.
     if creditos > 0:
         await acreditar(
             telefono,
             creditos,
             razon=f"reembolso reserva acción #{accion_id}: {razon[:60]}",
+            idempotency_key=f"refund:{accion_id}",
         )
 
+    # Flip condicional pending→released. El rowcount decide quién emite el audit
+    # (exactamente uno), aunque varios concurrentes hayan pasado el reembolso
+    # idempotente.
     async with async_session() as session:
-        row = (await session.execute(
-            select(ReservaCreditoAutomation).where(
-                ReservaCreditoAutomation.accion_id == accion_id
+        res = await session.execute(
+            update(ReservaCreditoAutomation)
+            .where(
+                ReservaCreditoAutomation.accion_id == accion_id,
+                ReservaCreditoAutomation.estado == "pending",
             )
-        )).scalar_one()
-        row.estado = "released"
-        row.actualizado = datetime.utcnow()
+            .values(estado="released", actualizado=datetime.utcnow())
+        )
         await session.commit()
-        await session.refresh(row)
-        result = _to_dict(row)
+        gano_flip = int(getattr(res, "rowcount", 0) or 0) == 1
 
-    await registrar_evento(
-        evento="credits_released",
-        telefono=telefono,
-        accion_id=accion_id,
-        payload={
-            "creditos_reembolsados": creditos,
-            "razon": razon[:100],
-        },
-    )
+    result = await obtener_reserva(accion_id)
+    if gano_flip:
+        await registrar_evento(
+            evento="credits_released",
+            telefono=telefono,
+            accion_id=accion_id,
+            payload={
+                "creditos_reembolsados": creditos,
+                "razon": razon[:100],
+            },
+        )
     return result
 
 

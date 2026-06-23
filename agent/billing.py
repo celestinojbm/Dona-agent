@@ -337,33 +337,65 @@ async def acreditar(
     creditos: int,
     razon: str,
     stripe_session_id: str = "",
+    idempotency_key: str = "",
 ) -> int:
     """
-    Suma `creditos` al saldo (ej: compra por Stripe, regalo, bonus).
-    Idempotente por `stripe_session_id` — si ya hay una tx con ese id,
-    no hace nada y retorna el saldo actual.
+    Suma `creditos` al saldo (compra Stripe, regalo, bonus, reembolso de reserva).
+
+    Idempotente y ATÓMICO por `idempotency_key` (o `stripe_session_id` si no se
+    pasa key): el cerrojo es un INSERT en `idempotencia_credito` (PK=clave) en la
+    MISMA transacción que el incremento de saldo. Una segunda llamada con la
+    misma clave choca con la PK (IntegrityError) y hace rollback COMPLETO —
+    incluido el saldo— así no doble-acredita ni en reentrega secuencial ni
+    concurrente (Fase 1 · 3.1). Sin clave, no hay dedup (caller asume no-Stripe).
     """
     if creditos <= 0:
         raise ValueError("creditos debe ser > 0 en acreditar()")
 
     from sqlalchemy import select, update
+    from sqlalchemy.exc import IntegrityError
 
-    from agent.memory import SaldoCreditos, TransaccionCredito, async_session
+    from agent.memory import (
+        IdempotenciaCredito,
+        SaldoCreditos,
+        TransaccionCredito,
+        async_session,
+    )
+
+    clave = (idempotency_key or stripe_session_id)[:250]
+
+    async def _saldo(session) -> int:
+        bal = (await session.execute(
+            select(SaldoCreditos).where(SaldoCreditos.telefono == telefono)
+        )).scalar_one_or_none()
+        return int(bal.saldo) if bal else 0
 
     async with async_session() as session:
-        # Idempotencia
-        if stripe_session_id:
+        # Fast-path idempotente: si la clave ya se aplicó, no re-acredita (evita
+        # el rollback en el caso común de reentrega secuencial).
+        if clave:
             ya = (await session.execute(
-                select(TransaccionCredito).where(
-                    TransaccionCredito.stripe_session_id == stripe_session_id
-                )
+                select(IdempotenciaCredito).where(IdempotenciaCredito.clave == clave)
             )).scalar_one_or_none()
             if ya is not None:
-                logger.info(f"[BILLING] Idempotent skip: stripe_session_id={stripe_session_id} ya acreditado")
-                bal = (await session.execute(
-                    select(SaldoCreditos).where(SaldoCreditos.telefono == telefono)
+                logger.info(f"[BILLING] Idempotent skip: clave={clave} ya acreditada")
+                return await _saldo(session)
+            # Compat de despliegue: los eventos acreditados ANTES de este deploy
+            # viven en transacciones_credito.stripe_session_id (la idempotencia
+            # vieja) y todavía NO en idempotencia_credito. Sin este fallback, una
+            # reentrega de Stripe post-deploy de un evento viejo doble-acreditaría.
+            if stripe_session_id:
+                ya_tx = (await session.execute(
+                    select(TransaccionCredito).where(
+                        TransaccionCredito.stripe_session_id == stripe_session_id
+                    )
                 )).scalar_one_or_none()
-                return int(bal.saldo) if bal else 0
+                if ya_tx is not None:
+                    logger.info(
+                        f"[BILLING] Idempotent skip (legacy tx): "
+                        f"stripe_session_id={stripe_session_id}"
+                    )
+                    return await _saldo(session)
 
         bal = (await session.execute(
             select(SaldoCreditos).where(SaldoCreditos.telefono == telefono)
@@ -401,8 +433,34 @@ async def acreditar(
             saldo_resultante=nuevo,
             creado=datetime.utcnow(),
         ))
-        await session.commit()
-        return nuevo
+        # Cerrojo atómico de idempotencia (PK), en la MISMA transacción.
+        if clave:
+            session.add(IdempotenciaCredito(clave=clave, creado=datetime.utcnow()))
+
+        try:
+            await session.commit()
+            return nuevo
+        except IntegrityError:
+            await session.rollback()
+
+    # Hubo IntegrityError. Distinguir: ¿fue la clave de idempotencia (otra
+    # entrega ganó la carrera) o una carrera distinta (p.ej. creación
+    # concurrente de SaldoCreditos)?
+    if clave:
+        async with async_session() as s2:
+            ya = (await s2.execute(
+                select(IdempotenciaCredito).where(IdempotenciaCredito.clave == clave)
+            )).scalar_one_or_none()
+            if ya is not None:
+                logger.info(f"[BILLING] Idempotent (carrera) skip: clave={clave}")
+                return await _saldo(s2)
+    # No fue la clave → carrera de creación de fila; reintentar una vez (el saldo
+    # ya existe, tomará el camino UPDATE). Mismo patrón que reservar().
+    logger.warning(f"[BILLING] IntegrityError no-idempotencia en acreditar; reintento. clave={clave!r}")
+    return await acreditar(
+        telefono, creditos, razon,
+        stripe_session_id=stripe_session_id, idempotency_key=idempotency_key,
+    )
 
 
 async def cobrar_o_rechazar(
