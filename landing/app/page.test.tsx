@@ -13,9 +13,14 @@ describe("landing publica · legibilidad y reveal", () => {
     expect(pendingFadeBlock).not.toMatch(/opacity\s*:\s*0\s*;/);
   });
 
-  it("presenta a Dona como agente operativo en WhatsApp con CTA especifico", () => {
-    expect(pageSource).toContain("Tu agente operativo");
+  it("presenta a Dona como plataforma-agente de ejecucion (no 'agente de WhatsApp'), con WhatsApp como canal", () => {
+    // Narrativa canonica: plataforma-agente de negocio y ejecucion controlada.
+    expect(pageSource).toContain("plataforma-agente");
+    // WhatsApp es canal de entrada (CTA), no la identidad del producto.
     expect(pageSource).toContain("Empezar en WhatsApp");
+    // Guardia anti-regresion: no volver a reducir Dona a "agente de WhatsApp".
+    expect(pageSource).not.toContain("Tu agente operativo");
+    expect(pageSource).not.toContain("Your operating agent");
   });
 
   it("muestra metricas reales aunque la animacion del contador no se ejecute", () => {
