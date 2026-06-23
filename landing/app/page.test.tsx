@@ -24,7 +24,8 @@ describe("landing publica · legibilidad y reveal", () => {
   });
 
   it("muestra metricas reales aunque la animacion del contador no se ejecute", () => {
-    expect(pageSource).toContain("const [count] = useState(target)");
-    expect(pageSource).not.toContain("const [count, setCount] = useState(0)");
+    // El numero se renderiza como `target` por defecto (SSR / sin JS / reduced-motion):
+    // sin flash de 0. El count-up es enhancement client-side via data-countup.
+    expect(pageSource).toContain("data-countup={target}>{target}</span>");
   });
 });
