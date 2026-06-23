@@ -131,6 +131,33 @@ body {
   box-shadow: 0 0 40px rgba(124, 58, 237, 0.04);
 }
 
+/* -- Spotlight card (LTX iter 2): resplandor radial que sigue al mouse.
+   La posicion --mx/--my la setea useCinematicMotion en mousemove. -- */
+.glass-card[data-spotlight] {
+  position: relative;
+}
+.glass-card[data-spotlight]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    420px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(124, 58, 237, 0.16),
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity 0.45s ease;
+  pointer-events: none;
+}
+.glass-card[data-spotlight]:hover::before {
+  opacity: 1;
+}
+.glass-card[data-spotlight] > * {
+  position: relative;
+  z-index: 1;
+}
+
 /* -- Noise overlay -- */
 .noise-overlay::after {
   content: '';
