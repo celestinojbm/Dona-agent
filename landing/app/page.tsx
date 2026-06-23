@@ -21,6 +21,7 @@ import {
   Compass,
   Languages,
 } from "lucide-react";
+import { useCinematicMotion } from "./useCinematicMotion";
 
 /* ════════════════════════════════════════════════════════════
    i18n — All page text in ES and EN
@@ -279,8 +280,13 @@ const iconMap = { Brain, Sparkles, Mail, Calendar, Mic, MessageSquare, Image, Do
    ════════════════════════════════════════════════════════════ */
 
 function Counter({ target, suffix = "", prefix = "" }: { target: number; suffix?: string; prefix?: string }) {
-  const [count] = useState(target);
-  return <span className="tabular-nums font-mono">{prefix}{count}{suffix}</span>;
+  // El numero se renderiza como `target` por defecto (SSR / sin JS / reduced-motion):
+  // sin flash de 0. useCinematicMotion anima 0→target al entrar en vista (data-countup).
+  return (
+    <span className="tabular-nums font-mono">
+      {prefix}<span data-countup={target}>{target}</span>{suffix}
+    </span>
+  );
 }
 
 function FadeIn({ children, delay = 0, direction = "up", className = "" }: { children: React.ReactNode; delay?: number; direction?: "up" | "down" | "left" | "right"; className?: string }) {
@@ -390,6 +396,9 @@ export default function Home() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const t = i18n[lang];
+
+  // Capa de movimiento cinematografico (GSAP): parallax del video + count-up real.
+  useCinematicMotion();
 
 
   const handleCheckout = useCallback(async (plan: "premium" | "pro") => {
