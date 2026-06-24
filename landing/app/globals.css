@@ -183,6 +183,14 @@ body {
     filter 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.08s);
 }
 
+/* -- Parallax de profundidad (LTX iter 5): los numerales gigantes hacen drift
+   en scroll. useCinematicMotion setea el transform (yPercent) via GSAP; aqui
+   solo damos el hint de compositing. Sin JS o con reduced-motion no se aplica
+   ningun transform → el numeral queda en su posicion natural. -- */
+[data-parallax] {
+  will-change: transform;
+}
+
 /* -- Noise overlay -- */
 .noise-overlay::after {
   content: '';
