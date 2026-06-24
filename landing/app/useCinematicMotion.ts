@@ -9,6 +9,10 @@ import { useEffect } from "react";
  * iter 2:
  *  - Spotlight que sigue al mouse en las cards (`[data-spotlight]`), estilo
  *    Linear/LTX (un resplandor radial via las vars CSS --mx/--my).
+ * iter 3:
+ *  - Hover magnetico en los CTAs (`[data-magnetic]`): el boton se desplaza
+ *    suavemente hacia el cursor y vuelve a su lugar al salir (estilo
+ *    Linear/Higgsfield).
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real y las cards sin spotlight) y carga GSAP
@@ -87,6 +91,29 @@ export function useCinematicMotion() {
           };
           card.addEventListener("mousemove", onMove);
           removers.push(() => card.removeEventListener("mousemove", onMove));
+        });
+
+        // 4. Hover magnetico en los CTAs: el boton sigue suavemente al cursor
+        //    (gsap.quickTo da el spring-back) y vuelve a 0,0 al salir.
+        gsap.utils.toArray<HTMLElement>("[data-magnetic]").forEach((btn) => {
+          const xTo = gsap.quickTo(btn, "x", { duration: 0.5, ease: "power3.out" });
+          const yTo = gsap.quickTo(btn, "y", { duration: 0.5, ease: "power3.out" });
+          const strength = 0.4; // fraccion del desplazamiento cursor→centro
+          const onMove = (e: MouseEvent) => {
+            const r = btn.getBoundingClientRect();
+            xTo((e.clientX - (r.left + r.width / 2)) * strength);
+            yTo((e.clientY - (r.top + r.height / 2)) * strength);
+          };
+          const onLeave = () => {
+            xTo(0);
+            yTo(0);
+          };
+          btn.addEventListener("mousemove", onMove);
+          btn.addEventListener("mouseleave", onLeave);
+          removers.push(() => {
+            btn.removeEventListener("mousemove", onMove);
+            btn.removeEventListener("mouseleave", onLeave);
+          });
         });
       });
 
