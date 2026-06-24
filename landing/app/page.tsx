@@ -397,7 +397,8 @@ export default function Home() {
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const t = i18n[lang];
 
-  // Capa de movimiento cinematografico (GSAP): parallax del video + count-up real.
+  // Capa de movimiento cinematografico (GSAP): parallax del video, count-up real,
+  // spotlight en cards y hover magnetico en los CTAs.
   useCinematicMotion();
 
 
@@ -442,7 +443,7 @@ export default function Home() {
               <span className="text-xs font-mono">{lang}</span>
             </button>
             <a href="/login" className="nav-link text-white/40">{t.nav.login}</a>
-            <a href="#pricing" className="btn-primary px-5 py-2 rounded-full text-sm">{t.nav.start}</a>
+            <a href="#pricing" data-magnetic className="btn-primary px-5 py-2 rounded-full text-sm">{t.nav.start}</a>
           </div>
 
           {/* Mobile toggle */}
@@ -493,11 +494,11 @@ export default function Home() {
 
           <FadeIn delay={0.3}>
             <div className="flex flex-wrap gap-4 justify-center mb-14">
-              <a href="#pricing" className="btn-primary px-8 py-4 rounded-full text-sm flex items-center gap-2 pulse-glow">
+              <a href="#pricing" data-magnetic className="btn-primary px-8 py-4 rounded-full text-sm flex items-center gap-2 pulse-glow">
                 {t.hero.cta}
                 <ArrowRight className="w-4 h-4" />
               </a>
-              <a href="#capabilities" className="btn-secondary px-8 py-4 rounded-full text-sm font-light">
+              <a href="#capabilities" data-magnetic className="btn-secondary px-8 py-4 rounded-full text-sm font-light">
                 {t.hero.secondary}
               </a>
             </div>
@@ -742,7 +743,7 @@ export default function Home() {
             <p className="text-white/35 mb-12 max-w-md mx-auto text-lg font-light">{t.cta.subtitle}</p>
           </FadeIn>
           <FadeIn delay={0.15}>
-            <a href="#pricing" className="btn-primary inline-flex items-center gap-2 px-10 py-4 rounded-full text-sm pulse-glow">
+            <a href="#pricing" data-magnetic className="btn-primary inline-flex items-center gap-2 px-10 py-4 rounded-full text-sm pulse-glow">
               {t.cta.button}
               <ArrowRight className="w-4 h-4" />
             </a>
