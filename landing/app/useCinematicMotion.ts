@@ -17,6 +17,10 @@ import { useEffect, useLayoutEffect } from "react";
  *  - Titular kinetico (`[data-kinetic]` + `.kinetic-word`): reveal
  *    palabra-por-palabra del hero al cargar (rise + blur escalonado via
  *    transiciones CSS), firma visual tipo LTX/Higgsfield.
+ * iter 5:
+ *  - Parallax de profundidad (`[data-parallax]`): los numerales gigantes
+ *    (bloque de dolor y pasos de "Como funciona") hacen drift en scroll a
+ *    distinta velocidad que su texto, dando capas de profundidad cinematografica.
  * iter 6:
  *  - Barra de progreso de scroll (`.scroll-beam`): un haz fino con el degradado
  *    de marca (azul→naranja) fijado arriba que se llena de izquierda a derecha
@@ -194,6 +198,30 @@ export function useCinematicMotion() {
               scrub: 0.8,
             },
           });
+        });
+
+        // 7. Parallax de profundidad en los numerales gigantes: cada elemento
+        //    [data-parallax] hace drift vertical mientras cruza el viewport
+        //    (scrub al scroll), a una velocidad propia (atributo = fraccion).
+        //    Como solo translada (transform), no altera el layout ni provoca
+        //    scroll horizontal; el texto que lo acompaña queda fijo → capas.
+        gsap.utils.toArray<HTMLElement>("[data-parallax]").forEach((el) => {
+          const speed = parseFloat(el.dataset.parallax || "0.2");
+          if (!Number.isFinite(speed)) return;
+          gsap.fromTo(
+            el,
+            { yPercent: speed * 40 },
+            {
+              yPercent: -speed * 40,
+              ease: "none",
+              scrollTrigger: {
+                trigger: el,
+                start: "top bottom",
+                end: "bottom top",
+                scrub: 0.6,
+              },
+            }
+          );
         });
       });
 

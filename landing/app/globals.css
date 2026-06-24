@@ -281,6 +281,14 @@ body {
   }
 }
 
+/* -- Parallax de profundidad (LTX iter 5): los numerales gigantes hacen drift
+   en scroll. useCinematicMotion setea el transform (yPercent) via GSAP; aqui
+   solo damos el hint de compositing. Sin JS o con reduced-motion no se aplica
+   ningun transform → el numeral queda en su posicion natural. -- */
+[data-parallax] {
+  will-change: transform;
+}
+
 /* -- Noise overlay (LTX iter 15): grano de cine "hirviendo" --
    El grano ya no es estatico: la capa esta sobredimensionada (200% con offset
    -50%) y salta entre posiciones discretas via `grain-flicker` con steps(1),
