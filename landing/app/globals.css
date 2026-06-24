@@ -158,6 +158,31 @@ body {
   z-index: 1;
 }
 
+/* -- Kinetic headline (LTX iter 4): reveal palabra-por-palabra del titular.
+   El estado lo controla useCinematicMotion en el contenedor [data-kinetic]:
+   "pending" (oculto) pre-paint y "visible" al frame siguiente, solo con JS y sin
+   reduced-motion. Sin JS, con reduced-motion o sin el atributo, las palabras se
+   ven completas — nunca dejamos el titular invisible. El stagger sale de --ki
+   (indice de palabra), seteado inline en cada span. -- */
+.kinetic-word {
+  display: inline-block;
+  will-change: transform, opacity, filter;
+}
+[data-kinetic="pending"] .kinetic-word {
+  opacity: 0;
+  transform: translateY(0.5em);
+  filter: blur(8px);
+}
+[data-kinetic="visible"] .kinetic-word {
+  opacity: 1;
+  transform: none;
+  filter: blur(0);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.08s),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.08s),
+    filter 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.08s);
+}
+
 /* -- Noise overlay -- */
 .noise-overlay::after {
   content: '';

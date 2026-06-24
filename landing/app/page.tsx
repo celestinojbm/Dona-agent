@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { Fragment, useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain,
@@ -321,6 +321,28 @@ function FadeIn({ children, delay = 0, direction = "up", className = "" }: { chi
   return <div ref={ref} className={className}>{children}</div>;
 }
 
+function KineticText({ text, startIndex = 0 }: { text: string; startIndex?: number }) {
+  // Parte el texto en palabras envueltas en `.kinetic-word` para que el titular
+  // [data-kinetic] las revele palabra-por-palabra (estilo LTX). `--ki` lleva el
+  // indice global de la palabra (continuo entre lineas via `startIndex`) para
+  // escalonar el delay. El espacio entre palabras es un nodo de texto normal para
+  // que el titular siga partiendo lineas en pantallas chicas. Sin JS o con
+  // reduced-motion las palabras quedan visibles (ver globals.css).
+  const words = text.split(" ");
+  return (
+    <>
+      {words.map((w, i) => (
+        <Fragment key={i}>
+          {i > 0 && " "}
+          <span className="kinetic-word" style={{ "--ki": startIndex + i } as React.CSSProperties}>
+            {w}
+          </span>
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
 function RotatingText({ words }: { words: readonly string[] }) {
   const [index, setIndex] = useState(0);
   useEffect(() => {
@@ -476,15 +498,18 @@ export default function Home() {
           ══════════════════════════════════════════════════════ */}
       <section className="relative z-[2] min-h-[100dvh] flex items-center justify-center pt-16">
         <div className="max-w-4xl mx-auto px-6 py-24 md:py-32 w-full text-center">
-          <FadeIn delay={0.1}>
-            <h1 className="text-5xl md:text-7xl lg:text-8xl font-normal leading-[1.1] tracking-tighter mb-8 text-white">
-              {t.hero.line1}
-              <br />
-              <RotatingText words={t.rotating} />
-              <br />
-              <span className="text-white/70 font-extralight">{t.hero.line3}</span>
-            </h1>
-          </FadeIn>
+          {/* El titular hace su entrada cinematografica palabra-por-palabra
+              (useCinematicMotion togglea [data-kinetic] pending→visible), no con
+              el FadeIn de bloque. line3 continua el stagger de line1 via startIndex. */}
+          <h1 data-kinetic className="text-5xl md:text-7xl lg:text-8xl font-normal leading-[1.1] tracking-tighter mb-8 text-white">
+            <KineticText text={t.hero.line1} />
+            <br />
+            <RotatingText words={t.rotating} />
+            <br />
+            <span className="text-white/70 font-extralight">
+              <KineticText text={t.hero.line3} startIndex={t.hero.line1.split(" ").length} />
+            </span>
+          </h1>
 
           <FadeIn delay={0.2}>
             <p className="text-lg md:text-xl text-white/50 max-w-xl mx-auto mb-10 leading-relaxed font-light">
