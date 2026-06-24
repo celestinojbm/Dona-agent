@@ -25,6 +25,7 @@ from sqlalchemy import select, update
 from agent.automation.audit import registrar_evento
 from agent.automation.costos import estimar_costo_accion
 from agent.automation.permissions import (
+    NivelRiesgo,
     calcular_next_required_action,
     clasificar_riesgo,
     estado_inicial_para_riesgo,
@@ -185,10 +186,14 @@ async def _cambiar_estado(
         if row is None:
             return None
         estado_origen = row.estado
-        if not transicion_valida(estado_origen, estado_destino):
+        # 5.2 · la transición es risk-aware: el riesgo de la fila gatea el
+        # destino `running` (CRITICAL nunca ejecuta; sólo LOW auto-ejecuta
+        # desde pending). Defensa en profundidad junto al claim atómico.
+        if not transicion_valida(estado_origen, estado_destino, row.riesgo):
             logger.warning(
                 f"[ACT-CENTER] transición inválida accion_id={accion_id} "
-                f"actual={estado_origen} destino={estado_destino}"
+                f"actual={estado_origen} destino={estado_destino} "
+                f"riesgo={row.riesgo}"
             )
             return _a_dict(row)
 
@@ -281,11 +286,17 @@ async def intentar_marcar_running(
 
     ahora = datetime.utcnow()
     async with async_session() as session:
+        # 5.2 · gate de riesgo atómico en el choke point del →running:
+        # una acción CRITICAL nunca se claima a running, ni aunque su estado
+        # de lifecycle lo permita (bug/legacy/spoof). El filtro va en el WHERE
+        # del propio UPDATE para que sea atómico con el claim — no hay ventana
+        # check-then-act.
         result = await session.execute(
             update(AccionAutomatizacion)
             .where(
                 AccionAutomatizacion.id == accion_id,
                 AccionAutomatizacion.estado.in_(estados_origen),
+                AccionAutomatizacion.riesgo != NivelRiesgo.CRITICAL.value,
             )
             .values(estado="running", updated_at=ahora)
         )
