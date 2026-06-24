@@ -183,6 +183,25 @@ body {
     filter 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.08s);
 }
 
+/* -- Scroll progress beam (LTX iter 6): haz fino arriba con el degradado de
+   marca que se llena segun el avance del scroll. useCinematicMotion escala su
+   scaleX 0→1 (scrubbed). Arranca en scaleX(0): sin JS o con reduced-motion (el
+   efecto entero se salta) queda invisible — nunca una barra estatica colgada. -- */
+.scroll-beam {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 60;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: linear-gradient(90deg, #2563EB, #7C3AED, #F97316);
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.35);
+  pointer-events: none;
+  will-change: transform;
+}
+
 /* -- Noise overlay -- */
 .noise-overlay::after {
   content: '';

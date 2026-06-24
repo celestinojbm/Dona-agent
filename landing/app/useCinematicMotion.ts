@@ -17,6 +17,10 @@ import { useEffect, useLayoutEffect } from "react";
  *  - Titular kinetico (`[data-kinetic]` + `.kinetic-word`): reveal
  *    palabra-por-palabra del hero al cargar (rise + blur escalonado via
  *    transiciones CSS), firma visual tipo LTX/Higgsfield.
+ * iter 6:
+ *  - Barra de progreso de scroll (`.scroll-beam`): un haz fino con el degradado
+ *    de marca (azul→naranja) fijado arriba que se llena de izquierda a derecha
+ *    segun el avance del scroll (scrubbed), firma tipo Linear/Vercel/LTX.
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -141,6 +145,27 @@ export function useCinematicMotion() {
             btn.removeEventListener("mouseleave", onLeave);
           });
         });
+
+        // 5. Barra de progreso de scroll: el haz superior se escala en X de 0→1
+        //    a lo largo de todo el documento (scrub). Sin reduced-motion (todo
+        //    este efecto se salta) la barra queda en scaleX(0) → invisible.
+        const beam = document.querySelector<HTMLElement>(".scroll-beam");
+        if (beam) {
+          gsap.fromTo(
+            beam,
+            { scaleX: 0 },
+            {
+              scaleX: 1,
+              ease: "none",
+              scrollTrigger: {
+                trigger: document.body,
+                start: "top top",
+                end: "bottom bottom",
+                scrub: 0.3,
+              },
+            }
+          );
+        }
       });
 
       cleanup = () => {

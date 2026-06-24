@@ -447,6 +447,10 @@ export default function Home() {
 
   return (
     <>
+      {/* Haz de progreso de scroll (LTX iter 6): useCinematicMotion lo llena
+          0→1 segun el avance del scroll. Decorativo, no anuncia nada al lector. */}
+      <div className="scroll-beam" aria-hidden="true" />
+
       {/* ── Nav — transparent, no capsule ── */}
       <nav className="fixed top-0 left-0 right-0 z-50">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
