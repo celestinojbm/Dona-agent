@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 
 /**
  * useCinematicMotion — capa de movimiento GSAP de la landing (rediseño LTX).
@@ -13,12 +13,38 @@ import { useEffect } from "react";
  *  - Hover magnetico en los CTAs (`[data-magnetic]`): el boton se desplaza
  *    suavemente hacia el cursor y vuelve a su lugar al salir (estilo
  *    Linear/Higgsfield).
+ * iter 4:
+ *  - Titular kinetico (`[data-kinetic]` + `.kinetic-word`): reveal
+ *    palabra-por-palabra del hero al cargar (rise + blur escalonado via
+ *    transiciones CSS), firma visual tipo LTX/Higgsfield.
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
- * numeros quedan en su valor real y las cards sin spotlight) y carga GSAP
- * dinamicamente (client-only) revirtiendo todo (tweens + listeners) al desmontar.
+ * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
+ * y carga GSAP dinamicamente (client-only) revirtiendo todo (tweens + listeners)
+ * al desmontar.
  */
 export function useCinematicMotion() {
+  // Titular kinetico (iter 4): reveal palabra-por-palabra del hero. Lo hacemos
+  // con transiciones CSS (mismo patron probado que FadeIn) en vez de un tween
+  // GSAP, para no chocar con el doble-montaje de React Strict Mode ni con la
+  // carga asincrona de GSAP. Pre-paint marcamos el titular como "pending" (las
+  // palabras arrancan ocultas via CSS) solo con JS y sin reduced-motion — asi no
+  // hay flash. En el siguiente frame pasamos a "visible" y cada palabra entra con
+  // su propio delay (--ki). Sin JS o con reduced-motion el atributo queda en su
+  // valor inicial y las palabras se ven completas (nunca dejamos el titular
+  // invisible).
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const headline = document.querySelector<HTMLElement>("[data-kinetic]");
+    if (!headline) return;
+    headline.setAttribute("data-kinetic", "pending");
+    const raf1 = requestAnimationFrame(() =>
+      requestAnimationFrame(() => headline.setAttribute("data-kinetic", "visible"))
+    );
+    return () => cancelAnimationFrame(raf1);
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
