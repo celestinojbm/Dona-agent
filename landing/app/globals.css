@@ -68,6 +68,42 @@ body {
   background-clip: text;
 }
 
+/* -- Nav cinematica (LTX iter 7) -- */
+/* La barra arranca transparente sobre el hero y se "despega" al hacer scroll:
+   fondo traslucido + blur + hairline inferior. Solo transiciones de opacidad/
+   color, seguras bajo prefers-reduced-motion. */
+.nav-bar {
+  border-bottom: 1px solid transparent;
+  transition: background 0.4s ease, border-color 0.4s ease, backdrop-filter 0.4s ease;
+}
+.nav-bar-scrolled {
+  background: rgba(10, 10, 10, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Seccion activa (scroll-spy): el link adopta el gradiente azul→naranja. */
+.nav-link-active {
+  background: linear-gradient(135deg, #2563EB, #F97316);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Indicador deslizante bajo el item activo. framer-motion (layoutId) lo desliza
+   de una seccion a otra; con reduced-motion se renderiza estatico. */
+.nav-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -7px;
+  height: 2px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #2563EB, #F97316);
+  pointer-events: none;
+}
+
 /* -- Primary CTA button — ghost/outline -- */
 .btn-primary {
   background: transparent;
