@@ -237,6 +237,32 @@ body {
               transform 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--fade-delay, 0s);
 }
 
+/* -- Plan destacado (LTX iter 10): realce animado del plan recomendado (Pro).
+   La barra de acento fluye continuamente (gradiente animado) y la card respira
+   con un aura suave, tratamiento premium de "plan recomendado" estilo
+   Linear/Vercel. Se desactiva con prefers-reduced-motion (queda el acento fijo
+   y sin aura) — el realce es enhancement, nunca afecta legibilidad ni layout. -- */
+@keyframes accent-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+@keyframes plan-aura {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18), 0 0 30px rgba(37, 99, 235, 0.06); }
+  50% { box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.22), 0 0 48px rgba(37, 99, 235, 0.14), 0 0 48px rgba(249, 115, 22, 0.08); }
+}
+.accent-flow {
+  background-image: linear-gradient(90deg, #2563EB, #F97316, #2563EB);
+  background-size: 200% 100%;
+  animation: accent-flow 4s linear infinite;
+}
+.plan-destacado {
+  animation: plan-aura 5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .accent-flow { animation: none; }
+  .plan-destacado { animation: none; }
+}
+
 /* -- Testimonial carousel (infinite, no pause) -- */
 @keyframes scroll-left {
   0% { transform: translateX(0); }
