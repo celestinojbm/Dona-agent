@@ -17,6 +17,10 @@ import { useEffect, useLayoutEffect } from "react";
  *  - Titular kinetico (`[data-kinetic]` + `.kinetic-word`): reveal
  *    palabra-por-palabra del hero al cargar (rise + blur escalonado via
  *    transiciones CSS), firma visual tipo LTX/Higgsfield.
+ * iter 9:
+ *  - Reveal escalonado de las cards (`[data-reveal-group]` + `[data-reveal]`):
+ *    al entrar en vista, las cards de cada grid entran en cascada (translate +
+ *    scale + blur con stagger) via `ScrollTrigger.batch`, estilo LTX.
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -36,13 +40,25 @@ export function useCinematicMotion() {
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    // Reveal escalonado (iter 9): marcamos cada grid como "ready" pre-paint para
+    // que CSS oculte sus cards [data-reveal] antes del primer frame (sin flash).
+    // GSAP las revela luego al entrar en vista; al desmontar volvemos a "idle"
+    // para que las cards queden visibles si GSAP no llega a correr.
+    const groups = Array.from(document.querySelectorAll<HTMLElement>("[data-reveal-group]"));
+    groups.forEach((g) => g.setAttribute("data-reveal-group", "ready"));
+
     const headline = document.querySelector<HTMLElement>("[data-kinetic]");
-    if (!headline) return;
-    headline.setAttribute("data-kinetic", "pending");
+    if (headline) headline.setAttribute("data-kinetic", "pending");
     const raf1 = requestAnimationFrame(() =>
-      requestAnimationFrame(() => headline.setAttribute("data-kinetic", "visible"))
+      requestAnimationFrame(() => {
+        if (headline) headline.setAttribute("data-kinetic", "visible");
+      })
     );
-    return () => cancelAnimationFrame(raf1);
+    return () => {
+      cancelAnimationFrame(raf1);
+      groups.forEach((g) => g.setAttribute("data-reveal-group", "idle"));
+    };
   }, []);
 
   useEffect(() => {
@@ -52,9 +68,23 @@ export function useCinematicMotion() {
     let killed = false;
     let cleanup: (() => void) | undefined;
 
+    // Si GSAP no llega a cargar (red, bloqueo), revelamos las cards que ocultamos
+    // pre-paint para no dejarlas invisibles: el reveal es enhancement, no requisito.
+    const revelarFallback = () =>
+      document
+        .querySelectorAll<HTMLElement>('[data-reveal-group="ready"]')
+        .forEach((g) => g.setAttribute("data-reveal-group", "shown"));
+
     (async () => {
-      const gsapMod = await import("gsap");
-      const stMod = await import("gsap/ScrollTrigger");
+      let gsapMod: typeof import("gsap");
+      let stMod: typeof import("gsap/ScrollTrigger");
+      try {
+        gsapMod = await import("gsap");
+        stMod = await import("gsap/ScrollTrigger");
+      } catch {
+        revelarFallback();
+        return;
+      }
       if (killed) return;
       const gsap = gsapMod.gsap ?? gsapMod.default;
       const ScrollTrigger = stMod.ScrollTrigger ?? stMod.default;
@@ -140,6 +170,41 @@ export function useCinematicMotion() {
             btn.removeEventListener("mousemove", onMove);
             btn.removeEventListener("mouseleave", onLeave);
           });
+        });
+
+        // 5. Reveal escalonado de las cards: cada grid [data-reveal-group] revela
+        //    sus hijos [data-reveal] en cascada al entrar en vista (translate +
+        //    scale + blur con stagger). El estado oculto inicial lo pone CSS via el
+        //    atributo "ready" seteado pre-paint (sin flash); aqui los traemos a su
+        //    estado natural. Disparamos con IntersectionObserver nativo (fiable,
+        //    mismo mecanismo que FadeIn) y usamos GSAP solo para el tween escalonado
+        //    — asi el reveal no depende del scroll-detection de ScrollTrigger.
+        gsap.utils.toArray<HTMLElement>("[data-reveal-group]").forEach((group) => {
+          const items = gsap.utils.toArray<HTMLElement>("[data-reveal]", group);
+          if (!items.length) return;
+          const io = new IntersectionObserver(
+            (entries, obs) => {
+              if (!entries.some((e) => e.isIntersecting)) return;
+              obs.disconnect();
+              gsap.to(items, {
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                filter: "blur(0px)",
+                duration: 0.9,
+                ease: "power3.out",
+                stagger: 0.1,
+                overwrite: true,
+                onComplete: () =>
+                  items.forEach((el) => {
+                    el.style.willChange = "auto";
+                  }),
+              });
+            },
+            { rootMargin: "-80px" }
+          );
+          io.observe(group);
+          removers.push(() => io.disconnect());
         });
       });
 

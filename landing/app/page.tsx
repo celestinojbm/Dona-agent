@@ -604,19 +604,17 @@ export default function Home() {
             <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.capabilities.title}</h2>
             <p className="text-center text-white/35 max-w-xl mx-auto mb-20 font-light">{t.capabilities.subtitle}</p>
           </FadeIn>
-          <div className="grid md:grid-cols-3 gap-6">
+          <div data-reveal-group className="grid md:grid-cols-3 gap-6">
             {t.capabilities.items.map((cap, i) => {
               const Icon = iconMap[cap.icon as keyof typeof iconMap];
               return (
-                <FadeIn key={i} delay={i * 0.06}>
-                  <div data-spotlight className="glass-card rounded-2xl p-8 h-full group">
-                    <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
-                      <Icon className="w-6 h-6 text-white/40" />
-                    </div>
-                    <h3 className="text-lg font-normal mb-3 text-white">{cap.title}</h3>
-                    <p className="text-sm text-white/35 leading-relaxed font-light">{cap.desc}</p>
+                <div key={i} data-reveal data-spotlight className="glass-card rounded-2xl p-8 h-full group">
+                  <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
+                    <Icon className="w-6 h-6 text-white/40" />
                   </div>
-                </FadeIn>
+                  <h3 className="text-lg font-normal mb-3 text-white">{cap.title}</h3>
+                  <p className="text-sm text-white/35 leading-relaxed font-light">{cap.desc}</p>
+                </div>
               );
             })}
           </div>
@@ -634,19 +632,17 @@ export default function Home() {
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.whyDona.label}</p>
             <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white">{t.whyDona.title}</h2>
           </FadeIn>
-          <div className="grid md:grid-cols-2 gap-6">
+          <div data-reveal-group className="grid md:grid-cols-2 gap-6">
             {t.whyDona.cards.map((card, i) => {
               const Icon = iconMap[card.icon as keyof typeof iconMap];
               return (
-                <FadeIn key={i} delay={i * 0.1}>
-                  <div data-spotlight className="glass-card rounded-2xl p-8 h-full group">
-                    <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
-                      <Icon className="w-6 h-6 text-white/40" />
-                    </div>
-                    <h3 className="text-lg font-normal mb-2 text-white">{card.title}</h3>
-                    <p className="text-sm text-white/35 leading-relaxed font-light">{card.desc}</p>
+                <div key={i} data-reveal data-spotlight className="glass-card rounded-2xl p-8 h-full group">
+                  <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
+                    <Icon className="w-6 h-6 text-white/40" />
                   </div>
-                </FadeIn>
+                  <h3 className="text-lg font-normal mb-2 text-white">{card.title}</h3>
+                  <p className="text-sm text-white/35 leading-relaxed font-light">{card.desc}</p>
+                </div>
               );
             })}
           </div>
@@ -681,10 +677,9 @@ export default function Home() {
             <p className="text-center text-white/35 max-w-md mx-auto mb-20 font-light">{t.pricing.subtitle}</p>
           </FadeIn>
 
-          <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+          <div data-reveal-group className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
             {/* Early Access */}
-            <FadeIn delay={0}>
-              <div className="glass-card rounded-2xl p-8 relative overflow-hidden">
+            <div data-reveal className="glass-card rounded-2xl p-8 relative overflow-hidden">
                 <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">{t.pricing.earlyAccess}</p>
                 <div className="flex items-end gap-1 mb-6">
                   <span className="text-5xl font-light text-white">$20</span>
@@ -700,12 +695,10 @@ export default function Home() {
                 <button onClick={() => handleCheckout("premium")} disabled={checkoutLoading === "premium"} className="btn-primary w-full py-3.5 rounded-full text-sm text-center block cursor-pointer disabled:opacity-50">
                   {checkoutLoading === "premium" ? "..." : t.pricing.startNow}
                 </button>
-              </div>
-            </FadeIn>
+            </div>
 
             {/* Pro */}
-            <FadeIn delay={0.1}>
-              <div className="glass-card rounded-2xl p-8 relative overflow-hidden border-[#2563EB]/20">
+            <div data-reveal className="glass-card rounded-2xl p-8 relative overflow-hidden border-[#2563EB]/20">
                 <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#2563EB] to-[#F97316]" />
                 <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">{t.pricing.pro}</p>
                 <div className="flex items-end gap-1 mb-6">
@@ -722,12 +715,10 @@ export default function Home() {
                 <button onClick={() => handleCheckout("pro")} disabled={checkoutLoading === "pro"} className="btn-primary w-full py-3.5 rounded-full text-sm text-center block cursor-pointer disabled:opacity-50">
                   {checkoutLoading === "pro" ? "..." : t.pricing.startNow}
                 </button>
-              </div>
-            </FadeIn>
+            </div>
 
             {/* Enterprise */}
-            <FadeIn delay={0.2}>
-              <div className="glass-card rounded-2xl p-8">
+            <div data-reveal className="glass-card rounded-2xl p-8">
                 <div className="flex items-center gap-2 mb-2">
                   <p className="text-xs uppercase tracking-widest text-white/35 font-light">{t.pricing.enterprise}</p>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-white/40 font-mono">{t.pricing.comingSoon}</span>
@@ -743,8 +734,7 @@ export default function Home() {
                   ))}
                 </ul>
                 <button className="btn-secondary w-full py-3.5 rounded-full text-sm cursor-not-allowed opacity-50 font-light">{t.pricing.comingSoon}</button>
-              </div>
-            </FadeIn>
+            </div>
           </div>
 
           <FadeIn delay={0.3}>
