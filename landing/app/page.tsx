@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   Brain,
   Sparkles,
@@ -417,11 +417,59 @@ export default function Home() {
   const [lang, setLang] = useState<Lang>("ES");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  // Nav cinematica (iter 7): la barra se "despega" del hero al hacer scroll
+  // (backdrop + hairline) y el scroll-spy marca la seccion activa.
+  const [scrolled, setScrolled] = useState(false);
+  const [activeSection, setActiveSection] = useState<string>("");
+  const reduceMotion = useReducedMotion();
   const t = i18n[lang];
 
   // Capa de movimiento cinematografico (GSAP): parallax del video, count-up real,
   // spotlight en cards y hover magnetico en los CTAs.
   useCinematicMotion();
+
+  // Nav scrolled state (iter 7): traslucido + borde al pasar el primer scroll.
+  // Cerca del tope no hay seccion activa (estamos en el hero). Solo togglea
+  // clases/estado (opacidad/color), nada de movimiento desorientante.
+  useEffect(() => {
+    const onScroll = () => {
+      const y = window.scrollY;
+      setScrolled(y > 24);
+      if (y < 200) setActiveSection("");
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Scroll-spy (iter 7): observa las secciones ancladas del nav y marca activa la
+  // que cruza una banda cerca del centro del viewport. Limpia el observer al
+  // desmontar.
+  useEffect(() => {
+    const ids = ["how", "capabilities", "pricing", "faq"];
+    const sections = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (sections.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActiveSection(entry.target.id);
+        }
+      },
+      { rootMargin: "-40% 0px -55% 0px" }
+    );
+    sections.forEach((s) => observer.observe(s));
+    return () => observer.disconnect();
+  }, []);
+
+  // Items del nav (desktop): orden visual. El scroll-spy usa el id de cada seccion.
+  const navItems: { id: string; label: string }[] = [
+    { id: "capabilities", label: t.nav.capabilities },
+    { id: "how", label: t.nav.how },
+    { id: "pricing", label: t.nav.pricing },
+    { id: "faq", label: t.nav.faq },
+  ];
 
 
   const handleCheckout = useCallback(async (plan: "premium" | "pro") => {
@@ -447,19 +495,39 @@ export default function Home() {
 
   return (
     <>
-      {/* ── Nav — transparent, no capsule ── */}
-      <nav className="fixed top-0 left-0 right-0 z-50">
+      {/* ── Nav — transparent, se despega del hero al hacer scroll ── */}
+      <nav className={`fixed top-0 left-0 right-0 z-50 nav-bar ${scrolled ? "nav-bar-scrolled" : ""}`}>
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <a href="#" className="text-4xl font-normal tracking-tight text-white nav-link">
             Dona
           </a>
 
-          {/* Desktop */}
+          {/* Desktop — scroll-spy: la seccion activa se resalta y el indicador
+              se desliza entre items (layout animation; estatico con reduced-motion). */}
           <div className="hidden md:flex items-center gap-7 text-sm text-white/40 font-light">
-            <a href="#capabilities" className="nav-link">{t.nav.capabilities}</a>
-            <a href="#how" className="nav-link">{t.nav.how}</a>
-            <a href="#pricing" className="nav-link">{t.nav.pricing}</a>
-            <a href="#faq" className="nav-link">{t.nav.faq}</a>
+            {navItems.map((item) => {
+              const active = activeSection === item.id;
+              return (
+                <a
+                  key={item.id}
+                  href={`#${item.id}`}
+                  aria-current={active ? "true" : undefined}
+                  className={`nav-link relative ${active ? "nav-link-active" : ""}`}
+                >
+                  {item.label}
+                  {active &&
+                    (reduceMotion ? (
+                      <span className="nav-indicator" />
+                    ) : (
+                      <motion.span
+                        layoutId="nav-indicator"
+                        className="nav-indicator"
+                        transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                      />
+                    ))}
+                </a>
+              );
+            })}
             <button onClick={() => setLang(lang === "ES" ? "EN" : "ES")} className="flex items-center gap-1.5 nav-link cursor-pointer">
               <Languages className="w-4 h-4" />
               <span className="text-xs font-mono">{lang}</span>
