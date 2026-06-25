@@ -158,6 +158,16 @@ body {
   z-index: 1;
 }
 
+/* -- Tilt 3D card (LTX iter 8): la card se inclina hacia el cursor. El transform
+   lo escribe useCinematicMotion via GSAP (rotationX/Y + perspectiva); aqui solo
+   damos el hint de compositing y excluimos `transform` del `transition: all` de
+   la glass-card para que GSAP lo controle sin doble-easing. Sin JS o con
+   reduced-motion no se aplica ningun transform y la card queda plana. -- */
+.glass-card[data-tilt] {
+  will-change: transform;
+  transition-property: border-color, background, box-shadow;
+}
+
 /* -- Kinetic headline (LTX iter 4): reveal palabra-por-palabra del titular.
    El estado lo controla useCinematicMotion en el contenedor [data-kinetic]:
    "pending" (oculto) pre-paint y "visible" al frame siguiente, solo con JS y sin

@@ -420,7 +420,7 @@ export default function Home() {
   const t = i18n[lang];
 
   // Capa de movimiento cinematografico (GSAP): parallax del video, count-up real,
-  // spotlight en cards y hover magnetico en los CTAs.
+  // spotlight + tilt 3D en cards y hover magnetico en los CTAs.
   useCinematicMotion();
 
 
@@ -609,7 +609,7 @@ export default function Home() {
               const Icon = iconMap[cap.icon as keyof typeof iconMap];
               return (
                 <FadeIn key={i} delay={i * 0.06}>
-                  <div data-spotlight className="glass-card rounded-2xl p-8 h-full group">
+                  <div data-spotlight data-tilt className="glass-card rounded-2xl p-8 h-full group">
                     <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
                       <Icon className="w-6 h-6 text-white/40" />
                     </div>
@@ -639,7 +639,7 @@ export default function Home() {
               const Icon = iconMap[card.icon as keyof typeof iconMap];
               return (
                 <FadeIn key={i} delay={i * 0.1}>
-                  <div data-spotlight className="glass-card rounded-2xl p-8 h-full group">
+                  <div data-spotlight data-tilt className="glass-card rounded-2xl p-8 h-full group">
                     <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
                       <Icon className="w-6 h-6 text-white/40" />
                     </div>

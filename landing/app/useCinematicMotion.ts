@@ -17,11 +17,15 @@ import { useEffect, useLayoutEffect } from "react";
  *  - Titular kinetico (`[data-kinetic]` + `.kinetic-word`): reveal
  *    palabra-por-palabra del hero al cargar (rise + blur escalonado via
  *    transiciones CSS), firma visual tipo LTX/Higgsfield.
+ * iter 8:
+ *  - Tilt 3D en las cards (`[data-tilt]`): la card se inclina hacia el cursor
+ *    (rotationX/Y con perspectiva) y vuelve a plano al salir, sumando profundidad
+ *    al spotlight existente (estilo Higgsfield/Linear). Solo transform.
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
- * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
- * y carga GSAP dinamicamente (client-only) revirtiendo todo (tweens + listeners)
- * al desmontar.
+ * numeros quedan en su valor real, las cards sin spotlight/tilt y el titular
+ * visible) y carga GSAP dinamicamente (client-only) revirtiendo todo (tweens +
+ * listeners) al desmontar.
  */
 export function useCinematicMotion() {
   // Titular kinetico (iter 4): reveal palabra-por-palabra del hero. Lo hacemos
@@ -139,6 +143,34 @@ export function useCinematicMotion() {
           removers.push(() => {
             btn.removeEventListener("mousemove", onMove);
             btn.removeEventListener("mouseleave", onLeave);
+          });
+        });
+
+        // 5. Tilt 3D en las cards: se inclinan hacia el cursor (rotationX/Y con
+        //    perspectiva) y vuelven a plano al salir. quickTo da el spring-back
+        //    suave. Convive con el spotlight (que solo setea --mx/--my, no toca
+        //    transform). Es solo transform — nunca oculta contenido.
+        gsap.utils.toArray<HTMLElement>("[data-tilt]").forEach((card) => {
+          gsap.set(card, { transformPerspective: 900 });
+          const rotX = gsap.quickTo(card, "rotationX", { duration: 0.5, ease: "power3.out" });
+          const rotY = gsap.quickTo(card, "rotationY", { duration: 0.5, ease: "power3.out" });
+          const max = 6; // grados de inclinacion maxima
+          const onMove = (e: MouseEvent) => {
+            const r = card.getBoundingClientRect();
+            const px = (e.clientX - r.left) / r.width - 0.5; // -0.5..0.5
+            const py = (e.clientY - r.top) / r.height - 0.5;
+            rotY(px * max * 2);
+            rotX(-py * max * 2);
+          };
+          const onLeave = () => {
+            rotX(0);
+            rotY(0);
+          };
+          card.addEventListener("mousemove", onMove);
+          card.addEventListener("mouseleave", onLeave);
+          removers.push(() => {
+            card.removeEventListener("mousemove", onMove);
+            card.removeEventListener("mouseleave", onLeave);
           });
         });
       });
