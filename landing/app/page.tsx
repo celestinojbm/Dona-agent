@@ -773,8 +773,8 @@ export default function Home() {
 
             {/* Pro */}
             <FadeIn delay={0.1}>
-              <div className="glass-card rounded-2xl p-8 relative overflow-hidden border-[#2563EB]/20">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#2563EB] to-[#F97316]" />
+              <div className="glass-card plan-destacado rounded-2xl p-8 relative overflow-hidden border-[#2563EB]/20">
+                <div className="absolute top-0 left-0 right-0 h-[2px] accent-flow" />
                 <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">{t.pricing.pro}</p>
                 <div className="flex items-end gap-1 mb-6">
                   <span className="text-5xl font-light text-white">$40</span>
