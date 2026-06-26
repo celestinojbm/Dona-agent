@@ -30,6 +30,11 @@ import { useEffect, useLayoutEffect } from "react";
  *    fondo derivan a distinta profundidad a lo largo del scroll de toda la
  *    pagina (parallax via transform GPU, scrub), dando una atmosfera
  *    cinematografica viva tipo LTX/Higgsfield.
+ * iter 13:
+ *  - Scroll-away del hero (`[data-hero-scroll]`): el bloque del hero deriva
+ *    hacia arriba y se desvanece a medida que sales del primer viewport, como si
+ *    el heroe retrocediera en profundidad (firma cinematografica tipo LTX).
+ *    Scrubbeado al scroll sobre el alto del hero.
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -223,6 +228,31 @@ export function useCinematicMotion() {
             }
           );
         });
+
+        // 8. Scroll-away del hero (iter 13): el bloque del hero [data-hero-scroll]
+        //    deriva hacia arriba y se desvanece mientras sales del primer viewport,
+        //    como si retrocediera en profundidad. Trigger sobre la propia seccion
+        //    del hero (start cuando su top toca el top del viewport, end cuando su
+        //    bottom toca el top), scrubbeado para que sea continuo. Solo transform
+        //    + opacity, sin reflow. Sin JS / reduced-motion el bloque queda intacto.
+        const heroBlock = document.querySelector<HTMLElement>("[data-hero-scroll]");
+        if (heroBlock) {
+          gsap.fromTo(
+            heroBlock,
+            { y: 0, opacity: 1 },
+            {
+              y: -120,
+              opacity: 0,
+              ease: "none",
+              scrollTrigger: {
+                trigger: heroBlock.closest("section") ?? heroBlock,
+                start: "top top",
+                end: "bottom top",
+                scrub: 0.5,
+              },
+            }
+          );
+        }
       });
 
       cleanup = () => {

@@ -289,6 +289,14 @@ body {
   will-change: transform;
 }
 
+/* -- Hero scroll-away (LTX iter 13): el bloque del hero deriva hacia arriba y se
+   desvanece al salir del primer viewport. useCinematicMotion setea transform +
+   opacity via GSAP/ScrollTrigger; aqui solo damos la pista de compositing. Sin JS
+   o con reduced-motion el bloque queda intacto en su posicion natural. -- */
+[data-hero-scroll] {
+  will-change: transform, opacity;
+}
+
 /* -- Noise overlay (LTX iter 15): grano de cine "hirviendo" --
    El grano ya no es estatico: la capa esta sobredimensionada (200% con offset
    -50%) y salta entre posiciones discretas via `grain-flicker` con steps(1),

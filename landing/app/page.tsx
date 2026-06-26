@@ -569,7 +569,7 @@ export default function Home() {
           HERO
           ══════════════════════════════════════════════════════ */}
       <section className="relative z-[2] min-h-[100dvh] flex items-center justify-center pt-16">
-        <div className="max-w-4xl mx-auto px-6 py-24 md:py-32 w-full text-center">
+        <div data-hero-scroll className="max-w-4xl mx-auto px-6 py-24 md:py-32 w-full text-center">
           {/* El titular hace su entrada cinematografica palabra-por-palabra
               (useCinematicMotion togglea [data-kinetic] pending→visible), no con
               el FadeIn de bloque. line3 continua el stagger de line1 via startIndex. */}
