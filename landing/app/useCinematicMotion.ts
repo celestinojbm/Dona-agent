@@ -17,11 +17,15 @@ import { useEffect, useLayoutEffect } from "react";
  *  - Titular kinetico (`[data-kinetic]` + `.kinetic-word`): reveal
  *    palabra-por-palabra del hero al cargar (rise + blur escalonado via
  *    transiciones CSS), firma visual tipo LTX/Higgsfield.
+ * iter 12:
+ *  - Indicador de scroll del hero (`[data-scroll-cue]`): se desvanece a medida
+ *    que el usuario abandona el primer viewport (scrub), para no competir con el
+ *    contenido. El destello que lo recorre vive en globals.css.
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
- * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
- * y carga GSAP dinamicamente (client-only) revirtiendo todo (tweens + listeners)
- * al desmontar.
+ * numeros quedan en su valor real, las cards sin spotlight, el titular visible y
+ * el indicador de scroll estatico) y carga GSAP dinamicamente (client-only)
+ * revirtiendo todo (tweens + listeners) al desmontar.
  */
 export function useCinematicMotion() {
   // Titular kinetico (iter 4): reveal palabra-por-palabra del hero. Lo hacemos
@@ -139,6 +143,21 @@ export function useCinematicMotion() {
           removers.push(() => {
             btn.removeEventListener("mousemove", onMove);
             btn.removeEventListener("mouseleave", onLeave);
+          });
+        });
+
+        // 5. Indicador de scroll del hero: se desvanece a medida que el usuario
+        //    abandona el primer viewport, para no competir con el contenido.
+        gsap.utils.toArray<HTMLElement>("[data-scroll-cue]").forEach((cue) => {
+          gsap.to(cue, {
+            opacity: 0,
+            ease: "none",
+            scrollTrigger: {
+              trigger: document.body,
+              start: "top top",
+              end: () => "+=" + window.innerHeight * 0.4,
+              scrub: 0.4,
+            },
           });
         });
       });

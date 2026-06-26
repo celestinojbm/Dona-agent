@@ -420,7 +420,8 @@ export default function Home() {
   const t = i18n[lang];
 
   // Capa de movimiento cinematografico (GSAP): parallax del video, count-up real,
-  // spotlight en cards y hover magnetico en los CTAs.
+  // spotlight en cards, hover magnetico en los CTAs, titular kinetico y fade del
+  // indicador de scroll del hero.
   useCinematicMotion();
 
 
@@ -539,6 +540,13 @@ export default function Home() {
               ))}
             </div>
           </FadeIn>
+        </div>
+
+        {/* Indicador de scroll cinematografico: un destello recorre una linea fina
+            al pie del hero invitando a seguir. useCinematicMotion lo desvanece al
+            scrollear; respeta reduced-motion (queda estatico). Decorativo. */}
+        <div data-scroll-cue className="scroll-cue" aria-hidden="true">
+          <span className="scroll-cue-line" />
         </div>
       </section>
 

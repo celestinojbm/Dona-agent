@@ -245,3 +245,44 @@ body {
 .carousel-track {
   animation: scroll-left 35s linear infinite;
 }
+
+/* -- Scroll cue (LTX iter 12): pista de scroll cinematografica al pie del hero.
+   Una linea vertical fina con un destello que viaja hacia abajo en loop,
+   invitando a seguir. Se desvanece al scrollear (data-scroll-cue, controlado por
+   useCinematicMotion) para no competir con el contenido. Decorativo y
+   pointer-events:none; con reduced-motion el destello no se anima (la linea
+   queda estatica y visible). -- */
+.scroll-cue {
+  position: absolute;
+  bottom: 2.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 3;
+}
+.scroll-cue-line {
+  display: block;
+  width: 1px;
+  height: 48px;
+  background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.22));
+  position: relative;
+  overflow: hidden;
+}
+.scroll-cue-line::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 40%;
+  background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.9));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .scroll-cue-line::after {
+    animation: scroll-cue-travel 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+}
+@keyframes scroll-cue-travel {
+  0% { transform: translateY(-100%); opacity: 0; }
+  30% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translateY(250%); opacity: 0; }
+}
