@@ -21,6 +21,11 @@ import { useEffect, useLayoutEffect } from "react";
  *  - Barra de progreso de scroll (`.scroll-beam`): un haz fino con el degradado
  *    de marca (azul→naranja) fijado arriba que se llena de izquierda a derecha
  *    segun el avance del scroll (scrubbed), firma tipo Linear/Vercel/LTX.
+ * iter 11:
+ *  - Campo de luz ambiental (`.ambient-blob`): los pozos de luz de color del
+ *    fondo derivan a distinta profundidad a lo largo del scroll de toda la
+ *    pagina (parallax via transform GPU, scrub), dando una atmosfera
+ *    cinematografica viva tipo LTX/Higgsfield.
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -166,6 +171,30 @@ export function useCinematicMotion() {
             }
           );
         }
+
+        // 6. Campo de luz ambiental: los blobs del fondo derivan a distinta
+        //    profundidad a lo largo del scroll de toda la pagina (parallax via
+        //    transform GPU + scrub). Distintos yPercent/xPercent dan la
+        //    sensacion de capas. ctx.revert() limpia tweens y ScrollTriggers.
+        const ambientDrift: Array<[string, number, number]> = [
+          [".ambient-blob--violet", 38, 8],
+          [".ambient-blob--blue", -30, -10],
+          [".ambient-blob--amber", 24, 12],
+        ];
+        ambientDrift.forEach(([selector, yPercent, xPercent]) => {
+          if (!document.querySelector(selector)) return;
+          gsap.to(selector, {
+            yPercent,
+            xPercent,
+            ease: "none",
+            scrollTrigger: {
+              trigger: document.body,
+              start: "top top",
+              end: "bottom bottom",
+              scrub: 0.8,
+            },
+          });
+        });
       });
 
       cleanup = () => {

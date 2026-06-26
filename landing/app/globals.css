@@ -238,6 +238,49 @@ body {
   will-change: transform;
 }
 
+/* -- Ambient light field (LTX iter 11): pozos de luz de color (violeta/azul/
+   ambar) que derivan a distinta profundidad con el scroll, dando a toda la
+   pagina una atmosfera cinematografica viva tipo LTX/Higgsfield. El movimiento
+   lo aplica useCinematicMotion via transform (GPU, scrub de ScrollTrigger).
+   Capa fija detras de todo el contenido — pointer-events-none, sin afectar
+   layout. Sin JS o con reduced-motion los blobs quedan en su posicion inicial
+   (atmosfera estatica, igual premium). -- */
+.ambient-field {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ambient-blob {
+  position: absolute;
+  width: 60vw;
+  height: 60vw;
+  max-width: 900px;
+  max-height: 900px;
+  border-radius: 9999px;
+  will-change: transform;
+}
+.ambient-blob--violet {
+  top: -10vh;
+  left: -6vw;
+  background: radial-gradient(circle, rgba(124, 58, 237, 0.12), transparent 68%);
+}
+.ambient-blob--blue {
+  top: 28vh;
+  right: -12vw;
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.10), transparent 68%);
+}
+.ambient-blob--amber {
+  bottom: -16vh;
+  left: 22vw;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.07), transparent 70%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ambient-blob {
+    will-change: auto;
+  }
+}
+
 /* -- Noise overlay (LTX iter 15): grano de cine "hirviendo" --
    El grano ya no es estatico: la capa esta sobredimensionada (200% con offset
    -50%) y salta entre posiciones discretas via `grain-flicker` con steps(1),
