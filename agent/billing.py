@@ -675,24 +675,61 @@ async def procesar_evento_stripe(evento: dict) -> dict:
 #        créditos del usuario (decisión owner: lo que ya pagaron es suyo).
 #
 # Idempotencia a tres niveles para defender contra reentregas de Stripe:
-#   - `EventoStripeProcesado.event_id` (cualquier evento, primer filtro).
+#   - `EventoStripeProcesado.event_id` (cualquier evento): GATE ATÓMICO — se
+#     inserta ANTES del handler y el PK decide la propiedad; una reentrega
+#     concurrente choca con el PK y se descarta sin reprocesar (Fase 1 · 3.1).
+#     Si el handler no confirma, la marca se libera para que Stripe reintente.
 #   - `SuscripcionStripe.ultimo_invoice_acreditado` (solo invoices, segundo).
-#   - `TransaccionCredito.stripe_session_id` (último filtro dentro de acreditar).
+#   - `IdempotenciaCredito.clave` (=invoice_id) dentro de acreditar(): cerrojo
+#     atómico final del dinero — exactamente-una-vez aunque el gate se libere.
 #
 # El llamador (T1.3.D, endpoint /internal/stripe-event) decide qué hacer con
 # el resultado: 200 si handled o si fue duplicado conocido, 500 si hubo error
 # inesperado para forzar el retry de Stripe.
 
 
+async def _liberar_gate_evento(event_id: str) -> None:
+    """Borra la marca ``EventoStripeProcesado`` de un evento que NO se procesó.
+
+    El gate se inserta ANTES del handler (cerrojo atómico por PK). Si el handler
+    no confirma éxito o revienta, hay que liberar la marca para no envenenar el
+    ``event_id``: Stripe reentrega y debe poder reprocesarlo. Best-effort — un
+    fallo al limpiar deja el peor caso en "evento no reprocesado", nunca en
+    "doble-acreditado".
+    """
+    from sqlalchemy import delete
+
+    from agent.memory import EventoStripeProcesado, async_session
+
+    try:
+        async with async_session() as session:
+            await session.execute(
+                delete(EventoStripeProcesado).where(
+                    EventoStripeProcesado.event_id == event_id
+                )
+            )
+            await session.commit()
+    except Exception:  # noqa: BLE001 — limpieza best-effort, no debe enmascarar el error real
+        logger.exception(
+            f"[BILLING] No se pudo liberar el gate del evento {event_id} "
+            f"(reintento de Stripe podría quedar bloqueado)"
+        )
+
+
 async def procesar_evento_suscripcion(evento: dict) -> dict:
     """
     Procesa un evento Stripe de suscripción (4 tipos soportados).
 
-    Maneja la idempotencia por ``event.id`` antes de despachar al handler.
-    Retorna dict con ``handled: bool`` y contexto. Nunca propaga excepciones
-    de DB hacia arriba (el llamador decide el status HTTP).
+    Idempotencia por ``event.id`` con un **gate atómico** (Fase 1 · TEMA 3.1):
+    insertamos ``EventoStripeProcesado`` ANTES de despachar al handler y dejamos
+    que el PK (``event_id``) decida la propiedad por construcción. No hay ventana
+    check-then-act: una reentrega concurrente del mismo evento choca con el PK y
+    se descarta sin reprocesar. Si el handler no confirma éxito (o revienta),
+    liberamos la marca para que Stripe reintente.
+
+    Retorna dict con ``handled: bool`` y contexto. El llamador decide el status
+    HTTP a partir del ``reason``.
     """
-    from sqlalchemy import select
     from sqlalchemy.exc import IntegrityError
 
     from agent.memory import EventoStripeProcesado, async_session
@@ -704,54 +741,54 @@ async def procesar_evento_suscripcion(evento: dict) -> dict:
         logger.warning("[BILLING] Evento de suscripción sin event_id — no procesable")
         return {"handled": False, "reason": "missing_event_id"}
 
-    # Filtro 1 (idempotencia general): event_id ya procesado.
+    # Gate atómico: el INSERT del PK es el cerrojo. Si choca, el evento ya está
+    # (o está siendo) procesado por otra entrega → skip sin ejecutar el handler.
     async with async_session() as session:
-        ya = (await session.execute(
-            select(EventoStripeProcesado).where(
-                EventoStripeProcesado.event_id == event_id
-            )
-        )).scalar_one_or_none()
-        if ya is not None:
+        session.add(EventoStripeProcesado(event_id=event_id, tipo=tipo))
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
             logger.info(f"[BILLING] Evento ya procesado, skip: {event_id} ({tipo})")
             return {"handled": False, "reason": "duplicate_event", "event_id": event_id}
 
     data = (evento.get("data") or {}).get("object") or {}
 
-    if tipo == "checkout.session.completed":
-        # Solo procesamos checkouts mode=subscription. Los mode=payment los
-        # maneja `procesar_evento_stripe` (legacy paquetes one-time).
-        if data.get("mode") != "subscription":
-            return {
-                "handled": False,
-                "reason": f"checkout no es subscription (mode={data.get('mode')})",
-            }
-        resultado = await _procesar_checkout_subscription(data)
-    elif tipo == "invoice.payment_succeeded":
-        resultado = await _procesar_invoice_payment_succeeded(data)
-    elif tipo == "customer.subscription.updated":
-        resultado = await _procesar_subscription_updated(data)
-    elif tipo == "customer.subscription.deleted":
-        resultado = await _procesar_subscription_deleted(data)
-    else:
-        return {"handled": False, "reason": f"tipo no soportado: {tipo}"}
+    # Despachamos con el gate ya tomado. Cualquier salida que NO sea handled=True
+    # debe liberar el gate (en el `finally` lógico de abajo) para preservar el
+    # reproceso de Stripe — incluidos rechazos no-retryables y el race
+    # invoice→checkout (`subscription_no_persistida`).
+    try:
+        if tipo == "checkout.session.completed":
+            # Solo procesamos checkouts mode=subscription. Los mode=payment los
+            # maneja `procesar_evento_stripe` (legacy paquetes one-time).
+            if data.get("mode") != "subscription":
+                resultado = {
+                    "handled": False,
+                    "reason": f"checkout no es subscription (mode={data.get('mode')})",
+                }
+            else:
+                resultado = await _procesar_checkout_subscription(data)
+        elif tipo == "invoice.payment_succeeded":
+            resultado = await _procesar_invoice_payment_succeeded(data)
+        elif tipo == "customer.subscription.updated":
+            resultado = await _procesar_subscription_updated(data)
+        elif tipo == "customer.subscription.deleted":
+            resultado = await _procesar_subscription_deleted(data)
+        else:
+            resultado = {"handled": False, "reason": f"tipo no soportado: {tipo}"}
+    except Exception:
+        # El handler reventó: liberar el gate y propagar (el endpoint mapea a 500
+        # y Stripe reintenta). Sin esto, una excepción transitoria envenenaría el
+        # event_id de forma permanente.
+        await _liberar_gate_evento(event_id)
+        raise
 
-    # Solo marcamos como procesado si el handler confirmó éxito. Eventos
-    # rechazados (plan inválido, telefono faltante, etc.) NO se marcan: si
-    # Stripe reentrega después de que el owner arregle la config, se vuelven
-    # a procesar. Decisión consciente — preferimos reintentos sobre eventos
-    # huérfanos que requieren intervención manual.
-    if resultado.get("handled"):
-        async with async_session() as session:
-            session.add(EventoStripeProcesado(event_id=event_id, tipo=tipo))
-            try:
-                await session.commit()
-            except IntegrityError:
-                # Race: otro hilo lo marcó al mismo tiempo. El estado en DB
-                # ya es consistente; el resultado del handler es válido.
-                await session.rollback()
-                logger.info(
-                    f"[BILLING] Evento {event_id} marcado por otro hilo (race benigno)"
-                )
+    # Solo los eventos confirmados (handled=True) quedan marcados. Los rechazados
+    # —plan inválido, telefono faltante, race con checkout, etc.— liberan el gate
+    # para que la reentrega de Stripe los reprocese cuando se resuelva la causa.
+    if not resultado.get("handled"):
+        await _liberar_gate_evento(event_id)
 
     return resultado
 
