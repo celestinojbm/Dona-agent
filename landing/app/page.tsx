@@ -370,7 +370,7 @@ function RotatingText({ words }: { words: readonly string[] }) {
 function TestimonialCarousel() {
   const doubled = [...testimonials, ...testimonials];
   return (
-    <div className="overflow-hidden">
+    <div className="overflow-hidden carousel-mask">
       <div className="carousel-track flex gap-6 w-max">
         {doubled.map((t, i) => (
           <div key={i} className="glass-card rounded-2xl p-8 flex flex-col w-[340px] shrink-0">
