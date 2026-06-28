@@ -237,11 +237,29 @@ body {
               transform 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--fade-delay, 0s);
 }
 
-/* -- Testimonial carousel (infinite, no pause) -- */
+/* -- Testimonial carousel (marquee infinito, LTX iter 16) --
+   - Mascaras de desvanecido en los bordes (`carousel-mask`): las cards se
+     disuelven hacia los lados en vez de cortarse en seco, dando profundidad
+     cinematografica estilo LTX/Linear.
+   - Pausa al hover: el marquee se detiene para poder leer un testimonio.
+   - Respeta prefers-reduced-motion: la animacion se detiene (los testimonios
+     quedan legibles y estaticos). -- */
 @keyframes scroll-left {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
+.carousel-mask {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 11%, #000 89%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 11%, #000 89%, transparent);
+}
 .carousel-track {
   animation: scroll-left 35s linear infinite;
+}
+.carousel-track:hover {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .carousel-track {
+    animation: none;
+  }
 }
