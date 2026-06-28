@@ -343,6 +343,57 @@ function KineticText({ text, startIndex = 0 }: { text: string; startIndex?: numb
   );
 }
 
+function KineticHeading({ text, className = "" }: { text: string; className?: string }) {
+  // Titular de seccion (LTX iter 14): revela las palabras del <h2> una por una
+  // cuando entra en vista (efecto onda, firma tipo LTX/Linear). A diferencia del
+  // titular del hero (blur + fade al cargar), este es SOLO transform: las palabras
+  // siempre quedan legibles (opacity 1), solo se desplazan. Asi, si el reveal no
+  // dispara (crawler sin scroll, reduced-motion, sin JS), el titular sigue visible
+  // — honra la guardia de no dejar texto clave invisible. Mismo patron probado que
+  // FadeIn (CSS-driven, bfcache-safe), aislado de useCinematicMotion.
+  const ref = useRef<HTMLHeadingElement>(null);
+
+  // Pre-paint: marca "pending" (palabras desplazadas) solo con JS y sin
+  // reduced-motion. Sin esto las palabras se ven en su sitio.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || el.getAttribute("data-kinetic-scroll") === "visible") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    el.setAttribute("data-kinetic-scroll", "pending");
+  }, []);
+
+  // Observa la entrada en vista y revela una sola vez.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || el.getAttribute("data-kinetic-scroll") !== "pending") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          el.setAttribute("data-kinetic-scroll", "visible");
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "-80px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const words = text.split(" ");
+  return (
+    <h2 ref={ref} className={className}>
+      {words.map((w, i) => (
+        <Fragment key={i}>
+          {i > 0 && " "}
+          <span className="kinetic-word" style={{ "--ki": i } as React.CSSProperties}>
+            {w}
+          </span>
+        </Fragment>
+      ))}
+    </h2>
+  );
+}
+
 function RotatingText({ words }: { words: readonly string[] }) {
   const [index, setIndex] = useState(0);
   useEffect(() => {
@@ -573,7 +624,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.how.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-6 tracking-tighter text-white">{t.how.title}</h2>
+            <KineticHeading className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-6 tracking-tighter text-white" text={t.how.title} />
             <p className="text-center text-white/35 max-w-lg mx-auto mb-20 font-light">{t.how.subtitle}</p>
           </FadeIn>
           <div className="space-y-20 md:space-y-28">
@@ -601,7 +652,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.capabilities.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.capabilities.title}</h2>
+            <KineticHeading className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white" text={t.capabilities.title} />
             <p className="text-center text-white/35 max-w-xl mx-auto mb-20 font-light">{t.capabilities.subtitle}</p>
           </FadeIn>
           <div className="grid md:grid-cols-3 gap-6">
@@ -632,7 +683,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.whyDona.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white">{t.whyDona.title}</h2>
+            <KineticHeading className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white" text={t.whyDona.title} />
           </FadeIn>
           <div className="grid md:grid-cols-2 gap-6">
             {t.whyDona.cards.map((card, i) => {
@@ -662,7 +713,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6 mb-16">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.testimonials.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.testimonials.title}</h2>
+            <KineticHeading className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white" text={t.testimonials.title} />
           </FadeIn>
         </div>
         <FadeIn><TestimonialCarousel /></FadeIn>
@@ -677,7 +728,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.pricing.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.pricing.title}</h2>
+            <KineticHeading className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white" text={t.pricing.title} />
             <p className="text-center text-white/35 max-w-md mx-auto mb-20 font-light">{t.pricing.subtitle}</p>
           </FadeIn>
 
@@ -764,7 +815,7 @@ export default function Home() {
       <section id="cta" className="relative z-[2] section-space">
         <div className="max-w-2xl mx-auto px-6 text-center">
           <FadeIn>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal mb-6 tracking-tighter text-white">{t.cta.title}</h2>
+            <KineticHeading className="text-3xl md:text-5xl lg:text-6xl font-normal mb-6 tracking-tighter text-white" text={t.cta.title} />
             <p className="text-white/35 mb-12 max-w-md mx-auto text-lg font-light">{t.cta.subtitle}</p>
           </FadeIn>
           <FadeIn delay={0.15}>
@@ -783,7 +834,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.faq.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white">{t.faq.title}</h2>
+            <KineticHeading className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white" text={t.faq.title} />
           </FadeIn>
           <FadeIn delay={0.1}>
             <FAQSection items={t.faq.items} />
