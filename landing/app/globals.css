@@ -102,6 +102,58 @@ body {
   box-shadow: 0 4px 32px rgba(37, 99, 235, 0.2), 0 4px 32px rgba(249, 115, 22, 0.1);
 }
 
+/* -- Sheen especular en los CTAs (LTX iter 17): al hacer hover, una franja de luz
+   diagonal barre el boton una sola vez — el realce specular tipo Linear/Stripe/
+   Higgsfield que complementa el hover magnetico (iter 3) sin pisarlo (este vive en
+   un ::after interno; el magnetico mueve el elemento por transform). Pure CSS, una
+   pasada por hover. Bajo prefers-reduced-motion se desactiva por completo. -- */
+.btn-primary,
+.btn-secondary {
+  position: relative;
+  overflow: hidden;
+}
+.btn-primary::after,
+.btn-secondary::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 55%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-160%) skewX(-20deg);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.28),
+    transparent
+  );
+}
+.btn-primary:hover::after,
+.btn-secondary:hover::after {
+  animation: sheen-sweep 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes sheen-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-160%) skewX(-20deg);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(280%) skewX(-20deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-primary::after,
+  .btn-secondary::after {
+    display: none;
+  }
+}
+
 /* -- Pulse glow -- */
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 16px rgba(37, 99, 235, 0.08); }
