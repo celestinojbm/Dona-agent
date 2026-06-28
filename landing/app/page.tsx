@@ -429,13 +429,13 @@ export default function Home() {
   useCinematicMotion();
 
   // Nav scrolled state (iter 7): traslucido + borde al pasar el primer scroll.
-  // Cerca del tope no hay seccion activa (estamos en el hero). Solo togglea
-  // clases/estado (opacidad/color), nada de movimiento desorientante.
+  // Solo togglea la clase nav-bar-scrolled (opacidad/color), nada de movimiento
+  // desorientante. La seccion activa NO se toca aqui: su unica fuente de verdad
+  // es el IntersectionObserver del scroll-spy (cerca del hero ninguna seccion
+  // cruza la banda, asi que activeSection queda en "" de forma natural).
   useEffect(() => {
     const onScroll = () => {
-      const y = window.scrollY;
-      setScrolled(y > 24);
-      if (y < 200) setActiveSection("");
+      setScrolled(window.scrollY > 24);
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });

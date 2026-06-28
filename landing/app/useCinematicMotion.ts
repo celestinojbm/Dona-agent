@@ -205,7 +205,7 @@ export function useCinematicMotion() {
                 trigger: document.body,
                 start: "top top",
                 end: "bottom bottom",
-                scrub: 0.3,
+                scrub: true,
               },
             }
           );
@@ -303,22 +303,33 @@ export function useCinematicMotion() {
               if (!entries.some((e) => e.isIntersecting)) return;
               obs.disconnect();
               group.setAttribute("data-reveal-group", "shown");
-              gsap.to(items, {
-                opacity: 1,
-                y: 0,
-                scale: 1,
-                filter: "blur(0px)",
-                duration: 0.9,
-                ease: "power3.out",
-                stagger: 0.1,
-                overwrite: true,
-                onComplete: () => {
-                  group.setAttribute("data-reveal-group", "shown");
-                  items.forEach((el) => {
-                    el.style.willChange = "auto";
-                  });
-                },
-              });
+              // fromTo con immediateRender: GSAP fija el estado oculto inicial
+              // (los mismos valores que la regla CSS [data-reveal-group="ready"])
+              // y anima hasta visible. Asi la cascada no depende de que el atributo
+              // siga en "ready" — ya lo pasamos a "shown" arriba para sobrevivir a
+              // un ctx.revert() de otra capa sin volver a ocultar las cards. Si
+              // animaramos con gsap.to() la animacion se perderia: leeria el estado
+              // de inicio cuando el atributo ya es "shown" (visible) → sin cascada.
+              gsap.fromTo(
+                items,
+                { opacity: 0, y: 40, scale: 0.96, filter: "blur(6px)" },
+                {
+                  opacity: 1,
+                  y: 0,
+                  scale: 1,
+                  filter: "blur(0px)",
+                  duration: 0.9,
+                  ease: "power3.out",
+                  stagger: 0.1,
+                  overwrite: true,
+                  onComplete: () => {
+                    group.setAttribute("data-reveal-group", "shown");
+                    items.forEach((el) => {
+                      el.style.willChange = "auto";
+                    });
+                  },
+                }
+              );
             },
             { rootMargin: "-80px" }
           );
