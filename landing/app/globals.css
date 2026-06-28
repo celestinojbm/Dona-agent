@@ -219,16 +219,45 @@ body {
     filter 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.08s);
 }
 
-/* -- Noise overlay -- */
+/* -- Noise overlay (LTX iter 15): grano de cine "hirviendo" --
+   El grano ya no es estatico: la capa esta sobredimensionada (200% con offset
+   -50%) y salta entre posiciones discretas via `grain-flicker` con steps(1),
+   imitando el boil del grano de pelicula (firma LTX/Higgsfield). Como solo
+   anima `transform`, queda compuesto en GPU (sin repaints por frame) y la capa
+   oversize garantiza que el desplazamiento nunca descubra un borde. Respeta
+   `prefers-reduced-motion`: ahi el grano se congela (animation: none). */
 .noise-overlay::after {
   content: '';
   position: fixed;
-  inset: 0;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.02;
+  opacity: 0.03;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
   background-size: 256px;
+  will-change: transform;
+  animation: grain-flicker 0.7s steps(1) infinite;
+}
+@keyframes grain-flicker {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  10%      { transform: translate3d(-8%, 4%, 0); }
+  20%      { transform: translate3d(6%, -10%, 0); }
+  30%      { transform: translate3d(-4%, 8%, 0); }
+  40%      { transform: translate3d(10%, 2%, 0); }
+  50%      { transform: translate3d(-9%, -6%, 0); }
+  60%      { transform: translate3d(5%, 10%, 0); }
+  70%      { transform: translate3d(-10%, -3%, 0); }
+  80%      { transform: translate3d(7%, 7%, 0); }
+  90%      { transform: translate3d(-6%, -9%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .noise-overlay::after {
+    animation: none;
+    transform: none;
+  }
 }
 
 /* -- Section spacing -- */
