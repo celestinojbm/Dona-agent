@@ -42,19 +42,58 @@ body {
   color: white;
 }
 
-/* -- Gradient text -- */
+/* -- Gradient text — "aurora viva" (LTX iter 18) --
+   Los textos focales (titular rotativo y numerales de dolor) dejan de ser un
+   gradiente estatico: una iridiscencia blanca con destellos tenues de azul/violeta
+   (la paleta de marca) deriva lento e infinito, dandole vida cinematografica al
+   tipo sin restar legibilidad (el blanco domina). Es enhancement progresivo y puro
+   CSS: sin JS ni listeners, SSR-safe, y `prefers-reduced-motion` congela el
+   gradiente en su posicion inicial (ver media query abajo). -- */
+@keyframes aurora-text {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
 .text-gradient {
-  background: linear-gradient(135deg, #ffffff, rgba(255, 255, 255, 0.6));
+  background: linear-gradient(
+    115deg,
+    #ffffff 0%,
+    #cfe0ff 22%,
+    #ffffff 48%,
+    #e7d8ff 74%,
+    #ffffff 100%
+  );
+  background-size: 220% auto;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  animation: aurora-text 7s linear infinite;
 }
 
 .text-gradient-stat {
-  background: linear-gradient(180deg, #ffffff, rgba(255, 255, 255, 0.4));
+  background: linear-gradient(
+    160deg,
+    #ffffff 0%,
+    #dbe6ff 28%,
+    rgba(255, 255, 255, 0.55) 55%,
+    #e9defc 78%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  animation: aurora-text 9s ease-in-out infinite;
+}
+
+/* Respeta prefers-reduced-motion: congela la iridiscencia en su posicion inicial
+   (titular y numerales quedan en su gradiente blanco legible, sin deriva). */
+@media (prefers-reduced-motion: reduce) {
+  .text-gradient,
+  .text-gradient-stat {
+    animation: none;
+  }
 }
 
 /* -- Nav link hover: blue-to-orange gradient text -- */
