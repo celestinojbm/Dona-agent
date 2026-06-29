@@ -17,11 +17,19 @@ import { useEffect, useLayoutEffect } from "react";
  *  - Titular kinetico (`[data-kinetic]` + `.kinetic-word`): reveal
  *    palabra-por-palabra del hero al cargar (rise + blur escalonado via
  *    transiciones CSS), firma visual tipo LTX/Higgsfield.
+ * iter 5:
+ *  - Navegacion cinematografica: barra de progreso de scroll (`.scroll-progress`,
+ *    gradiente azul→naranja de marca) que sigue 1:1 la posicion del scroll, y nav
+ *    links (`[data-navlink]`) que se "encienden" con ese mismo gradiente al entrar
+ *    en su seccion (`data-active`), estilo Linear/Stripe.
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
  * y carga GSAP dinamicamente (client-only) revirtiendo todo (tweens + listeners)
- * al desmontar.
+ * al desmontar. La barra de progreso y el nav activo (iter 5) NO son animacion
+ * gratuita —  reflejan la posicion/seccion actual al instante (sin easing), un
+ * indicador de orientacion tipo scrollbar— por eso se mantienen tambien con
+ * reduced-motion; igual limpian sus listeners/observers al desmontar.
  */
 export function useCinematicMotion() {
   // Titular kinetico (iter 4): reveal palabra-por-palabra del hero. Lo hacemos
@@ -152,6 +160,64 @@ export function useCinematicMotion() {
     return () => {
       killed = true;
       cleanup?.();
+    };
+  }, []);
+
+  // Navegacion cinematografica (iter 5): barra de progreso de scroll + nav links
+  // que se encienden segun la seccion visible. Sin GSAP y sin easing — sigue la
+  // posicion de scroll 1:1 (indicador de orientacion, no movimiento decorativo),
+  // por eso corre tambien con reduced-motion. Limpia listeners/observer al salir.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // 1. Barra de progreso: scaleX(0→1) via la var CSS --scroll-progress.
+    const bar = document.querySelector<HTMLElement>(".scroll-progress");
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const doc = document.documentElement;
+      const max = doc.scrollHeight - doc.clientHeight;
+      const p = max > 0 ? Math.min(1, Math.max(0, doc.scrollTop / max)) : 0;
+      bar?.style.setProperty("--scroll-progress", String(p));
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+
+    // 2. Nav activo: cada [data-navlink] apunta a una seccion via su href (#id).
+    //    Marcamos data-active en el link cuya seccion cruza la banda superior del
+    //    viewport (rootMargin sesga el "activo" hacia el tercio de arriba).
+    const navLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>("[data-navlink]"));
+    const sectionToLink = new Map<Element, HTMLAnchorElement>();
+    navLinks.forEach((link) => {
+      const id = link.getAttribute("href")?.slice(1);
+      if (!id) return;
+      const section = document.getElementById(id);
+      if (section) sectionToLink.set(section, link);
+    });
+    const setActive = (active: HTMLAnchorElement) => {
+      navLinks.forEach((l) => l.toggleAttribute("data-active", l === active));
+    };
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const link = sectionToLink.get(entry.target);
+          if (link) setActive(link);
+        });
+      },
+      { rootMargin: "-45% 0px -50% 0px", threshold: 0 }
+    );
+    sectionToLink.forEach((_, section) => observer.observe(section));
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      observer.disconnect();
     };
   }, []);
 }

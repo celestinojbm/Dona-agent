@@ -447,6 +447,10 @@ export default function Home() {
 
   return (
     <>
+      {/* Barra de progreso de scroll (LTX iter 5): gradiente de marca que crece
+          1:1 con el scroll. useCinematicMotion setea --scroll-progress. */}
+      <div className="scroll-progress" aria-hidden="true" />
+
       {/* ── Nav — transparent, no capsule ── */}
       <nav className="fixed top-0 left-0 right-0 z-50">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -456,10 +460,10 @@ export default function Home() {
 
           {/* Desktop */}
           <div className="hidden md:flex items-center gap-7 text-sm text-white/40 font-light">
-            <a href="#capabilities" className="nav-link">{t.nav.capabilities}</a>
-            <a href="#how" className="nav-link">{t.nav.how}</a>
-            <a href="#pricing" className="nav-link">{t.nav.pricing}</a>
-            <a href="#faq" className="nav-link">{t.nav.faq}</a>
+            <a href="#capabilities" data-navlink className="nav-link">{t.nav.capabilities}</a>
+            <a href="#how" data-navlink className="nav-link">{t.nav.how}</a>
+            <a href="#pricing" data-navlink className="nav-link">{t.nav.pricing}</a>
+            <a href="#faq" data-navlink className="nav-link">{t.nav.faq}</a>
             <button onClick={() => setLang(lang === "ES" ? "EN" : "ES")} className="flex items-center gap-1.5 nav-link cursor-pointer">
               <Languages className="w-4 h-4" />
               <span className="text-xs font-mono">{lang}</span>
