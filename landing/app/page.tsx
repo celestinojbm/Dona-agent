@@ -610,7 +610,7 @@ export default function Home() {
               return (
                 <FadeIn key={i} delay={i * 0.06}>
                   <div data-spotlight className="glass-card rounded-2xl p-8 h-full group">
-                    <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
+                    <div className="cap-icon w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5">
                       <Icon className="w-6 h-6 text-white/40" />
                     </div>
                     <h3 className="text-lg font-normal mb-3 text-white">{cap.title}</h3>
@@ -640,7 +640,7 @@ export default function Home() {
               return (
                 <FadeIn key={i} delay={i * 0.1}>
                   <div data-spotlight className="glass-card rounded-2xl p-8 h-full group">
-                    <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
+                    <div className="cap-icon w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5">
                       <Icon className="w-6 h-6 text-white/40" />
                     </div>
                     <h3 className="text-lg font-normal mb-2 text-white">{card.title}</h3>

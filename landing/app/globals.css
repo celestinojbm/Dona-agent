@@ -158,6 +158,40 @@ body {
   z-index: 1;
 }
 
+/* -- Icono vivo en las cards (LTX iter 19): al hover de la card el tile del
+   icono se eleva y se enciende con el gradiente azul→naranja, y el glifo se
+   aclara — micro-interaccion estilo Linear/Stripe/Higgsfield. Solo CSS, sin
+   listeners. `prefers-reduced-motion` neutraliza el movimiento (el cambio de
+   color queda instantaneo, sin recorrido). -- */
+.cap-icon {
+  transition:
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.45s ease,
+    background 0.45s ease,
+    box-shadow 0.45s ease;
+}
+.cap-icon svg {
+  transition: color 0.45s ease;
+}
+.glass-card:hover .cap-icon {
+  transform: translateY(-3px);
+  border-color: rgba(37, 99, 235, 0.45);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.14), rgba(249, 115, 22, 0.08));
+  box-shadow: 0 8px 26px rgba(37, 99, 235, 0.18);
+}
+.glass-card:hover .cap-icon svg {
+  color: rgba(255, 255, 255, 0.88);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cap-icon,
+  .cap-icon svg {
+    transition: none;
+  }
+  .glass-card:hover .cap-icon {
+    transform: none;
+  }
+}
+
 /* -- Kinetic headline (LTX iter 4): reveal palabra-por-palabra del titular.
    El estado lo controla useCinematicMotion en el contenedor [data-kinetic]:
    "pending" (oculto) pre-paint y "visible" al frame siguiente, solo con JS y sin
