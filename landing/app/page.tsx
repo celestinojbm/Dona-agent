@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   Brain,
   Sparkles,
@@ -370,7 +370,7 @@ function RotatingText({ words }: { words: readonly string[] }) {
 function TestimonialCarousel() {
   const doubled = [...testimonials, ...testimonials];
   return (
-    <div className="overflow-hidden">
+    <div className="overflow-hidden carousel-mask">
       <div className="carousel-track flex gap-6 w-max">
         {doubled.map((t, i) => (
           <div key={i} className="glass-card rounded-2xl p-8 flex flex-col w-[340px] shrink-0">
@@ -417,11 +417,59 @@ export default function Home() {
   const [lang, setLang] = useState<Lang>("ES");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  // Nav cinematica (iter 7): la barra se "despega" del hero al hacer scroll
+  // (backdrop + hairline) y el scroll-spy marca la seccion activa.
+  const [scrolled, setScrolled] = useState(false);
+  const [activeSection, setActiveSection] = useState<string>("");
+  const reduceMotion = useReducedMotion();
   const t = i18n[lang];
 
   // Capa de movimiento cinematografico (GSAP): parallax del video, count-up real,
   // spotlight en cards y hover magnetico en los CTAs.
   useCinematicMotion();
+
+  // Nav scrolled state (iter 7): traslucido + borde al pasar el primer scroll.
+  // Solo togglea la clase nav-bar-scrolled (opacidad/color), nada de movimiento
+  // desorientante. La seccion activa NO se toca aqui: su unica fuente de verdad
+  // es el IntersectionObserver del scroll-spy (cerca del hero ninguna seccion
+  // cruza la banda, asi que activeSection queda en "" de forma natural).
+  useEffect(() => {
+    const onScroll = () => {
+      setScrolled(window.scrollY > 24);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Scroll-spy (iter 7): observa las secciones ancladas del nav y marca activa la
+  // que cruza una banda cerca del centro del viewport. Limpia el observer al
+  // desmontar.
+  useEffect(() => {
+    const ids = ["how", "capabilities", "pricing", "faq"];
+    const sections = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (sections.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActiveSection(entry.target.id);
+        }
+      },
+      { rootMargin: "-40% 0px -55% 0px" }
+    );
+    sections.forEach((s) => observer.observe(s));
+    return () => observer.disconnect();
+  }, []);
+
+  // Items del nav (desktop): orden visual. El scroll-spy usa el id de cada seccion.
+  const navItems: { id: string; label: string }[] = [
+    { id: "capabilities", label: t.nav.capabilities },
+    { id: "how", label: t.nav.how },
+    { id: "pricing", label: t.nav.pricing },
+    { id: "faq", label: t.nav.faq },
+  ];
 
 
   const handleCheckout = useCallback(async (plan: "premium" | "pro") => {
@@ -447,19 +495,43 @@ export default function Home() {
 
   return (
     <>
-      {/* ── Nav — transparent, no capsule ── */}
-      <nav className="fixed top-0 left-0 right-0 z-50">
+      {/* Haz de progreso de scroll (LTX iter 6): useCinematicMotion lo llena
+          0→1 segun el avance del scroll. Decorativo, no anuncia nada al lector. */}
+      <div className="scroll-beam" aria-hidden="true" />
+
+      {/* ── Nav — transparent, se despega del hero al hacer scroll ── */}
+      <nav className={`fixed top-0 left-0 right-0 z-50 nav-bar ${scrolled ? "nav-bar-scrolled" : ""}`}>
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <a href="#" className="text-4xl font-normal tracking-tight text-white nav-link">
             Dona
           </a>
 
-          {/* Desktop */}
+          {/* Desktop — scroll-spy: la seccion activa se resalta y el indicador
+              se desliza entre items (layout animation; estatico con reduced-motion). */}
           <div className="hidden md:flex items-center gap-7 text-sm text-white/40 font-light">
-            <a href="#capabilities" className="nav-link">{t.nav.capabilities}</a>
-            <a href="#how" className="nav-link">{t.nav.how}</a>
-            <a href="#pricing" className="nav-link">{t.nav.pricing}</a>
-            <a href="#faq" className="nav-link">{t.nav.faq}</a>
+            {navItems.map((item) => {
+              const active = activeSection === item.id;
+              return (
+                <a
+                  key={item.id}
+                  href={`#${item.id}`}
+                  aria-current={active ? "true" : undefined}
+                  className={`nav-link relative ${active ? "nav-link-active" : ""}`}
+                >
+                  {item.label}
+                  {active &&
+                    (reduceMotion ? (
+                      <span className="nav-indicator" />
+                    ) : (
+                      <motion.span
+                        layoutId="nav-indicator"
+                        className="nav-indicator"
+                        transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                      />
+                    ))}
+                </a>
+              );
+            })}
             <button onClick={() => setLang(lang === "ES" ? "EN" : "ES")} className="flex items-center gap-1.5 nav-link cursor-pointer">
               <Languages className="w-4 h-4" />
               <span className="text-xs font-mono">{lang}</span>
@@ -497,7 +569,7 @@ export default function Home() {
           HERO
           ══════════════════════════════════════════════════════ */}
       <section className="relative z-[2] min-h-[100dvh] flex items-center justify-center pt-16">
-        <div className="max-w-4xl mx-auto px-6 py-24 md:py-32 w-full text-center">
+        <div data-hero-scroll className="max-w-4xl mx-auto px-6 py-24 md:py-32 w-full text-center">
           {/* El titular hace su entrada cinematografica palabra-por-palabra
               (useCinematicMotion togglea [data-kinetic] pending→visible), no con
               el FadeIn de bloque. line3 continua el stagger de line1 via startIndex. */}
@@ -553,7 +625,7 @@ export default function Home() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-10 md:gap-16 text-center">
             {t.painStats.map((item, i) => (
               <FadeIn key={i} delay={i * 0.12}>
-                <div className="text-6xl md:text-8xl font-extralight text-gradient-stat tracking-tighter leading-none">
+                <div data-parallax="0.35" className="text-6xl md:text-8xl font-extralight text-gradient-stat tracking-tighter leading-none">
                   <Counter target={item.num} suffix={item.suffix} prefix={item.prefix} />
                   {item.sub && <span className="text-lg md:text-xl font-light text-white/25">{item.sub}</span>}
                 </div>
@@ -580,7 +652,7 @@ export default function Home() {
             {t.how.steps.map((item, i) => (
               <FadeIn key={i} delay={0.1}>
                 <div className="grid md:grid-cols-12 gap-8 items-start">
-                  <div className="md:col-span-3"><div className="step-number">{item.step}</div></div>
+                  <div className="md:col-span-3"><div data-parallax="0.6" className="step-number">{item.step}</div></div>
                   <div className="md:col-span-9 md:pt-6">
                     <h3 className="text-2xl md:text-3xl font-normal mb-4 tracking-tight text-white">{item.title}</h3>
                     <p className="text-white/35 text-base md:text-lg leading-relaxed max-w-xl font-light">{item.desc}</p>
@@ -604,19 +676,17 @@ export default function Home() {
             <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.capabilities.title}</h2>
             <p className="text-center text-white/35 max-w-xl mx-auto mb-20 font-light">{t.capabilities.subtitle}</p>
           </FadeIn>
-          <div className="grid md:grid-cols-3 gap-6">
+          <div data-reveal-group className="grid md:grid-cols-3 gap-6">
             {t.capabilities.items.map((cap, i) => {
               const Icon = iconMap[cap.icon as keyof typeof iconMap];
               return (
-                <FadeIn key={i} delay={i * 0.06}>
-                  <div data-spotlight className="glass-card rounded-2xl p-8 h-full group">
-                    <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
-                      <Icon className="w-6 h-6 text-white/40" />
-                    </div>
-                    <h3 className="text-lg font-normal mb-3 text-white">{cap.title}</h3>
-                    <p className="text-sm text-white/35 leading-relaxed font-light">{cap.desc}</p>
+                <div key={i} data-reveal data-spotlight className="glass-card rounded-2xl p-8 h-full group">
+                  <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
+                    <Icon className="w-6 h-6 text-white/40" />
                   </div>
-                </FadeIn>
+                  <h3 className="text-lg font-normal mb-3 text-white">{cap.title}</h3>
+                  <p className="text-sm text-white/35 leading-relaxed font-light">{cap.desc}</p>
+                </div>
               );
             })}
           </div>
@@ -634,19 +704,17 @@ export default function Home() {
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.whyDona.label}</p>
             <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white">{t.whyDona.title}</h2>
           </FadeIn>
-          <div className="grid md:grid-cols-2 gap-6">
+          <div data-reveal-group className="grid md:grid-cols-2 gap-6">
             {t.whyDona.cards.map((card, i) => {
               const Icon = iconMap[card.icon as keyof typeof iconMap];
               return (
-                <FadeIn key={i} delay={i * 0.1}>
-                  <div data-spotlight className="glass-card rounded-2xl p-8 h-full group">
-                    <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
-                      <Icon className="w-6 h-6 text-white/40" />
-                    </div>
-                    <h3 className="text-lg font-normal mb-2 text-white">{card.title}</h3>
-                    <p className="text-sm text-white/35 leading-relaxed font-light">{card.desc}</p>
+                <div key={i} data-reveal data-spotlight className="glass-card rounded-2xl p-8 h-full group">
+                  <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:border-[#7C3AED]/20 transition-colors">
+                    <Icon className="w-6 h-6 text-white/40" />
                   </div>
-                </FadeIn>
+                  <h3 className="text-lg font-normal mb-2 text-white">{card.title}</h3>
+                  <p className="text-sm text-white/35 leading-relaxed font-light">{card.desc}</p>
+                </div>
               );
             })}
           </div>
@@ -681,10 +749,9 @@ export default function Home() {
             <p className="text-center text-white/35 max-w-md mx-auto mb-20 font-light">{t.pricing.subtitle}</p>
           </FadeIn>
 
-          <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+          <div data-reveal-group className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
             {/* Early Access */}
-            <FadeIn delay={0}>
-              <div className="glass-card rounded-2xl p-8 relative overflow-hidden">
+            <div data-reveal className="glass-card rounded-2xl p-8 relative overflow-hidden">
                 <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">{t.pricing.earlyAccess}</p>
                 <div className="flex items-end gap-1 mb-6">
                   <span className="text-5xl font-light text-white">$20</span>
@@ -700,13 +767,11 @@ export default function Home() {
                 <button onClick={() => handleCheckout("premium")} disabled={checkoutLoading === "premium"} className="btn-primary w-full py-3.5 rounded-full text-sm text-center block cursor-pointer disabled:opacity-50">
                   {checkoutLoading === "premium" ? "..." : t.pricing.startNow}
                 </button>
-              </div>
-            </FadeIn>
+            </div>
 
             {/* Pro */}
-            <FadeIn delay={0.1}>
-              <div className="glass-card rounded-2xl p-8 relative overflow-hidden border-[#2563EB]/20">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#2563EB] to-[#F97316]" />
+            <div data-reveal className="glass-card plan-destacado rounded-2xl p-8 relative overflow-hidden border-[#2563EB]/20">
+                <div className="absolute top-0 left-0 right-0 h-[2px] accent-flow" />
                 <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">{t.pricing.pro}</p>
                 <div className="flex items-end gap-1 mb-6">
                   <span className="text-5xl font-light text-white">$40</span>
@@ -722,12 +787,10 @@ export default function Home() {
                 <button onClick={() => handleCheckout("pro")} disabled={checkoutLoading === "pro"} className="btn-primary w-full py-3.5 rounded-full text-sm text-center block cursor-pointer disabled:opacity-50">
                   {checkoutLoading === "pro" ? "..." : t.pricing.startNow}
                 </button>
-              </div>
-            </FadeIn>
+            </div>
 
             {/* Enterprise */}
-            <FadeIn delay={0.2}>
-              <div className="glass-card rounded-2xl p-8">
+            <div data-reveal className="glass-card rounded-2xl p-8">
                 <div className="flex items-center gap-2 mb-2">
                   <p className="text-xs uppercase tracking-widest text-white/35 font-light">{t.pricing.enterprise}</p>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-white/40 font-mono">{t.pricing.comingSoon}</span>
@@ -743,8 +806,7 @@ export default function Home() {
                   ))}
                 </ul>
                 <button className="btn-secondary w-full py-3.5 rounded-full text-sm cursor-not-allowed opacity-50 font-light">{t.pricing.comingSoon}</button>
-              </div>
-            </FadeIn>
+            </div>
           </div>
 
           <FadeIn delay={0.3}>

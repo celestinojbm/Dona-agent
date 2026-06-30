@@ -86,6 +86,15 @@ fbq('track', 'PageView');`,
           className="fixed inset-0 bg-black/[0.72] z-[1] pointer-events-none"
           aria-hidden="true"
         />
+        {/* Campo de luz ambiental (LTX iter 11): pozos de luz de color que
+            derivan a distinta profundidad con el scroll (useCinematicMotion).
+            Capa fija entre el overlay y el contenido — pointer-events-none, sin
+            afectar layout. Sin JS / reduced-motion quedan estaticos. */}
+        <div className="ambient-field z-[2]" aria-hidden="true">
+          <span className="ambient-blob ambient-blob--violet" />
+          <span className="ambient-blob ambient-blob--blue" />
+          <span className="ambient-blob ambient-blob--amber" />
+        </div>
         <div className="relative z-10 flex flex-col min-h-full">
           {children}
         </div>
