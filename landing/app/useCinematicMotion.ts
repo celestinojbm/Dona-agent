@@ -39,6 +39,11 @@ import { useEffect, useLayoutEffect } from "react";
  *    hacia arriba y se desvanece a medida que sales del primer viewport, como si
  *    el heroe retrocediera en profundidad (firma cinematografica tipo LTX).
  *    Scrubbeado al scroll sobre el alto del hero.
+ * iter 20:
+ *  - Timeline beam de "Como funciona" (`[data-how-progress]`): una linea vertical
+ *    a la izquierda de los pasos se "dibuja" (scaleY 0→1) scrubbeada al recorrer
+ *    la seccion, dando la sensacion de avanzar por el proceso (firma timeline
+ *    tipo Linear/LTX).
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -279,6 +284,32 @@ export function useCinematicMotion() {
                 start: "top top",
                 end: "bottom top",
                 scrub: 0.5,
+              },
+            }
+          );
+        }
+
+        // 10. Timeline beam de "Como funciona" (iter 20): la linea de progreso a
+        //     la izquierda de los pasos se dibuja (scaleY 0→1) scrubbeada al
+        //     recorrer la seccion. El trigger es el propio track (que abarca el
+        //     alto de los pasos): start cuando su top cruza el centro del
+        //     viewport, end cuando su bottom lo cruza. Solo transform (sin
+        //     reflow). Sin JS / reduced-motion el relleno queda en scaleY(0) →
+        //     solo el track tenue.
+        const howFill = document.querySelector<HTMLElement>("[data-how-progress]");
+        const howTrack = howFill?.parentElement;
+        if (howFill && howTrack) {
+          gsap.fromTo(
+            howFill,
+            { scaleY: 0 },
+            {
+              scaleY: 1,
+              ease: "none",
+              scrollTrigger: {
+                trigger: howTrack,
+                start: "top center",
+                end: "bottom center",
+                scrub: 0.6,
               },
             }
           );

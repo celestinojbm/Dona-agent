@@ -648,18 +648,27 @@ export default function Home() {
             <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-6 tracking-tighter text-white">{t.how.title}</h2>
             <p className="text-center text-white/35 max-w-lg mx-auto mb-20 font-light">{t.how.subtitle}</p>
           </FadeIn>
-          <div className="space-y-20 md:space-y-28">
-            {t.how.steps.map((item, i) => (
-              <FadeIn key={i} delay={0.1}>
-                <div className="grid md:grid-cols-12 gap-8 items-start">
-                  <div className="md:col-span-3"><div data-parallax="0.6" className="step-number">{item.step}</div></div>
-                  <div className="md:col-span-9 md:pt-6">
-                    <h3 className="text-2xl md:text-3xl font-normal mb-4 tracking-tight text-white">{item.title}</h3>
-                    <p className="text-white/35 text-base md:text-lg leading-relaxed max-w-xl font-light">{item.desc}</p>
+          <div className="relative">
+            {/* Beam de progreso del proceso (LTX iter 20): una linea vertical a
+                la izquierda de los pasos que useCinematicMotion "dibuja" (scaleY
+                0→1) al recorrer la seccion. Overlay absoluto — no desplaza
+                contenido. Sin JS / reduced-motion solo queda el track tenue. */}
+            <div className="how-timeline hidden md:block" aria-hidden="true">
+              <span data-how-progress className="how-timeline-fill" />
+            </div>
+            <div className="space-y-20 md:space-y-28">
+              {t.how.steps.map((item, i) => (
+                <FadeIn key={i} delay={0.1}>
+                  <div className="grid md:grid-cols-12 gap-8 items-start">
+                    <div className="md:col-span-3"><div data-parallax="0.6" className="step-number">{item.step}</div></div>
+                    <div className="md:col-span-9 md:pt-6">
+                      <h3 className="text-2xl md:text-3xl font-normal mb-4 tracking-tight text-white">{item.title}</h3>
+                      <p className="text-white/35 text-base md:text-lg leading-relaxed max-w-xl font-light">{item.desc}</p>
+                    </div>
                   </div>
-                </div>
-              </FadeIn>
-            ))}
+                </FadeIn>
+              ))}
+            </div>
           </div>
         </div>
       </section>
