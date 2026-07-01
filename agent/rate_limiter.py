@@ -14,6 +14,7 @@ Límites:
 import logging
 import os
 from time import time as _time
+from uuid import uuid4
 
 logger = logging.getLogger("dona")
 
@@ -44,24 +45,59 @@ _rate_limit_mem: dict[str, list[float]] = {}
 _rate_limit_global_mem: list[float] = []
 _RATE_LIMIT_MAX_KEYS = 500
 
+# ── Métricas in-memory del gate (8.2) ─────────────────────────────────────────
+# Contadores observables vía snapshot_metricas_rate(). El más importante:
+# cuántas veces Redis falló y el gate cayó al fallback degradado per-worker.
+_contadores_rate: dict[str, int] = {}
+
+
+def snapshot_metricas_rate() -> dict[str, int]:
+    """Foto inmutable de los contadores del rate limiter (para /admin/metrics)."""
+    return dict(_contadores_rate)
+
+
+def _registrar_fallback_degradado(exc: Exception) -> None:
+    """Marca un fallo de Redis con métrica + WARNING. El fallback a memoria es
+    per-worker (no compartido entre workers) → más permisivo que Redis; dejar
+    rastro observable para detectar degradación silenciosa (auditoría A9)."""
+    _contadores_rate["redis_fallback_a_memoria"] = (
+        _contadores_rate.get("redis_fallback_a_memoria", 0) + 1
+    )
+    logger.warning(
+        f"[RATE] Redis error → fallback DEGRADADO a memoria (per-worker): "
+        f"{type(exc).__name__}: {exc}"
+    )
+
 
 def _dentro_de_limite_memoria(telefono: str) -> bool:
-    """Rate limiting in-memory (fallback)."""
+    """Rate limiting in-memory (fallback).
+
+    El límite POR USUARIO se verifica ANTES que el cupo global (8.2): un número
+    que excede su tope personal se rechaza sin tocar el presupuesto compartido,
+    así un solo abusador no puede agotar el cupo global y tirar a todos (DoS).
+    """
     ahora = _time()
 
-    # Global check
-    global _rate_limit_global_mem
-    _rate_limit_global_mem = [t for t in _rate_limit_global_mem if ahora - t < _RATE_LIMIT_VENTANA]
-    if len(_rate_limit_global_mem) >= _RATE_LIMIT_GLOBAL:
-        return False
-    _rate_limit_global_mem.append(ahora)
-
-    # Per-user check
-    timestamps = _rate_limit_mem.get(telefono, [])
-    timestamps = [t for t in timestamps if ahora - t < _RATE_LIMIT_VENTANA]
+    # ── Per-user PRIMERO (no registra todavía: check-then-act conservador) ──
+    timestamps = [
+        t for t in _rate_limit_mem.get(telefono, []) if ahora - t < _RATE_LIMIT_VENTANA
+    ]
     if len(timestamps) >= _RATE_LIMIT_MAX:
         _rate_limit_mem[telefono] = timestamps
         return False
+
+    # ── Global después ──
+    global _rate_limit_global_mem
+    _rate_limit_global_mem = [
+        t for t in _rate_limit_global_mem if ahora - t < _RATE_LIMIT_VENTANA
+    ]
+    if len(_rate_limit_global_mem) >= _RATE_LIMIT_GLOBAL:
+        # Rechazado por el cupo global: NO contamos el envío del usuario.
+        _rate_limit_mem[telefono] = timestamps
+        return False
+
+    # ── Pasó ambos: registrar en ambas ventanas ──
+    _rate_limit_global_mem.append(ahora)
     timestamps.append(ahora)
     _rate_limit_mem[telefono] = timestamps
 
@@ -78,50 +114,47 @@ def _dentro_de_limite_memoria(telefono: str) -> bool:
 
 
 def _dentro_de_limite_redis(telefono: str) -> bool:
-    """Rate limiting con Redis sliding window."""
+    """Rate limiting con Redis sliding window.
+
+    Igual que el path en memoria: per-usuario ANTES que el cupo global (8.2), y
+    check-then-add (cuenta primero, registra solo si pasa) en vez del viejo
+    add-then-undo. El member del sorted set es ÚNICO por request (uuid): si
+    fuera el timestamp crudo, dos requests en el mismo float colapsarían en una
+    sola entrada (ZADD actualiza el score, no añade) → subconteo y bypass del
+    límite bajo concurrencia.
+    """
     try:
         ahora = _time()
         ventana_inicio = ahora - _RATE_LIMIT_VENTANA
-
-        pipe = _redis.pipeline()
-
-        # Global check
-        clave_global = "rate:global"
-        pipe.zremrangebyscore(clave_global, "-inf", ventana_inicio)
-        pipe.zcard(clave_global)
-        pipe.zadd(clave_global, {f"{ahora}": ahora})
-        pipe.expire(clave_global, int(_RATE_LIMIT_VENTANA) + 5)
-
-        # Per-user check
         clave_user = f"rate:user:{telefono}"
+        clave_global = "rate:global"
+
+        # ── Per-user PRIMERO: contar sin registrar ──
+        pipe = _redis.pipeline()
         pipe.zremrangebyscore(clave_user, "-inf", ventana_inicio)
         pipe.zcard(clave_user)
-        pipe.zadd(clave_user, {f"{ahora}": ahora})
+        if pipe.execute()[1] >= _RATE_LIMIT_MAX:
+            return False
+
+        # ── Global después: contar sin registrar ──
+        pipe = _redis.pipeline()
+        pipe.zremrangebyscore(clave_global, "-inf", ventana_inicio)
+        pipe.zcard(clave_global)
+        if pipe.execute()[1] >= _RATE_LIMIT_GLOBAL:
+            return False
+
+        # ── Pasó ambos: registrar con member ÚNICO (uuid) en ambas ventanas ──
+        member = f"{ahora}:{uuid4().hex}"
+        pipe = _redis.pipeline()
+        pipe.zadd(clave_user, {member: ahora})
         pipe.expire(clave_user, int(_RATE_LIMIT_VENTANA) + 5)
-
-        results = pipe.execute()
-
-        # results[1] = global count after cleanup (before add)
-        # results[5] = user count after cleanup (before add)
-        global_count = results[1]
-        user_count = results[5]
-
-        if global_count >= _RATE_LIMIT_GLOBAL:
-            # Undo the add
-            _redis.zrem(clave_global, f"{ahora}")
-            _redis.zrem(clave_user, f"{ahora}")
-            return False
-
-        if user_count >= _RATE_LIMIT_MAX:
-            # Undo the add
-            _redis.zrem(clave_global, f"{ahora}")
-            _redis.zrem(clave_user, f"{ahora}")
-            return False
-
+        pipe.zadd(clave_global, {member: ahora})
+        pipe.expire(clave_global, int(_RATE_LIMIT_VENTANA) + 5)
+        pipe.execute()
         return True
 
     except Exception as e:
-        logger.warning(f"[RATE] Redis error, fallback a memoria: {e}")
+        _registrar_fallback_degradado(e)
         return _dentro_de_limite_memoria(telefono)
 
 
