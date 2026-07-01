@@ -333,6 +333,20 @@ body {
   will-change: transform, opacity;
 }
 
+/* -- Tilt 3D magnetico (LTX iter 21): las cards de contenido se inclinan
+   sutilmente en 3D siguiendo al cursor. useCinematicMotion setea rotationX/Y
+   con transformPerspective via GSAP en mousemove; aqui solo el hint de
+   compositing. Sin JS o con reduced-motion (el effect entero se salta) las
+   cards quedan planas en su posicion natural. -- */
+[data-tilt] {
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-tilt] {
+    will-change: auto;
+  }
+}
+
 /* -- Reveal escalonado de cards (LTX iter 9): cascada al entrar en vista.
    useCinematicMotion marca el contenedor [data-reveal-group] como "ready" solo
    con JS y sin reduced-motion (pre-paint) para ocultar los hijos [data-reveal];

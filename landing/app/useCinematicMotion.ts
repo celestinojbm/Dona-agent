@@ -44,6 +44,12 @@ import { useEffect, useLayoutEffect } from "react";
  *    a la izquierda de los pasos se "dibuja" (scaleY 0→1) scrubbeada al recorrer
  *    la seccion, dando la sensacion de avanzar por el proceso (firma timeline
  *    tipo Linear/LTX).
+ * iter 21:
+ *  - Tilt 3D magnetico en las cards de contenido (`[data-tilt]`): la card se
+ *    inclina sutilmente en 3D siguiendo al cursor (rotationX/Y con
+ *    transformPerspective) y vuelve a plano al salir, dando profundidad
+ *    cinematografica tipo LTX/Higgsfield. Compone con el spotlight (mismo
+ *    mousemove) sobre las mismas cards.
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -314,6 +320,39 @@ export function useCinematicMotion() {
             }
           );
         }
+
+        // 11. Tilt 3D magnetico (iter 21): las cards de contenido [data-tilt] se
+        //     inclinan sutilmente en 3D siguiendo al cursor (rotationX/Y con
+        //     transformPerspective) y vuelven a plano al salir, dando profundidad
+        //     cinematografica tipo LTX/Higgsfield. Compone con el spotlight: ambos
+        //     usan mousemove sobre la misma card y GSAP unifica el transform (el
+        //     reveal escalonado tambien tweenea estas mismas cards, pero rota props
+        //     distintas — GSAP las mezcla en una sola matriz). Solo transform (GPU);
+        //     limpiamos los listeners al desmontar y ctx.revert() borra los tweens.
+        //     Sin JS / reduced-motion (todo el effect se salta) las cards quedan planas.
+        gsap.utils.toArray<HTMLElement>("[data-tilt]").forEach((card) => {
+          gsap.set(card, { transformPerspective: 900, transformOrigin: "center center" });
+          const rotX = gsap.quickTo(card, "rotationX", { duration: 0.5, ease: "power3.out" });
+          const rotY = gsap.quickTo(card, "rotationY", { duration: 0.5, ease: "power3.out" });
+          const MAX = 6; // grados de inclinacion maxima (±MAX): sutil, no mareante
+          const onMove = (e: MouseEvent) => {
+            const r = card.getBoundingClientRect();
+            const px = (e.clientX - r.left) / r.width - 0.5; // -0.5..0.5
+            const py = (e.clientY - r.top) / r.height - 0.5;
+            rotY(px * MAX * 2); // desplazamiento horizontal → giro en Y
+            rotX(-py * MAX * 2); // desplazamiento vertical → giro en X (invertido)
+          };
+          const onLeave = () => {
+            rotX(0);
+            rotY(0);
+          };
+          card.addEventListener("mousemove", onMove);
+          card.addEventListener("mouseleave", onLeave);
+          removers.push(() => {
+            card.removeEventListener("mousemove", onMove);
+            card.removeEventListener("mouseleave", onLeave);
+          });
+        });
 
         // 9. Reveal escalonado de las cards: cada grid [data-reveal-group] revela
         //    sus hijos [data-reveal] en cascada al entrar en vista (translate +
