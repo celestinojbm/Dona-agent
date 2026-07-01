@@ -289,6 +289,42 @@ body {
   will-change: transform;
 }
 
+/* -- Timeline beam de "Como funciona" (LTX iter 20): una linea vertical de
+   progreso a la izquierda de los pasos que se "dibuja" (scaleY 0→1) a medida que
+   recorres la seccion, dando la sensacion cinematografica de avanzar por el
+   proceso (firma timeline tipo Linear/LTX). El track tenue es estatico; el
+   relleno con el degradado de marca lo escala useCinematicMotion (scrub al
+   scroll). Arranca en scaleY(0): sin JS o con reduced-motion (el efecto se
+   salta) queda solo el track tenue — nunca una barra colgada. Overlay absoluto:
+   no desplaza ningun contenido. Solo se muestra en >=md (en mobile los pasos van
+   apilados a ancho completo y la columna izquierda desaparece). -- */
+.how-timeline {
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 2px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  pointer-events: none;
+}
+.how-timeline-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transform: scaleY(0);
+  transform-origin: top center;
+  background: linear-gradient(180deg, #2563EB, #7C3AED, #F97316);
+  box-shadow: 0 0 12px rgba(124, 58, 237, 0.35);
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .how-timeline-fill {
+    will-change: auto;
+  }
+}
+
 /* -- Hero scroll-away (LTX iter 13): el bloque del hero deriva hacia arriba y se
    desvanece al salir del primer viewport. useCinematicMotion setea transform +
    opacity via GSAP/ScrollTrigger; aqui solo damos la pista de compositing. Sin JS
