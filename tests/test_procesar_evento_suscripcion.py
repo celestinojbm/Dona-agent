@@ -618,6 +618,111 @@ class TestTipoNoSoportado:
         assert res["handled"] is False
 
 
+# ── Gate atómico de event.id (Fase 1 · TEMA 3.1) ───────────────────────────
+
+
+class TestGateAtomicoEventId:
+    """El gate ``EventoStripeProcesado`` se inserta ANTES del handler usando el
+    PK (``event_id``) como cerrojo atómico — no SELECT-then-INSERT. Bajo
+    reentrega concurrente del mismo evento, el handler corre exactamente una vez.
+    """
+
+    @pytest.mark.asyncio
+    async def test_concurrencia_mismo_event_id_un_solo_handled(self, db):
+        """10 entregas concurrentes del MISMO event.id → exactamente 1 handled=True
+        y 9 duplicate_event.
+
+        Con el gate viejo (SELECT antes, INSERT al final) las 10 tareas pasaban el
+        SELECT antes de que ninguna marcara la fila, así que el handler se
+        ejecutaba 10 veces y las 10 retornaban handled=True. El gate atómico
+        cierra esa ventana check-then-act.
+        """
+        import asyncio
+
+        await _crear_suscripcion(db, "sub_001", "14076936023", "premium", 100)
+        ev = _evento_invoice(
+            event_id="evt_race", invoice_id="in_race", subscription_id="sub_001"
+        )
+
+        resultados = await asyncio.gather(*[
+            db.procesar_evento_suscripcion(ev) for _ in range(10)
+        ])
+
+        handled = [r for r in resultados if r.get("handled")]
+        dups = [r for r in resultados if r.get("reason") == "duplicate_event"]
+        assert len(handled) == 1, f"esperaba 1 handled, hubo {len(handled)}"
+        assert len(dups) == 9, f"esperaba 9 duplicate_event, hubo {len(dups)}"
+
+        # Crédito acreditado exactamente una vez.
+        assert await db.obtener_saldo("14076936023") == 100
+
+        # Exactamente una marca en la tabla.
+        from sqlalchemy import func, select
+        async with agent.memory.async_session() as session:
+            n = (await session.execute(
+                select(func.count()).select_from(
+                    agent.memory.EventoStripeProcesado
+                ).where(
+                    agent.memory.EventoStripeProcesado.event_id == "evt_race"
+                )
+            )).scalar_one()
+            assert n == 1
+
+    @pytest.mark.asyncio
+    async def test_handler_no_handled_libera_gate_y_permite_reproceso(self, db):
+        """Si el handler NO confirma (race invoice→checkout), el gate se libera
+        para que la reentrega del MISMO event.id reprocese una vez resuelto el
+        race. Sin liberar, el insert-before envenenaría el evento para siempre.
+        """
+        from sqlalchemy import select
+
+        ev = _evento_invoice(
+            event_id="evt_retry", invoice_id="in_retry", subscription_id="sub_999"
+        )
+        r1 = await db.procesar_evento_suscripcion(ev)
+        assert r1["handled"] is False
+        assert r1["reason"] == "subscription_no_persistida"
+
+        # El gate NO debe quedar marcado (handled=False ⇒ liberado).
+        async with agent.memory.async_session() as session:
+            filas = (await session.execute(
+                select(agent.memory.EventoStripeProcesado).where(
+                    agent.memory.EventoStripeProcesado.event_id == "evt_retry"
+                )
+            )).scalars().all()
+            assert filas == []
+
+        # Ahora existe la suscripción (llegó el checkout). La reentrega del MISMO
+        # event.id ahora SÍ acredita.
+        await _crear_suscripcion(db, "sub_999", "15550009999", "premium", 100)
+        r2 = await db.procesar_evento_suscripcion(ev)
+        assert r2["handled"] is True
+        assert await db.obtener_saldo("15550009999") == 100
+
+    @pytest.mark.asyncio
+    async def test_handler_excepcion_libera_gate(self, db, monkeypatch):
+        """Si el handler revienta, el gate se libera: una excepción transitoria no
+        debe envenenar el event.id — Stripe reintenta y reprocesa."""
+        from sqlalchemy import select
+
+        async def _boom(data):
+            raise RuntimeError("fallo transitorio del handler")
+
+        monkeypatch.setattr(db, "_procesar_checkout_subscription", _boom)
+
+        ev = _evento_checkout(event_id="evt_boom", plan="premium")
+        with pytest.raises(RuntimeError):
+            await db.procesar_evento_suscripcion(ev)
+
+        async with agent.memory.async_session() as session:
+            filas = (await session.execute(
+                select(agent.memory.EventoStripeProcesado).where(
+                    agent.memory.EventoStripeProcesado.event_id == "evt_boom"
+                )
+            )).scalars().all()
+            assert filas == []
+
+
 # ── Legacy procesar_evento_stripe sigue funcionando ────────────────────────
 
 
