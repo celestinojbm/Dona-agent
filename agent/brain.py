@@ -9,6 +9,7 @@ genera respuestas con Claude y maneja tool use para recordatorios.
 import asyncio
 import logging
 import os
+import secrets
 import urllib.parse
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -64,6 +65,13 @@ _PATRONES_INYECCION = _re.compile(
     r"|(?:revela|reveal|muestra|show)\s+(?:tu\s+)?(?:prompt|instrucciones|api\s*key|token)"
 )
 
+# Cualquier forma del delimitador `external_data` que aparezca DENTRO del
+# contenido externo es un intento de fuga del sandbox: el atacante quiere
+# cerrar el bloque (`</external_data>`) o abrir uno falso para que su texto
+# parezca instrucción de confianza "fuera" de los datos. Cubre variantes de
+# espaciado, mayúsculas, atributos y cierres colgantes sin `>`.
+_RE_DELIMITADOR_FUGA = _re.compile(r"(?i)<\s*/?\s*external_data\b[^>\n]*>?")
+
 
 def _sanitizar_datos_externos(texto: str, max_chars: int = 4000) -> str:
     """
@@ -72,7 +80,9 @@ def _sanitizar_datos_externos(texto: str, max_chars: int = 4000) -> str:
 
     - Trunca a max_chars para evitar saturación de contexto
     - Marca intentos de inyección detectados como [contenido filtrado]
-    - Envuelve en delimitadores para que Claude distinga datos de instrucciones
+    - Neutraliza cualquier delimitador `external_data` inyectado (anti-breakout)
+    - Envuelve en un delimitador con NONCE aleatorio por invocación, de modo que
+      el cierre sea impredecible y no forjable desde el contenido (Fable5 · 5.5)
     """
     if not texto:
         return texto
@@ -87,8 +97,17 @@ def _sanitizar_datos_externos(texto: str, max_chars: int = 4000) -> str:
         else:
             lineas_limpias.append(linea)
     contenido = "\n".join(lineas_limpias)
-    # Envolver en delimitadores claros para prevenir inyección indirecta
-    return f"<external_data>\n{contenido}\n</external_data>"
+    # Anti-breakout: remover delimitadores `external_data` inyectados en el
+    # contenido. Sin esto, un `</external_data>` en un título de evento o cuerpo
+    # de correo cierra el sandbox y el texto siguiente se lee como instrucción.
+    if _RE_DELIMITADOR_FUGA.search(contenido):
+        logger.warning("[SECURITY] Intento de fuga del delimitador external_data neutralizado")
+        contenido = _RE_DELIMITADOR_FUGA.sub("[delimitador removido]", contenido)
+    # Nonce por invocación: el delimitador de cierre lleva un token aleatorio
+    # que el atacante no puede predecir, por lo que no puede forjar un cierre
+    # válido aunque conozca el formato del wrapper.
+    nonce = secrets.token_hex(8)
+    return f'<external_data nonce="{nonce}">\n{contenido}\n</external_data nonce="{nonce}">'
 
 
 def _resultado_reauth_google(telefono: str) -> str:
