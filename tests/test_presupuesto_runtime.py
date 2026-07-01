@@ -32,6 +32,7 @@ def _estado_limpio(monkeypatch):
     pr._contadores_eventos.clear()
     pr._owners_suspendidos.clear()
     pr._costo_diario_owner.clear()
+    pr._costo_diario_global.clear()
     for var in (
         "DONA_LLM_COST_KILL_SWITCH",
         "BUDGET_FG_SOFT_SEGUNDOS", "BUDGET_FG_HARD_SEGUNDOS",
@@ -41,12 +42,14 @@ def _estado_limpio(monkeypatch):
         "BUDGET_MAX_TOOL_CALLS_MENSAJE",
         "BUDGET_MAX_TOOL_DEPTH", "BUDGET_MAX_PARALLEL_TOOLS",
         "BUDGET_MAX_COSTO_USD_MENSAJE", "BUDGET_MAX_COSTO_USD_DIA_OWNER",
+        "BUDGET_MAX_COSTO_USD_DIA_GLOBAL",
     ):
         monkeypatch.delenv(var, raising=False)
     yield
     pr._contadores_eventos.clear()
     pr._owners_suspendidos.clear()
     pr._costo_diario_owner.clear()
+    pr._costo_diario_global.clear()
 
 
 def _config_corta(**overrides) -> pr.ConfigPresupuesto:
@@ -58,7 +61,7 @@ def _config_corta(**overrides) -> pr.ConfigPresupuesto:
         tool_timeout_segundos=10.0, tool_timeout_lenta_segundos=30.0,
         max_llm_calls=3, max_tool_calls=8, max_tool_depth=3,
         max_parallel_tools=3, max_costo_usd_mensaje=0.15,
-        max_costo_usd_dia_owner=5.0,
+        max_costo_usd_dia_owner=5.0, max_costo_usd_dia_global=50.0,
     )
     base.update(overrides)
     return pr.ConfigPresupuesto(**base)
@@ -185,6 +188,107 @@ class TestCosto:
         with pr.presupuesto_de_mensaje("15550006666") as pres2:
             pres2.config = _config_corta(max_costo_usd_dia_owner=0.20)
             assert pres2.reservar_llm().permitido is True
+
+
+# ── 3.b Circuit breaker de presupuesto diario GLOBAL (TEMA 4 · 4.4) ───────
+
+
+class TestCircuitBreakerGlobal:
+    """El breaker global corta TODA reserva LLM/aux/tool cuando el costo
+    diario acumulado de TODOS los owners alcanza el techo del proceso —
+    incluso si cada owner individual está muy por debajo de su tope."""
+
+    def test_acumula_a_traves_de_owners_y_corta(self):
+        # Adversarial: sangrado distribuido entre muchos owners "limpios".
+        # Techo global bajo (0.30), per-owner alto (5.0) → ningún owner
+        # dispara su propio límite, pero la suma sí dispara el global.
+        for i in range(3):
+            tel = f"1555000{i:04d}"
+            with pr.presupuesto_de_mensaje(tel) as pres:
+                pres.config = _config_corta(
+                    max_costo_usd_dia_global=0.30,
+                    max_costo_usd_dia_owner=5.0,
+                    max_costo_usd_mensaje=1.0,
+                )
+                assert pres.reservar_llm().permitido is True
+                pres.consumir_llm(0.10)  # cada owner gasta poco
+
+        assert pr.costo_diario_global() >= 0.30
+        # Owner NUEVO y limpio: su per-owner está en 0, pero el global ya tronó.
+        with pr.presupuesto_de_mensaje("15559999999") as nuevo:
+            nuevo.config = _config_corta(
+                max_costo_usd_dia_global=0.30, max_costo_usd_dia_owner=5.0,
+            )
+            decision = nuevo.reservar_llm()
+            assert decision.permitido is False
+            assert decision.razon == "max_costo_diario_global"
+
+    def test_breaker_global_corta_tambien_tools(self):
+        # El global es un circuit breaker de proceso: una vez tronado, ni
+        # siquiera las tools (que no tienen costo USD propio) pueden reservar.
+        with pr.presupuesto_de_mensaje(TEL) as pres:
+            pres.config = _config_corta(
+                max_costo_usd_dia_global=0.20, max_costo_usd_mensaje=1.0,
+            )
+            assert pres.reservar_llm().permitido is True
+            pres.consumir_llm(0.25)  # supera el global
+            decision = pres.reservar_tool()
+            assert decision.permitido is False
+            assert decision.razon == "max_costo_diario_global"
+
+    def test_breaker_global_corta_aux(self):
+        with pr.presupuesto_de_mensaje(TEL) as pres:
+            pres.config = _config_corta(
+                max_costo_usd_dia_global=0.20, max_costo_usd_mensaje=1.0,
+            )
+            assert pres.reservar_llm().permitido is True
+            pres.consumir_llm(0.25)
+            decision = pres.reservar_llm_aux()
+            assert decision.permitido is False
+            assert decision.razon == "max_costo_diario_global"
+
+    def test_default_no_interfiere(self):
+        # Bajo el default (50.0/día) un gasto normal no dispara el global.
+        with pr.presupuesto_de_mensaje(TEL) as pres:
+            assert pres.reservar_llm().permitido is True
+            pres.consumir_llm(0.05)
+            assert pres.reservar_llm().permitido is True
+
+    def test_sin_contexto_bloquea(self, monkeypatch):
+        # Jobs/scheduler sin presupuesto de mensaje también respetan el techo
+        # global: un breaker de proceso no puede tener agujeros por path.
+        monkeypatch.setenv("BUDGET_MAX_COSTO_USD_DIA_GLOBAL", "1.0")
+        pr._costo_diario_global[pr._clave_dia()] = 1.5  # ya excedido
+        decision = pr.reservar_llm(TEL)
+        assert decision.permitido is False
+        assert decision.razon == "max_costo_diario_global"
+
+    def test_sin_contexto_aux_bloquea(self, monkeypatch):
+        monkeypatch.setenv("BUDGET_MAX_COSTO_USD_DIA_GLOBAL", "1.0")
+        pr._costo_diario_global[pr._clave_dia()] = 1.5
+        decision = pr.reservar_llm_aux(TEL)
+        assert decision.permitido is False
+        assert decision.razon == "max_costo_diario_global"
+
+    def test_bloqueo_emite_evento(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="dona"):
+            with pr.presupuesto_de_mensaje(TEL) as pres:
+                pres.config = _config_corta(
+                    max_costo_usd_dia_global=0.20, max_costo_usd_mensaje=1.0,
+                )
+                pres.reservar_llm()
+                pres.consumir_llm(0.25)
+                pres.reservar_llm()
+        assert pr.snapshot_eventos().get("budget_blocked", 0) >= 1
+        assert any("max_costo_diario_global" in r.message for r in caplog.records)
+
+    def test_env_valida_se_aplica(self, monkeypatch):
+        monkeypatch.setenv("BUDGET_MAX_COSTO_USD_DIA_GLOBAL", "12.5")
+        assert pr.cargar_config().max_costo_usd_dia_global == 12.5
+
+    def test_env_fuera_de_rango_cae_a_default(self, monkeypatch):
+        monkeypatch.setenv("BUDGET_MAX_COSTO_USD_DIA_GLOBAL", "999999")
+        assert pr.cargar_config().max_costo_usd_dia_global == 50.0
 
 
 # ── 4. Kill-switches ─────────────────────────────────────────────────────

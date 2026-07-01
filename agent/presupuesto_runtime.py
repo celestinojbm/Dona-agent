@@ -43,7 +43,7 @@ Razones de bloqueo (set CERRADO — no inventar strings nuevos en callers):
   kill_switch_global · owner_suspendido · presupuesto_tiempo_agotado ·
   max_llm_calls · max_llm_aux_calls · max_tool_calls · max_tool_depth ·
   max_parallel_tools · max_costo_mensaje · max_costo_diario_owner ·
-  contador_corrupto
+  max_costo_diario_global · contador_corrupto
 """
 
 from __future__ import annotations
@@ -71,6 +71,7 @@ RAZONES_BLOQUEO = {
     "max_parallel_tools",
     "max_costo_mensaje",
     "max_costo_diario_owner",
+    "max_costo_diario_global",
     "contador_corrupto",
 }
 
@@ -152,6 +153,7 @@ class ConfigPresupuesto:
     max_parallel_tools: int
     max_costo_usd_mensaje: float
     max_costo_usd_dia_owner: float
+    max_costo_usd_dia_global: float
 
 
 def cargar_config() -> ConfigPresupuesto:
@@ -169,6 +171,7 @@ def cargar_config() -> ConfigPresupuesto:
         max_parallel_tools=int(_leer_num("BUDGET_MAX_PARALLEL_TOOLS", 3, 1, 10)),
         max_costo_usd_mensaje=_leer_num("BUDGET_MAX_COSTO_USD_MENSAJE", 0.15, 0.01, 5.0),
         max_costo_usd_dia_owner=_leer_num("BUDGET_MAX_COSTO_USD_DIA_OWNER", 5.0, 0.10, 100.0),
+        max_costo_usd_dia_global=_leer_num("BUDGET_MAX_COSTO_USD_DIA_GLOBAL", 50.0, 1.0, 10000.0),
     )
 
 
@@ -234,6 +237,30 @@ def _acumular_costo_owner(telefono: str, usd: float) -> None:
     hoy = _clave_dia()
     for k in [k for k in _costo_diario_owner if k[1] != hoy]:
         del _costo_diario_owner[k]
+
+
+# ── Costo diario GLOBAL (todos los owners, in-memory per-proceso) ────────
+# Circuit breaker de presupuesto diario a nivel proceso (TEMA 4 · 4.4): un
+# sangrado inducido —muchos owners a la vez, o uno solo a fuerza de mensajes—
+# que agote el techo global del día corta TODA reserva LLM nueva hasta el
+# reset diario, incluso paths sin contexto de mensaje (jobs/scheduler). El
+# per-owner ya existe; este es el "global" que pide el roadmap. Best-effort
+# per-proceso, mismo trade-off declarado que el per-owner (se resetea con el
+# deploy; la persistencia cross-restart se decide en el PR de durabilidad).
+
+_costo_diario_global: dict[str, float] = {}
+
+
+def costo_diario_global() -> float:
+    return _costo_diario_global.get(_clave_dia(), 0.0)
+
+
+def _acumular_costo_global(usd: float) -> None:
+    hoy = _clave_dia()
+    _costo_diario_global[hoy] = _costo_diario_global.get(hoy, 0.0) + max(usd, 0.0)
+    # Poda barata de días anteriores
+    for k in [k for k in _costo_diario_global if k != hoy]:
+        del _costo_diario_global[k]
 
 
 # ── Decisión ─────────────────────────────────────────────────────────────
@@ -319,6 +346,12 @@ class PresupuestoMensaje:
             return self._bloquear("contador_corrupto")
         if kill_switch_global_activo():
             return self._bloquear("kill_switch_global")
+        if costo_diario_global() >= self.config.max_costo_usd_dia_global:
+            return self._bloquear(
+                "max_costo_diario_global",
+                limite=self.config.max_costo_usd_dia_global,
+                usado=round(costo_diario_global(), 4),
+            )
         razon_susp = owner_suspendido(self.telefono)
         if razon_susp:
             return self._bloquear("owner_suspendido", usado=razon_susp)
@@ -402,11 +435,17 @@ class PresupuestoMensaje:
         costo = max(float(costo_usd or 0.0), 0.0)
         self.costo_usd += costo
         _acumular_costo_owner(self.telefono, costo)
+        _acumular_costo_global(costo)
         self._warn_80("costo_mensaje", self.costo_usd, self.config.max_costo_usd_mensaje)
         self._warn_80(
             "costo_diario_owner",
             costo_diario_de(self.telefono),
             self.config.max_costo_usd_dia_owner,
+        )
+        self._warn_80(
+            "costo_diario_global",
+            costo_diario_global(),
+            self.config.max_costo_usd_dia_global,
         )
 
     def reservar_tool(self, depth: int = 1, paralelas: int = 1) -> DecisionPresupuesto:
@@ -480,6 +519,21 @@ def consumir_llm(costo_usd: float, modelo: str = "") -> None:
         pres.consumir_llm(costo_usd, modelo)
 
 
+def _breaker_global_sin_contexto(telefono: str) -> DecisionPresupuesto | None:
+    """Circuit breaker global de costo diario para paths SIN presupuesto de
+    mensaje (jobs/scheduler). El kill-switch global y la suspensión por owner
+    ya se chequean inline en cada reserva sin-contexto; este cubre el techo
+    global de USD/día: un breaker de proceso no puede tener un agujero solo
+    porque la unidad de trabajo no abrió presupuesto."""
+    if costo_diario_global() >= cargar_config().max_costo_usd_dia_global:
+        _emitir_evento(
+            "budget_blocked", razon="max_costo_diario_global",
+            owner_short=telefono[-4:] if telefono else "?", contexto="sin_presupuesto",
+        )
+        return DecisionPresupuesto(permitido=False, razon="max_costo_diario_global")
+    return None
+
+
 def reservar_llm(telefono: str = "") -> DecisionPresupuesto:
     """Reserva una llamada LLM contra el presupuesto del mensaje activo.
 
@@ -504,6 +558,9 @@ def reservar_llm(telefono: str = "") -> DecisionPresupuesto:
             owner_short=telefono[-4:] if telefono else "?", contexto="sin_presupuesto",
         )
         return DecisionPresupuesto(permitido=False, razon="owner_suspendido")
+    bloqueo_global = _breaker_global_sin_contexto(telefono)
+    if bloqueo_global is not None:
+        return bloqueo_global
     _emitir_evento(
         "reserva_sin_contexto",
         owner_short=telefono[-4:] if telefono else "?",
@@ -534,6 +591,9 @@ def reservar_llm_aux(telefono: str = "") -> DecisionPresupuesto:
             owner_short=telefono[-4:] if telefono else "?", contexto="sin_presupuesto",
         )
         return DecisionPresupuesto(permitido=False, razon="owner_suspendido")
+    bloqueo_global = _breaker_global_sin_contexto(telefono)
+    if bloqueo_global is not None:
+        return bloqueo_global
     _emitir_evento(
         "reserva_sin_contexto",
         owner_short=telefono[-4:] if telefono else "?",
