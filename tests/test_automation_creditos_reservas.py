@@ -300,7 +300,10 @@ class TestEjecucionIntegrada:
         assert rsv["estado"] == "released"
 
     @pytest.mark.asyncio
-    async def test_critical_bloqueado_libera_reserva(self, db, monkeypatch):
+    async def test_critical_bloqueado_nunca_reserva(self, db, monkeypatch):
+        """5.2 · CRITICAL se bloquea ANTES del claim y de la reserva: nunca
+        transiciona a running ni toca créditos. Antes reservaba y liberaba
+        (saldo neutro pero tocando la billetera); ahora ni siquiera reserva."""
         ac, cr, ex, bi = db
         _patch_llm_returns(monkeypatch, "x")
         await bi.acreditar("5603", 200, "seed")
@@ -314,10 +317,12 @@ class TestEjecucionIntegrada:
         approved = [x for x in listed if x["id"] == a["id"]][0]
         r = await ex.ejecutar_accion(approved)
         assert r["estado_final"] == "failed"
-        # Reembolso completo: Critical bloqueado · liberada
+        assert r["error"] == "critical_blocked_t21a"
+        # Saldo intacto · jamás se reservó
         assert await bi.obtener_saldo("5603") == 200
+        # No se creó fila de reserva (bloqueo previo a reservar_creditos)
         rsv = await cr.obtener_reserva(a["id"])
-        assert rsv["estado"] == "released"
+        assert rsv is None
 
     @pytest.mark.asyncio
     async def test_high_sin_ejecutor_libera_reserva(self, db, monkeypatch):

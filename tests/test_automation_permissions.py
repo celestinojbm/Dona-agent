@@ -117,3 +117,61 @@ class TestTransiciones:
     ])
     def test_transiciones_invalidas(self, a, b):
         assert transicion_valida(a, b) is False
+
+    def test_approved_a_failed_es_valida(self):
+        """5.2 · una acción aprobada puede pasar a failed sin pasar por
+        running (p.ej. CRITICAL bloqueada ANTES del claim · ya no necesita
+        transicionar a running solo para poder marcarse failed)."""
+        assert transicion_valida("approved", "failed") is True
+
+
+class TestTransicionRiesgoAware:
+    """5.2 · `transicion_valida(actual, destino, riesgo)` fail-closed.
+
+    Cierra el eslabón "permiso→ejecución" del core loop: una acción CRITICAL
+    NUNCA debe transicionar a running, y sólo LOW puede auto-ejecutarse desde
+    pending. MEDIUM/HIGH exigen pasar por approved antes de running."""
+
+    def test_critical_nunca_running_desde_approved(self):
+        assert transicion_valida("approved", "running", "critical") is False
+
+    def test_critical_nunca_running_desde_pending(self):
+        assert transicion_valida("pending", "running", "critical") is False
+
+    def test_high_no_auto_running_desde_pending(self):
+        assert transicion_valida("pending", "running", "high") is False
+
+    def test_medium_no_auto_running_desde_pending(self):
+        assert transicion_valida("pending", "running", "medium") is False
+
+    def test_low_si_auto_running_desde_pending(self):
+        assert transicion_valida("pending", "running", "low") is True
+
+    def test_high_running_desde_approved_ok(self):
+        # HIGH aprobada SÍ puede ejecutar (la confirmación dedicada se exige
+        # en la capa de endpoint · fuera de esta función).
+        assert transicion_valida("approved", "running", "high") is True
+
+    def test_medium_running_desde_approved_ok(self):
+        assert transicion_valida("approved", "running", "medium") is True
+
+    def test_riesgo_no_afecta_transiciones_no_running(self):
+        # CRITICAL puede rechazarse/cancelarse normalmente · sólo se cierra
+        # el camino a running.
+        assert transicion_valida("needs_approval", "rejected", "critical") is True
+        assert transicion_valida("approved", "cancelled", "critical") is True
+
+    def test_sin_riesgo_retrocompatible(self):
+        # Llamadas legacy de 2 args mantienen el comportamiento previo.
+        assert transicion_valida("approved", "running") is True
+        assert transicion_valida("pending", "running") is True
+
+    def test_acepta_enum(self):
+        assert transicion_valida("approved", "running", NivelRiesgo.CRITICAL) is False
+        assert transicion_valida("approved", "running", NivelRiesgo.HIGH) is True
+
+    def test_transicion_base_invalida_gana_sobre_riesgo(self):
+        # running→running no es válido aunque el riesgo sea LOW.
+        assert transicion_valida("running", "running", "low") is False
+        # completed→running tampoco, ni con riesgo bajo.
+        assert transicion_valida("completed", "running", "low") is False

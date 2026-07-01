@@ -113,11 +113,14 @@ ESTADOS_VALIDOS = {
     "cancelled",        # cancelada antes de ejecutar
 }
 
-# Transiciones permitidas: estado_actual → set de estados destino válidos
+# Transiciones permitidas: estado_actual → set de estados destino válidos.
+# `approved → failed` (5.2): una acción aprobada puede fallar ANTES de
+# transicionar a running — p.ej. una CRITICAL bloqueada por el gate de riesgo
+# que ya no necesita pasar por running solo para poder marcarse failed.
 TRANSICIONES: dict[str, set[str]] = {
     "pending": {"running", "cancelled", "rejected"},
     "needs_approval": {"approved", "rejected", "cancelled"},
-    "approved": {"running", "cancelled"},
+    "approved": {"running", "cancelled", "failed"},
     "running": {"completed", "failed"},
     "completed": set(),
     "rejected": set(),
@@ -126,11 +129,42 @@ TRANSICIONES: dict[str, set[str]] = {
 }
 
 
-def transicion_valida(actual: str, destino: str) -> bool:
-    """True si la transición de estado es válida según TRANSICIONES."""
+def transicion_valida(
+    actual: str,
+    destino: str,
+    riesgo: NivelRiesgo | str | None = None,
+) -> bool:
+    """True si la transición de estado es válida.
+
+    Validación base: ``destino`` debe estar en ``TRANSICIONES[actual]``.
+
+    Si se pasa ``riesgo`` (5.2 · C4/A13), aplica además el gate fail-closed del
+    eslabón "permiso→ejecución" del core loop sobre el destino ``running``:
+
+      - CRITICAL nunca alcanza ``running`` (bloqueada hasta tener confirmación
+        reforzada · futuro PR). Aplica desde cualquier estado origen.
+      - Sólo LOW puede auto-ejecutarse desde ``pending``. MEDIUM/HIGH deben
+        pasar por ``approved`` (aprobación humana) antes de ``running``.
+
+    Las transiciones que NO son a ``running`` (rechazar, cancelar, aprobar,
+    completar, fallar) no se ven afectadas por el riesgo: una CRITICAL puede
+    rechazarse o cancelarse con normalidad.
+
+    ``riesgo=None`` mantiene el comportamiento legacy de 2 argumentos.
+    """
     if actual not in ESTADOS_VALIDOS or destino not in ESTADOS_VALIDOS:
         return False
-    return destino in TRANSICIONES.get(actual, set())
+    if destino not in TRANSICIONES.get(actual, set()):
+        return False
+    if riesgo is None:
+        return True
+    r = NivelRiesgo(riesgo) if isinstance(riesgo, str) else riesgo
+    if destino == "running":
+        if r == NivelRiesgo.CRITICAL:
+            return False
+        if actual == "pending" and r != NivelRiesgo.LOW:
+            return False
+    return True
 
 
 # ── Contrato explícito "siguiente acción requerida" ─────────────────────

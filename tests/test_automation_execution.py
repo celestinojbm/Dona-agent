@@ -180,6 +180,70 @@ class TestEjecutarCriticalBloqueado:
         assert logs[0].riesgo == "critical"
 
 
+class TestCriticalNoAlcanzaRunning:
+    """5.2 · una acción CRITICAL nunca debe transicionar a running.
+
+    El claim atómico (`intentar_marcar_running`) es el choke point server-side
+    del eslabón →ejecución: aunque una fila quede en `approved` por bug, legacy
+    o spoofing, el claim debe rechazarla sin moverla a running."""
+
+    @pytest.mark.asyncio
+    async def test_intentar_marcar_running_rechaza_critical(self, db):
+        from sqlalchemy import select, update
+        from agent.automation.models import AccionAutomatizacion
+        ex, ac = db
+        a = await ac.crear_accion(
+            telefono="5585",
+            tipo_accion="envio_masivo_clientes",  # CRITICAL
+            titulo="Mass",
+        )
+        # Forzamos estado approved en DB (simula bug/legacy/spoof): el choke
+        # point debe rechazar el claim aunque el estado de lifecycle lo permita.
+        async with agent.memory.async_session() as s:
+            await s.execute(
+                update(AccionAutomatizacion)
+                .where(AccionAutomatizacion.id == a["id"])
+                .values(estado="approved")
+            )
+            await s.commit()
+
+        claimed = await ac.intentar_marcar_running(
+            a["id"], estados_origen=("approved",),
+        )
+        assert claimed is False
+
+        async with agent.memory.async_session() as s:
+            row = (await s.execute(
+                select(AccionAutomatizacion).where(
+                    AccionAutomatizacion.id == a["id"]
+                )
+            )).scalar_one()
+        assert row.estado == "approved"  # jamás alcanzó running
+
+    @pytest.mark.asyncio
+    async def test_low_aprobada_si_se_claima(self, db):
+        # Contraste: una acción no-crítica aprobada SÍ se claima a running.
+        from sqlalchemy import select, update
+        from agent.automation.models import AccionAutomatizacion
+        ex, ac = db
+        a = await ac.crear_accion(
+            telefono="5586",
+            tipo_accion="preparar_mensaje_whatsapp",  # MEDIUM
+            titulo="Brd",
+        )
+        async with agent.memory.async_session() as s:
+            await s.execute(
+                update(AccionAutomatizacion)
+                .where(AccionAutomatizacion.id == a["id"])
+                .values(estado="approved")
+            )
+            await s.commit()
+        claimed = await ac.intentar_marcar_running(
+            a["id"], estados_origen=("approved",),
+        )
+        assert claimed is True
+
+
 class TestEjecutoresInternosNoTienenEfectoExterno:
     """Validación crítica: los ejecutores T2.1.A jamás llaman a
     proveedores reales (Whapi, Stripe, etc). Solo retornan dicts."""

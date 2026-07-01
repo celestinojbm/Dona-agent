@@ -698,6 +698,32 @@ async def ejecutar_accion(
         )
         return {"estado_final": "failed", "error": msg}
 
+    # 5.2 · Bloqueo CRITICAL ANTES del claim y de la reserva. Una acción
+    # crítica jamás debe transicionar a running ni tocar créditos: el claim
+    # atómico (`intentar_marcar_running`) también la rechaza por construcción,
+    # pero filtramos aquí para emitir el audit `action_blocked_critical` con
+    # contexto y fallar limpio sin haber reservado nada. La acción queda en
+    # `failed` desde `approved` (transición válida sin pasar por running).
+    if esta_bloqueado_t21(riesgo):
+        await registrar_evento(
+            evento="action_blocked_critical",
+            telefono=telefono,
+            accion_id=accion_id,
+            riesgo=riesgo_str,
+            payload={"tipo_accion": tipo, "razon": "critical_blocked_t21a"},
+        )
+        await marcar_fallida(
+            accion_id,
+            error_message=(
+                "Acción CRITICAL bloqueada · requiere confirmación "
+                "fuerte (futuro PR)."
+            ),
+        )
+        return {
+            "estado_final": "failed",
+            "error": "critical_blocked_t21a",
+        }
+
     # Claim atómico de ejecución ANTES de reservar/cobrar créditos.
     # Dos confirmaciones HIGH concurrentes pueden llegar aquí con el mismo
     # snapshot approved. Sólo una debe poder mover la acción desde su estado
@@ -751,30 +777,6 @@ async def ejecutar_accion(
             "error": "insufficient_credits",
             "saldo": e.saldo,
             "requerido": e.requerido,
-        }
-
-    # Bloqueo crítico · liberamos la reserva (no debería pasar normalmente
-    # porque el caller debería filtrar critical antes, pero defensa en
-    # profundidad).
-    if esta_bloqueado_t21(riesgo):
-        await registrar_evento(
-            evento="action_blocked_critical",
-            telefono=telefono,
-            accion_id=accion_id,
-            riesgo=riesgo_str,
-            payload={"tipo_accion": tipo, "razon": "critical_blocked_t21a"},
-        )
-        await liberar_creditos(accion_id, razon="critical_blocked_t21a")
-        await marcar_fallida(
-            accion_id,
-            error_message=(
-                "Acción CRITICAL bloqueada · requiere confirmación "
-                "fuerte (futuro PR)."
-            ),
-        )
-        return {
-            "estado_final": "failed",
-            "error": "critical_blocked_t21a",
         }
 
     # Ejecutor mapeado · si es HIGH no mapeado, rechaza · libera reserva
