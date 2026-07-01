@@ -27,3 +27,11 @@ Thumbs.db
 .vscode/
 .idea/
 .vercel
+
+# Cobertura de tests
+.coverage
+htmlcov/
+
+# Estado local de herramientas de agente (oh-my-claudecode)
+.omc/
+landing/.omc/
