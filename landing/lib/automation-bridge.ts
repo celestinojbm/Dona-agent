@@ -19,7 +19,7 @@ import type {
   AccionesResponse,
   EjecutarResponse,
   GenerarResponse,
-  OportunidadesResponse,
+  OportunidadesConEstadoResponse,
   AccionAutomatizacion,
   HighPreviewResponse,
 } from "./automation-types";
@@ -111,9 +111,12 @@ async function callInternal<T>(
 
 export async function fetchOportunidades(
   subscriptionId: string,
-): Promise<AccionApiResult<OportunidadesResponse>> {
+): Promise<AccionApiResult<OportunidadesConEstadoResponse>> {
   if (!subscriptionId) return { ok: false, error: "missing_subscription_id" };
-  return callInternal<OportunidadesResponse>(
+  // El backend devuelve oportunidades + estado del perfil (perfil_estado,
+  // campos llenos/totales, siguiente paso) para que el dashboard explique
+  // POR QUÉ no hay oportunidades cuando el diagnóstico está incompleto.
+  return callInternal<OportunidadesConEstadoResponse>(
     "/internal/automation/oportunidades",
     { subscription_id: subscriptionId },
   );
