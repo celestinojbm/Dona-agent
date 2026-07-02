@@ -14,6 +14,8 @@ comparado con `hmac.compare_digest`, fail-closed si no está configurado. El
 número del owner ya no basta por sí solo.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 import enhanced.execution as ex
@@ -120,3 +122,88 @@ class TestIniciarEjecucionConSegundoFactor:
         assert sm.tiene_confirmacion_pendiente(OWNER) is False
         # No debe revelar la lista de acciones válidas ante un 2º factor inválido.
         assert "limpiar_rate_limit" not in resp
+
+
+# ── procesar_webhook: parseo de `!exec <accion> <token>` end-to-end ──────────
+
+def _webhook_mensaje(texto: str):
+    """Arma un proveedor fake que entrega un único MensajeEntrante del owner."""
+    from agent.providers.base import MensajeEntrante
+
+    fake_msg = MensajeEntrante(
+        telefono=OWNER,
+        texto=texto,
+        mensaje_id=f"wamid.exec.{abs(hash(texto)) % 10_000}",
+        es_propio=False,
+    )
+    fake_proveedor = MagicMock()
+    fake_proveedor.parsear_webhook = AsyncMock(return_value=[fake_msg])
+    fake_proveedor.enviar_mensaje = AsyncMock(return_value=True)
+    return fake_proveedor
+
+
+def _patches_webhook(fake_proveedor):
+    """Cortocircuita dependencias del loop de webhook ajenas a este test."""
+    return [
+        patch("agent.main.proveedor", fake_proveedor),
+        patch("agent.main._mensaje_ya_procesado", new=AsyncMock(return_value=False)),
+        patch("agent.main._dentro_de_limite", return_value=True),
+        patch("agent.memory.obtener_google_auth", new=AsyncMock(return_value=None)),
+        patch("agent.main.es_onboarding_activo", new=AsyncMock(return_value=False)),
+        patch("enhanced.safe_module.OWNER_PHONE", OWNER),
+    ]
+
+
+@pytest.mark.asyncio
+class TestExecWebhookEndToEnd:
+    async def test_exec_sin_accion_muestra_uso(self, monkeypatch):
+        """`!exec` a secas (owner) → mensaje de uso con el formato `<token>`."""
+        monkeypatch.setattr(sm, "ADMIN_EXEC_SECRET", "secreto-real")
+        fake = _webhook_mensaje("!exec")
+
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            for p in _patches_webhook(fake):
+                stack.enter_context(p)
+            from agent.main import procesar_webhook
+            await procesar_webhook(MagicMock())
+
+        fake.enviar_mensaje.assert_awaited()
+        _, texto = fake.enviar_mensaje.call_args[0]
+        assert "Uso" in texto and "token" in texto.lower()
+        assert sm.tiene_confirmacion_pendiente(OWNER) is False
+
+    async def test_exec_con_accion_y_token_despacha_confirmacion(self, monkeypatch):
+        """`!exec <accion> <token>` correcto (owner) → inicia confirmación."""
+        monkeypatch.setattr(sm, "ADMIN_EXEC_SECRET", "secreto-real")
+        fake = _webhook_mensaje("!exec limpiar_rate_limit secreto-real")
+
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            for p in _patches_webhook(fake):
+                stack.enter_context(p)
+            from agent.main import procesar_webhook
+            await procesar_webhook(MagicMock())
+
+        fake.enviar_mensaje.assert_awaited()
+        _, texto = fake.enviar_mensaje.call_args[0]
+        assert "limpiar_rate_limit" in texto
+        assert "CONFIRMAR" in texto
+        assert sm.tiene_confirmacion_pendiente(OWNER) is True
+
+    async def test_exec_token_incorrecto_por_webhook_no_confirma(self, monkeypatch):
+        """`!exec <accion> <token-malo>` (owner) → no autoriza, sin confirmación."""
+        monkeypatch.setattr(sm, "ADMIN_EXEC_SECRET", "secreto-real")
+        fake = _webhook_mensaje("!exec limpiar_rate_limit token-malo")
+
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            for p in _patches_webhook(fake):
+                stack.enter_context(p)
+            from agent.main import procesar_webhook
+            await procesar_webhook(MagicMock())
+
+        fake.enviar_mensaje.assert_awaited()
+        _, texto = fake.enviar_mensaje.call_args[0]
+        assert "No autorizado" in texto
+        assert sm.tiene_confirmacion_pendiente(OWNER) is False
