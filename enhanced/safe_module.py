@@ -24,6 +24,11 @@ logger = logging.getLogger("dona.enhanced")
 
 OWNER_PHONE = os.getenv("OWNER_PHONE", "")
 
+# Segundo factor para comandos de ejecución privilegiada (!exec).
+# El caller-ID de WhatsApp (`from`) es spoofeable, así que ser el owner NO basta
+# para disparar acciones de sistema: se exige además este secreto compartido.
+ADMIN_EXEC_SECRET = os.getenv("ADMIN_EXEC_SECRET", "")
+
 # Timeout para confirmaciones pendientes (segundos)
 CONFIRMACION_TIMEOUT = 300  # 5 minutos
 
@@ -71,6 +76,22 @@ def _es_owner(telefono: str) -> bool:
         _normalizar_telefono(telefono),
         _normalizar_telefono(OWNER_PHONE),
     )
+
+
+def _segundo_factor_valido(token: str) -> bool:
+    """
+    Segundo factor para `!exec` (TEMA 5 · 5.3). Compara `token` con
+    `ADMIN_EXEC_SECRET` en tiempo constante (`hmac.compare_digest`).
+
+    Fail-closed: si el secreto no está configurado, o el token viene vacío,
+    el segundo factor es inválido — nunca se abre el paso por omisión.
+    """
+    if not ADMIN_EXEC_SECRET:
+        logger.warning("[SAFE] ADMIN_EXEC_SECRET no configurado — !exec deshabilitado")
+        return False
+    if not token:
+        return False
+    return hmac.compare_digest(token, ADMIN_EXEC_SECRET)
 
 
 def _confirmacion_expirada(conf: ConfirmacionPendiente) -> bool:

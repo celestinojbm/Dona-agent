@@ -1241,7 +1241,7 @@ async def procesar_webhook(request: Request):
                         "  dona status — Vista simplificada\n\n"
                         "*Ejecución*\n"
                         "  !actions — Lista acciones correctivas\n"
-                        "  !exec <acción> — Ejecutar con confirmación\n\n"
+                        "  !exec <acción> <token> — Ejecutar (2º factor admin)\n\n"
                         "*Insights*\n"
                         "  !insights — Reporte semanal bajo demanda\n\n"
                         "*Sistemas*\n"
@@ -1297,13 +1297,16 @@ async def procesar_webhook(request: Request):
                 if not _es_owner(msg.telefono):
                     await proveedor.enviar_mensaje(msg.telefono, "Este comando requiere permisos de administrador.")
                     continue
-                # Extraer nombre de la acción: "!exec limpiar_rate_limit" → "limpiar_rate_limit"
-                _partes = msg.texto.strip().split(maxsplit=1)
+                # Formato: "!exec <accion> <token>" — el token es el 2º factor
+                # (ADMIN_EXEC_SECRET). El caller-ID de WhatsApp es spoofeable, así
+                # que ser owner no basta para disparar acciones de sistema (5.3).
+                _partes = msg.texto.strip().split(maxsplit=2)
                 if len(_partes) < 2:
-                    await proveedor.enviar_mensaje(msg.telefono, "Uso: *!exec <nombre_accion>*\nEscribe *!actions* para ver las disponibles.")
+                    await proveedor.enviar_mensaje(msg.telefono, "Uso: *!exec <nombre_accion> <token>*\nEscribe *!actions* para ver las disponibles.")
                     continue
                 _nombre_accion = _partes[1].strip().lower()
-                resp_exec = await ejecucion.iniciar_ejecucion(msg.telefono, _nombre_accion)
+                _segundo_factor = _partes[2].strip() if len(_partes) >= 3 else ""
+                resp_exec = await ejecucion.iniciar_ejecucion(msg.telefono, _nombre_accion, _segundo_factor)
                 await proveedor.enviar_mensaje(msg.telefono, resp_exec)
                 continue
             # ── Dona 2.0: Reporte semanal bajo demanda ───────────────────

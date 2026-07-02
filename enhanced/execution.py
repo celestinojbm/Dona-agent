@@ -8,8 +8,10 @@ Todas requieren confirmación explícita via SafeModule:
   - Nivel "owner_critical": CONFIRMAR + DONA-ADMIN
 
 Comandos:
-  !actions           → lista acciones disponibles
-  !exec <nombre>     → solicita confirmación para ejecutar una acción
+  !actions               → lista acciones disponibles
+  !exec <nombre> <token> → solicita confirmación para ejecutar una acción
+                           (el token es el segundo factor ADMIN_EXEC_SECRET;
+                            el caller-ID de WhatsApp es spoofeable — TEMA 5·5.3)
 
 Acciones disponibles:
   - limpiar_rate_limit    (owner)          — Limpia la caché de rate limiting
@@ -21,7 +23,12 @@ Acciones disponibles:
 
 import logging
 
-from enhanced.safe_module import SafeModule, NivelPermiso, AccionConfirmable
+from enhanced.safe_module import (
+    SafeModule,
+    NivelPermiso,
+    AccionConfirmable,
+    _segundo_factor_valido,
+)
 
 logger = logging.getLogger("dona.enhanced")
 
@@ -168,15 +175,34 @@ class ModuloEjecucion(SafeModule):
             lineas.append(f"    {a['descripcion']}")
             lineas.append("")
 
-        lineas.append("Ejecuta con: *!exec <nombre>*")
-        lineas.append("Ejemplo: !exec limpiar_rate_limit")
+        lineas.append("Ejecuta con: *!exec <nombre> <token>*")
+        lineas.append("Ejemplo: !exec limpiar_rate_limit <token-admin>")
         return "\n".join(lineas)
 
-    async def iniciar_ejecucion(self, telefono: str, nombre_accion: str) -> str:
+    async def iniciar_ejecucion(
+        self, telefono: str, nombre_accion: str, segundo_factor: str = ""
+    ) -> str:
         """
         Busca la acción por nombre e inicia el flujo de confirmación.
         Retorna el mensaje a enviar al usuario.
+
+        TEMA 5 · 5.3 — El caller-ID de WhatsApp es spoofeable, así que ser el
+        owner no basta: se exige un segundo factor (`ADMIN_EXEC_SECRET`) validado
+        server-side ANTES de resolver la acción. Un token inválido ni siquiera
+        revela qué acciones existen.
         """
+        if not _segundo_factor_valido(segundo_factor):
+            await self.registrar_actividad(
+                telefono, "exec_segundo_factor_invalido",
+                detalle=f"accion_solicitada={nombre_accion}",
+                nivel="warning",
+                privilegiada=True,
+            )
+            return (
+                "No autorizado. *!exec* requiere el segundo factor de administrador.\n"
+                "Uso: *!exec <acción> <token>*"
+            )
+
         accion_def = next(
             (a for a in ACCIONES_DISPONIBLES if a["nombre"] == nombre_accion),
             None,
