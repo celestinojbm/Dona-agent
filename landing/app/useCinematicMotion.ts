@@ -44,6 +44,10 @@ import { useEffect, useLayoutEffect } from "react";
  *    a la izquierda de los pasos se "dibuja" (scaleY 0→1) scrubbeada al recorrer
  *    la seccion, dando la sensacion de avanzar por el proceso (firma timeline
  *    tipo Linear/LTX).
+ * iter 24:
+ *  - Seam draw-in (`[data-seam]`): los divisores entre secciones se "trazan"
+ *    desde el centro hacia afuera (scaleX 0→1 + fade) al entrar en vista, como una
+ *    costura de luz que une cada seccion con la siguiente (firma LTX/Linear).
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -71,6 +75,13 @@ export function useCinematicMotion() {
     const groups = Array.from(document.querySelectorAll<HTMLElement>("[data-reveal-group]"));
     groups.forEach((g) => g.setAttribute("data-reveal-group", "ready"));
 
+    // Seam draw-in (iter 24): marcamos cada divisor como "ready" pre-paint para que
+    // CSS lo colapse (scaleX 0 + fade) antes del primer frame (sin flash). GSAP lo
+    // "traza" luego al entrar en vista; al desmontar volvemos a "idle" para que el
+    // divisor quede visible si GSAP no llega a correr.
+    const seams = Array.from(document.querySelectorAll<HTMLElement>("[data-seam]"));
+    seams.forEach((s) => s.setAttribute("data-seam", "ready"));
+
     const headline = document.querySelector<HTMLElement>("[data-kinetic]");
     if (headline) headline.setAttribute("data-kinetic", "pending");
     const raf1 = requestAnimationFrame(() =>
@@ -81,6 +92,7 @@ export function useCinematicMotion() {
     return () => {
       cancelAnimationFrame(raf1);
       groups.forEach((g) => g.setAttribute("data-reveal-group", "idle"));
+      seams.forEach((s) => s.setAttribute("data-seam", "idle"));
     };
   }, []);
 
@@ -93,10 +105,14 @@ export function useCinematicMotion() {
 
     // Si GSAP no llega a cargar (red, bloqueo), revelamos las cards que ocultamos
     // pre-paint para no dejarlas invisibles: el reveal es enhancement, no requisito.
-    const revelarFallback = () =>
+    const revelarFallback = () => {
       document
         .querySelectorAll<HTMLElement>('[data-reveal-group="ready"]')
         .forEach((g) => g.setAttribute("data-reveal-group", "shown"));
+      document
+        .querySelectorAll<HTMLElement>('[data-seam="ready"]')
+        .forEach((s) => s.setAttribute("data-seam", "shown"));
+    };
 
     (async () => {
       let gsapMod: typeof import("gsap");
@@ -314,6 +330,40 @@ export function useCinematicMotion() {
             }
           );
         }
+
+        // 11. Seam draw-in (iter 24): cada divisor [data-seam] se traza desde el
+        //     centro hacia afuera (scaleX 0→1 + fade) al entrar en vista, como una
+        //     costura de luz entre secciones. `once` para que solo pase una vez;
+        //     pasamos el atributo a "shown" al entrar para que sobreviva a un
+        //     ctx.revert() de otra capa sin volver a colapsarse. Solo transform +
+        //     opacity (sin reflow). El estado oculto inicial lo pone CSS via el
+        //     atributo "ready" seteado pre-paint. Sin JS / reduced-motion (este
+        //     efecto entero se salta) el divisor queda visible en su ancho natural.
+        gsap.utils.toArray<HTMLElement>("[data-seam]").forEach((seam) => {
+          ScrollTrigger.create({
+            trigger: seam,
+            start: "top 92%",
+            once: true,
+            onEnter: () => {
+              seam.setAttribute("data-seam", "shown");
+              gsap.fromTo(
+                seam,
+                { scaleX: 0, opacity: 0 },
+                {
+                  scaleX: 1,
+                  opacity: 1,
+                  duration: 1.1,
+                  ease: "power3.out",
+                  overwrite: true,
+                  onComplete: () => {
+                    seam.setAttribute("data-seam", "shown");
+                    seam.style.willChange = "auto";
+                  },
+                }
+              );
+            },
+          });
+        });
 
         // 9. Reveal escalonado de las cards: cada grid [data-reveal-group] revela
         //    sus hijos [data-reveal] en cascada al entrar en vista (translate +

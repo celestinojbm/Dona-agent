@@ -153,6 +153,27 @@ body {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
 }
 
+/* -- Seam draw-in (LTX iter 24): los divisores entre secciones se "trazan"
+   desde el centro hacia afuera (scaleX 0->1) al entrar en vista, como una costura
+   de luz que une una seccion con la siguiente (firma LTX/Linear). El estado oculto
+   inicial solo lo pone useCinematicMotion via el atributo [data-seam="ready"]
+   (seteado pre-paint, solo con JS y sin reduced-motion). Sin JS, con
+   reduced-motion o sin ese valor (SSR renderiza data-seam=""), el divisor se ve
+   completo — nunca queda una costura colapsada. -- */
+[data-seam] {
+  transform-origin: center;
+}
+[data-seam="ready"] {
+  transform: scaleX(0);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-seam] {
+    will-change: auto;
+  }
+}
+
 /* -- Glass card -- */
 .glass-card {
   background: rgba(255, 255, 255, 0.03);

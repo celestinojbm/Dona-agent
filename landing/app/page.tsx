@@ -636,7 +636,7 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="relative z-[2] divider-gradient" />
+      <div data-seam className="relative z-[2] divider-gradient" />
 
       {/* ══════════════════════════════════════════════════════
           HOW IT WORKS
@@ -673,7 +673,7 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="relative z-[2] divider-gradient" />
+      <div data-seam className="relative z-[2] divider-gradient" />
 
       {/* ══════════════════════════════════════════════════════
           CAPABILITIES
@@ -702,7 +702,7 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="relative z-[2] divider-gradient" />
+      <div data-seam className="relative z-[2] divider-gradient" />
 
       {/* ══════════════════════════════════════════════════════
           WHY DONA
@@ -730,7 +730,7 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="relative z-[2] divider-gradient" />
+      <div data-seam className="relative z-[2] divider-gradient" />
 
       {/* ══════════════════════════════════════════════════════
           TESTIMONIALS — infinite carousel
@@ -745,7 +745,7 @@ export default function Home() {
         <FadeIn><TestimonialCarousel /></FadeIn>
       </section>
 
-      <div className="relative z-[2] divider-gradient" />
+      <div data-seam className="relative z-[2] divider-gradient" />
 
       {/* ══════════════════════════════════════════════════════
           PRICING
@@ -827,7 +827,7 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="relative z-[2] divider-gradient" />
+      <div data-seam className="relative z-[2] divider-gradient" />
 
       {/* ══════════════════════════════════════════════════════
           CTA — no email form, just button to pricing
@@ -862,7 +862,7 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="relative z-[2] divider-gradient" />
+      <div data-seam className="relative z-[2] divider-gradient" />
 
       {/* ── Footer ── */}
       <footer className="relative z-[2] py-16">
