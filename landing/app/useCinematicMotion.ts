@@ -44,6 +44,12 @@ import { useEffect, useLayoutEffect } from "react";
  *    a la izquierda de los pasos se "dibuja" (scaleY 0→1) scrubbeada al recorrer
  *    la seccion, dando la sensacion de avanzar por el proceso (firma timeline
  *    tipo Linear/LTX).
+ * iter 23:
+ *  - Resplandor ambiental que sigue al cursor (`.cursor-glow`): un pozo de luz
+ *    radial suave, fijo detras del contenido, que persigue el mouse por toda la
+ *    pagina (quickTo → follow con inercia, fade-in al primer movimiento). Firma
+ *    de "luz viva" tipo Linear/LTX/Higgsfield, en un eje distinto al spotlight
+ *    por-card (hover) y a los blobs (scroll).
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -313,6 +319,34 @@ export function useCinematicMotion() {
               },
             }
           );
+        }
+
+        // 11. Resplandor ambiental que sigue al cursor (iter 23): el pozo de luz
+        //     `.cursor-glow` persigue el mouse por toda la pagina. quickTo da el
+        //     follow con inercia (spring-back suave) y solo toca transform (x/y) →
+        //     GPU, sin reflow. Se funde de 0→1 al primer movimiento (opacity via
+        //     CSS transition) para que no aparezca "pegado" en la esquina 0,0.
+        //     Listener en window removido al desmontar; ctx.revert() limpia el
+        //     transform. Sin puntero (mobile) nunca se dispara → queda invisible.
+        const glow = document.querySelector<HTMLElement>(".cursor-glow");
+        if (glow) {
+          const xTo = gsap.quickTo(glow, "x", { duration: 0.6, ease: "power3.out" });
+          const yTo = gsap.quickTo(glow, "y", { duration: 0.6, ease: "power3.out" });
+          let revealed = false;
+          const onMove = (e: MouseEvent) => {
+            if (!revealed) {
+              revealed = true;
+              // Colocamos el glow bajo el cursor sin tween (jump) para que la
+              // primera aparicion no "vuele" desde 0,0; luego lo fundimos.
+              gsap.set(glow, { x: e.clientX, y: e.clientY });
+              glow.style.opacity = "1";
+              return;
+            }
+            xTo(e.clientX);
+            yTo(e.clientY);
+          };
+          window.addEventListener("mousemove", onMove, { passive: true });
+          removers.push(() => window.removeEventListener("mousemove", onMove));
         }
 
         // 9. Reveal escalonado de las cards: cada grid [data-reveal-group] revela

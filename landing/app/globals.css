@@ -281,6 +281,38 @@ body {
   }
 }
 
+/* -- Resplandor ambiental que sigue al cursor (LTX iter 23): un pozo de luz
+   radial suave, fijo detras del contenido, que persigue el mouse por toda la
+   pagina. useCinematicMotion lo desplaza via transform (x/y con quickTo → follow
+   con inercia) y lo funde de 0→1 al primer movimiento del cursor. Solo transform
+   + opacity → compuesto en GPU, sin reflow. Arranca en opacity 0 y centrado; sin
+   JS, con reduced-motion (el efecto entero se salta) o sin puntero (mobile) queda
+   invisible — nunca un pozo de luz colgado en una esquina. -- */
+.cursor-glow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 520px;
+  height: 520px;
+  margin: -260px 0 0 -260px;
+  border-radius: 9999px;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    rgba(124, 58, 237, 0.14),
+    rgba(37, 99, 235, 0.08) 42%,
+    transparent 68%
+  );
+  transition: opacity 0.6s ease;
+  will-change: transform, opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cursor-glow {
+    will-change: auto;
+  }
+}
+
 /* -- Parallax de profundidad (LTX iter 5): los numerales gigantes hacen drift
    en scroll. useCinematicMotion setea el transform (yPercent) via GSAP; aqui
    solo damos el hint de compositing. Sin JS o con reduced-motion no se aplica

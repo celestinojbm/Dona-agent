@@ -95,6 +95,14 @@ fbq('track', 'PageView');`,
           <span className="ambient-blob ambient-blob--blue" />
           <span className="ambient-blob ambient-blob--amber" />
         </div>
+        {/* Resplandor ambiental que sigue al cursor (LTX iter 23): un pozo de luz
+            suave detras del contenido que persigue el mouse por toda la pagina
+            (useCinematicMotion lo desplaza con quickTo y lo funde al primer
+            movimiento). Firma de "luz viva" tipo Linear/LTX/Higgsfield, en un eje
+            distinto al spotlight por-card (hover) y a los blobs (scroll). Capa fija
+            pointer-events-none; sin JS / reduced-motion queda en opacity 0 →
+            invisible, nunca un artefacto estatico. */}
+        <div className="cursor-glow z-[2]" aria-hidden="true" />
         <div className="relative z-10 flex flex-col min-h-full">
           {children}
         </div>
