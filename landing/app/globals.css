@@ -219,6 +219,28 @@ body {
     filter 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.08s);
 }
 
+/* -- Titulares de seccion kineticos (LTX iter 22): mismo reveal palabra-por-palabra
+   del hero, pero disparado al entrar cada <h2> en vista. useCinematicMotion marca
+   el titular [data-kinetic-scroll] como "pending" pre-paint (solo con JS y sin
+   reduced-motion) para ocultar sus palabras sin flash, y un IntersectionObserver lo
+   pasa a "visible" al cruzar el viewport → cascada de rise + blur (stagger via --ki).
+   Sin JS, con reduced-motion o sin el atributo, las palabras se ven completas —
+   nunca dejamos un titular invisible (mismo progressive enhancement que [data-fade]). -- */
+[data-kinetic-scroll="pending"] .kinetic-word {
+  opacity: 0;
+  transform: translateY(0.5em);
+  filter: blur(8px);
+}
+[data-kinetic-scroll="visible"] .kinetic-word {
+  opacity: 1;
+  transform: none;
+  filter: blur(0);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.06s),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.06s),
+    filter 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.06s);
+}
+
 /* -- Scroll progress beam (LTX iter 6): haz fino arriba con el degradado de
    marca que se llena segun el avance del scroll. useCinematicMotion escala su
    scaleX 0→1 (scrubbed). Arranca en scaleX(0): sin JS o con reduced-motion (el

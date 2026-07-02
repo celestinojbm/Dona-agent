@@ -645,7 +645,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.how.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-6 tracking-tighter text-white">{t.how.title}</h2>
+            <h2 data-kinetic-scroll className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-6 tracking-tighter text-white"><KineticText text={t.how.title} /></h2>
             <p className="text-center text-white/35 max-w-lg mx-auto mb-20 font-light">{t.how.subtitle}</p>
           </FadeIn>
           <div className="relative">
@@ -682,7 +682,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.capabilities.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.capabilities.title}</h2>
+            <h2 data-kinetic-scroll className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white"><KineticText text={t.capabilities.title} /></h2>
             <p className="text-center text-white/35 max-w-xl mx-auto mb-20 font-light">{t.capabilities.subtitle}</p>
           </FadeIn>
           <div data-reveal-group className="grid md:grid-cols-3 gap-6">
@@ -711,7 +711,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.whyDona.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white">{t.whyDona.title}</h2>
+            <h2 data-kinetic-scroll className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white"><KineticText text={t.whyDona.title} /></h2>
           </FadeIn>
           <div data-reveal-group className="grid md:grid-cols-2 gap-6">
             {t.whyDona.cards.map((card, i) => {
@@ -739,7 +739,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6 mb-16">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.testimonials.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.testimonials.title}</h2>
+            <h2 data-kinetic-scroll className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white"><KineticText text={t.testimonials.title} /></h2>
           </FadeIn>
         </div>
         <FadeIn><TestimonialCarousel /></FadeIn>
@@ -754,7 +754,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.pricing.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white">{t.pricing.title}</h2>
+            <h2 data-kinetic-scroll className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-4 tracking-tighter text-white"><KineticText text={t.pricing.title} /></h2>
             <p className="text-center text-white/35 max-w-md mx-auto mb-20 font-light">{t.pricing.subtitle}</p>
           </FadeIn>
 
@@ -835,7 +835,7 @@ export default function Home() {
       <section id="cta" className="relative z-[2] section-space">
         <div className="max-w-2xl mx-auto px-6 text-center">
           <FadeIn>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal mb-6 tracking-tighter text-white">{t.cta.title}</h2>
+            <h2 data-kinetic-scroll className="text-3xl md:text-5xl lg:text-6xl font-normal mb-6 tracking-tighter text-white"><KineticText text={t.cta.title} /></h2>
             <p className="text-white/35 mb-12 max-w-md mx-auto text-lg font-light">{t.cta.subtitle}</p>
           </FadeIn>
           <FadeIn delay={0.15}>
@@ -854,7 +854,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn>
             <p className="text-xs uppercase tracking-[0.25em] text-white/25 mb-4 text-center font-light">{t.faq.label}</p>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white">{t.faq.title}</h2>
+            <h2 data-kinetic-scroll className="text-3xl md:text-5xl lg:text-6xl font-normal text-center mb-20 tracking-tighter text-white"><KineticText text={t.faq.title} /></h2>
           </FadeIn>
           <FadeIn delay={0.1}>
             <FAQSection items={t.faq.items} />

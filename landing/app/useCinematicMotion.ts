@@ -44,6 +44,11 @@ import { useEffect, useLayoutEffect } from "react";
  *    a la izquierda de los pasos se "dibuja" (scaleY 0→1) scrubbeada al recorrer
  *    la seccion, dando la sensacion de avanzar por el proceso (firma timeline
  *    tipo Linear/LTX).
+ * iter 22:
+ *  - Titulares de seccion kineticos (`[data-kinetic-scroll]` + `.kinetic-word`):
+ *    cada <h2> revela sus palabras palabra-por-palabra (rise + blur escalonado)
+ *    al entrar en vista, extendiendo la firma del hero (iter 4) a toda la pagina.
+ *    Reveal por IntersectionObserver + CSS (no depende de GSAP).
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -78,9 +83,37 @@ export function useCinematicMotion() {
         if (headline) headline.setAttribute("data-kinetic", "visible");
       })
     );
+
+    // Titulares de seccion kineticos (iter 22): cada <h2> [data-kinetic-scroll]
+    // revela sus palabras (.kinetic-word) en cascada al entrar en vista, extendiendo
+    // la firma del titular del hero a toda la pagina ("movimiento en todo" tipo LTX).
+    // Pre-paint los marcamos "pending" (CSS oculta las palabras antes del primer
+    // frame → sin flash) y un IntersectionObserver nativo los pasa a "visible" al
+    // cruzar el viewport (mismo mecanismo fiable que [data-fade], sin depender de que
+    // GSAP cargue). El reveal es puro CSS (transiciones escalonadas via --ki), asi
+    // que no necesita tween. Sin JS o con reduced-motion (early return de arriba) el
+    // atributo queda en su valor inicial y las palabras se ven completas.
+    const headings = Array.from(document.querySelectorAll<HTMLElement>("[data-kinetic-scroll]"));
+    headings.forEach((h) => h.setAttribute("data-kinetic-scroll", "pending"));
+    const headingObserver = new IntersectionObserver(
+      (entries, obs) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          entry.target.setAttribute("data-kinetic-scroll", "visible");
+          obs.unobserve(entry.target);
+        }
+      },
+      { rootMargin: "-80px" }
+    );
+    headings.forEach((h) => headingObserver.observe(h));
+
     return () => {
       cancelAnimationFrame(raf1);
       groups.forEach((g) => g.setAttribute("data-reveal-group", "idle"));
+      headingObserver.disconnect();
+      // Revertimos a "idle" para que las palabras queden visibles si se remonta sin
+      // que el observer llegue a dispararse (el reveal es enhancement, no requisito).
+      headings.forEach((h) => h.setAttribute("data-kinetic-scroll", "idle"));
     };
   }, []);
 
