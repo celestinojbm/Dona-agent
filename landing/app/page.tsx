@@ -471,6 +471,16 @@ export default function Home() {
     { id: "faq", label: t.nav.faq },
   ];
 
+  // Rail de progreso de secciones (iter 25): puntos en el borde derecho en el
+  // orden real de aparicion en la pagina. Comparten la misma fuente de verdad
+  // que el scroll-spy (activeSection), asi que no agregan logica de scroll nueva.
+  const railSections: { id: string; label: string }[] = [
+    { id: "how", label: t.nav.how },
+    { id: "capabilities", label: t.nav.capabilities },
+    { id: "pricing", label: t.nav.pricing },
+    { id: "faq", label: t.nav.faq },
+  ];
+
 
   const handleCheckout = useCallback(async (plan: "premium" | "pro") => {
     setCheckoutLoading(plan);
@@ -498,6 +508,29 @@ export default function Home() {
       {/* Haz de progreso de scroll (LTX iter 6): useCinematicMotion lo llena
           0→1 segun el avance del scroll. Decorativo, no anuncia nada al lector. */}
       <div className="scroll-beam" aria-hidden="true" />
+
+      {/* Rail de progreso de secciones (LTX iter 25): navegador de puntos fijo al
+          borde derecho que marca la seccion activa (misma fuente que el scroll-spy)
+          y permite saltar. Solo desktop (lg+): en pantallas chicas estorbaria. El
+          punto activo crece y adopta el degradado de marca; cada item revela su
+          etiqueta al hover / al estar activo. Reduced-motion: sin escala ni
+          desplazamiento — el estado activo se comunica solo por color. */}
+      <nav aria-label="Progreso de secciones" className="section-rail hidden lg:flex">
+        {railSections.map((s) => {
+          const active = activeSection === s.id;
+          return (
+            <a
+              key={s.id}
+              href={`#${s.id}`}
+              aria-current={active ? "true" : undefined}
+              className={`rail-item ${active ? "rail-item-active" : ""}`}
+            >
+              <span className="rail-label">{s.label}</span>
+              <span className="rail-dot" aria-hidden="true" />
+            </a>
+          );
+        })}
+      </nav>
 
       {/* ── Nav — transparent, se despega del hero al hacer scroll ── */}
       <nav className={`fixed top-0 left-0 right-0 z-50 nav-bar ${scrolled ? "nav-bar-scrolled" : ""}`}>

@@ -387,6 +387,74 @@ body {
   }
 }
 
+/* -- Rail de progreso de secciones (LTX iter 25): navegador de puntos fijo al
+   borde derecho que refleja la seccion activa (misma fuente que el scroll-spy) y
+   permite saltar a cada seccion. Solo se monta en desktop (lg+, via las clases
+   de Tailwind en el markup). El punto activo crece y adopta el degradado de
+   marca (azul→naranja); al hover, o cuando esta activo, el item revela su
+   etiqueta deslizandola. Reduced-motion: sin escala ni desplazamiento — el
+   estado activo se comunica solo por color, sin movimiento. Overlay fijo,
+   pointer-events solo en los enlaces; no afecta el layout del contenido. -- */
+.section-rail {
+  position: fixed;
+  right: 1.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  flex-direction: column;
+  gap: 1.1rem;
+  align-items: flex-end;
+}
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+.rail-label {
+  font-size: 0.7rem;
+  font-weight: 300;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.5);
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.rail-item:hover .rail-label,
+.rail-item-active .rail-label {
+  opacity: 1;
+  transform: translateX(0);
+}
+.rail-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.22);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), background 0.35s ease,
+    box-shadow 0.35s ease;
+}
+.rail-item:hover .rail-dot {
+  background: rgba(255, 255, 255, 0.5);
+}
+.rail-item-active .rail-dot {
+  background: linear-gradient(135deg, #2563EB, #F97316);
+  transform: scale(1.55);
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.4);
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-label {
+    transition: none;
+  }
+  .rail-dot {
+    transition: background 0.2s ease;
+  }
+  .rail-item-active .rail-dot {
+    transform: none;
+  }
+}
+
 /* -- Section spacing -- */
 .section-space {
   padding-top: 10rem;
