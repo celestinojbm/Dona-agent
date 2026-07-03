@@ -481,3 +481,61 @@ body {
     animation: none;
   }
 }
+
+/* -- Scroll cue (LTX iter 28): indicador de scroll al pie del hero.
+   Un "mouse" minimalista cuya rueda (punto con el degradado de marca) cae en loop,
+   invitando a bajar — firma cinematografica de landings premium (LumaLabs/
+   Higgsfield/Linear). Decorativo (aria-hidden, pointer-events-none), sin
+   interaccion ni layout: vive absoluto dentro del hero (100dvh) y se va de vista
+   al hacer scroll. Solo se monta en >=md (Tailwind `hidden md:flex`): en mobile el
+   hero es mas compacto y evitamos solaparlo con el contenido. El contenedor bobea
+   suave y el punto simula la rueda cayendo. Respeta prefers-reduced-motion: se
+   detiene todo (queda el mouse como pista estatica, nunca invisible). -- */
+.scroll-cue {
+  position: absolute;
+  /* Anclado al alto del viewport (no al del hero): el bloque del hero puede
+     superar 100dvh, asi que un `bottom` lo dejaria por debajo del pliegue. Con
+     top = 100dvh - 5rem el cue queda cerca del borde inferior de la primera
+     pantalla y se va de vista al hacer scroll. */
+  top: calc(100dvh - 5rem);
+  left: 50%;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: scroll-cue-bob 2.4s ease-in-out infinite;
+}
+.scroll-cue-mouse {
+  width: 26px;
+  height: 42px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  display: flex;
+  justify-content: center;
+  padding-top: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.scroll-cue-dot {
+  width: 3px;
+  height: 8px;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, #2563EB, #F97316);
+  animation: scroll-cue-dot 2.4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+@keyframes scroll-cue-bob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(6px); }
+}
+@keyframes scroll-cue-dot {
+  0% { opacity: 0; transform: translateY(0); }
+  30% { opacity: 1; }
+  70% { opacity: 1; transform: translateY(12px); }
+  100% { opacity: 0; transform: translateY(14px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll-cue { animation: none; }
+  .scroll-cue-dot { animation: none; opacity: 0.8; transform: none; }
+}

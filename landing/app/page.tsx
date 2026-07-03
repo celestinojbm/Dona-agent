@@ -612,6 +612,15 @@ export default function Home() {
             </div>
           </FadeIn>
         </div>
+
+        {/* Indicador de scroll (LTX iter 28): "mouse" cinematografico al pie del
+            hero cuya rueda cae en loop, invitando a bajar. Decorativo (aria-hidden),
+            md+; vive absoluto en el hero y se va de vista al hacer scroll. */}
+        <div className="scroll-cue hidden md:flex" aria-hidden="true">
+          <span className="scroll-cue-mouse">
+            <span className="scroll-cue-dot" />
+          </span>
+        </div>
       </section>
 
       {/* ══════════════════════════════════════════════════════
