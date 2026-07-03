@@ -358,7 +358,7 @@ function RotatingText({ words }: { words: readonly string[] }) {
           animate={{ y: 0, opacity: 1, filter: "blur(0px)" }}
           exit={{ y: -40, opacity: 0, filter: "blur(10px)" }}
           transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-          className="absolute inset-x-0 text-gradient whitespace-nowrap"
+          className="absolute inset-x-0 hero-rotating-word whitespace-nowrap"
         >
           {words[index]}
         </motion.span>

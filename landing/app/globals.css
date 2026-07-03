@@ -57,6 +57,31 @@ body {
   background-clip: text;
 }
 
+/* -- Aurora viva del titular rotativo (LTX iter 29) --
+   El texto rotativo del hero ("Convierte tu intencion en workflows / en
+   campañas...") es el foco semantico de la pagina. En vez de un gradiente blanco
+   estatico, aqui fluye con el degradado de marca (azul→violeta→ambar) desplazando
+   su background-position en loop — color vivo en el elemento de mayor atencion,
+   firma cinematografica tipo LTX/Higgsfield. Solo anima background-position
+   (compuesto en GPU, sin reflow ni repaints costosos). Con prefers-reduced-motion
+   se congela en el mismo gradiente de marca (estatico, igual de legible sobre el
+   fondo oscuro) — el movimiento es enhancement, nunca requisito. */
+@keyframes hero-aurora-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.hero-rotating-word {
+  background: linear-gradient(120deg, #2563EB, #7C3AED, #F97316, #7C3AED, #2563EB);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: hero-aurora-flow 6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-rotating-word { animation: none; }
+}
+
 /* -- Nav link hover: blue-to-orange gradient text -- */
 .nav-link {
   transition: all 0.3s ease;
