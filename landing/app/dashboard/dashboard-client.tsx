@@ -24,6 +24,7 @@ import { puedeVerControlRoomInterno } from "@/lib/control-room";
 import TourDashboard from "./tour";
 import SeccionActionCenter from "./seccion-action-center";
 import SeccionControlRoom from "./seccion-control-room";
+import SeccionOportunidades from "./seccion-oportunidades";
 
 interface DashboardProps {
   session: { user?: { email?: string | null } };
@@ -293,6 +294,13 @@ export default function DashboardClient({ session }: DashboardProps) {
               onComprar={handleTopup}
             />
             <SeccionHistorial data={load.data} />
+            {/* Oportunidades detectadas · el eslabón diagnóstico→
+                oportunidad del core loop, antes del Action Center.
+                Solo lectura: detectar es gratis; convertir en acciones
+                vive en "Generar acciones" del Action Center. */}
+            {load.data.suscripcion.estado !== "canceled" && (
+              <SeccionOportunidades />
+            )}
             {/* T2.1.B — Action Center. Acciones generadas por el
                 Automation Core (T2.1.A). Lista, aprueba, rechaza y
                 ejecuta dry-run. Solo se muestra si la sub está activa
