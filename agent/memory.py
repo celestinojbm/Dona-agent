@@ -2528,11 +2528,8 @@ async def borrar_datos_usuario(telefono: str) -> dict:
         # traten literalmente y anclamos con el delimitador '_' posterior.
         try:
             from sqlalchemy import text as _text
-            tel_like = (
-                telefono.replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_")
-            )
+            tel_like = telefono.replace("\\", "\\\\")
+            tel_like = tel_like.replace("%", "\\%").replace("_", "\\_")
             r_gcal = await session.execute(
                 _text(
                     "DELETE FROM recordatorios_gcal_enviados "
