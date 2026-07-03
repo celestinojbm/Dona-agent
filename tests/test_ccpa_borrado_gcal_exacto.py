@@ -17,21 +17,36 @@ El borrado debe ser por MATCH ANCLADO al prefijo exacto del usuario, nunca por
 subcadena.
 """
 
-import importlib
-
 import pytest
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 import agent.memory
 
 
 @pytest.fixture
 async def memoria(tmp_path, monkeypatch):
-    """SQLite aislada con las tablas de agent/memory.py recreadas."""
-    db_path = tmp_path / "ccpa.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    importlib.reload(agent.memory)
-    await agent.memory.inicializar_db()
-    return agent.memory
+    """SQLite aislada, rebindeando el engine/session del módulo original.
+
+    Se evita `importlib.reload(agent.memory)` a propósito: reload crea nuevos
+    objetos de código que coverage.py no atribuye al ejecutar la función bajo
+    prueba (rompería el gate diff-cover del código nuevo). Parcheando los
+    globals `engine`/`async_session` sobre el módulo YA importado, la ejecución
+    de `borrar_datos_usuario` se contabiliza normalmente y el aislamiento de DB
+    se mantiene.
+    """
+    m = agent.memory
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'ccpa.db'}", echo=False)
+    sessionmaker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(m, "engine", engine)
+    monkeypatch.setattr(m, "async_session", sessionmaker)
+    async with engine.begin() as conn:
+        await conn.run_sync(m.Base.metadata.create_all)
+    yield m
+    await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -39,7 +54,8 @@ async def test_borrado_gcal_no_toca_dedup_de_un_tercero(memoria):
     """Borrar "5511" NO debe eliminar la dedup GCal de "115511" (superstring)."""
     from sqlalchemy import select
 
-    from agent.memory import RecordatorioGCalEnviado, async_session
+    RecordatorioGCalEnviado = memoria.RecordatorioGCalEnviado
+    async_session = memoria.async_session
 
     victima = "5511"        # ejerce el derecho al olvido
     tercero = "115511"      # su teléfono CONTIENE "5511" como subcadena
@@ -70,7 +86,8 @@ async def test_borrado_gcal_elimina_todas_las_claves_propias(memoria):
     """El usuario borrado pierde TODAS sus claves GCal (varios eventos)."""
     from sqlalchemy import select
 
-    from agent.memory import RecordatorioGCalEnviado, async_session
+    RecordatorioGCalEnviado = memoria.RecordatorioGCalEnviado
+    async_session = memoria.async_session
 
     tel = "5599001"
     claves_propias = [f"gcal_reminder_{tel}_ev{i}" for i in range(3)]
