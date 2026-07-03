@@ -760,7 +760,7 @@ export default function Home() {
 
           <div data-reveal-group className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
             {/* Early Access */}
-            <div data-reveal className="glass-card rounded-2xl p-8 relative overflow-hidden">
+            <div data-reveal className="glass-card plan-card rounded-2xl p-8 relative overflow-hidden">
                 <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">{t.pricing.earlyAccess}</p>
                 <div className="flex items-end gap-1 mb-6">
                   <span className="text-5xl font-light text-white">$20</span>
@@ -779,7 +779,7 @@ export default function Home() {
             </div>
 
             {/* Pro */}
-            <div data-reveal className="glass-card plan-destacado rounded-2xl p-8 relative overflow-hidden border-[#2563EB]/20">
+            <div data-reveal className="glass-card plan-card plan-destacado rounded-2xl p-8 relative overflow-hidden border-[#2563EB]/20">
                 <div className="absolute top-0 left-0 right-0 h-[2px] accent-flow" />
                 <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">{t.pricing.pro}</p>
                 <div className="flex items-end gap-1 mb-6">
@@ -799,7 +799,7 @@ export default function Home() {
             </div>
 
             {/* Enterprise */}
-            <div data-reveal className="glass-card rounded-2xl p-8">
+            <div data-reveal className="glass-card plan-card rounded-2xl p-8 relative overflow-hidden">
                 <div className="flex items-center gap-2 mb-2">
                   <p className="text-xs uppercase tracking-widest text-white/35 font-light">{t.pricing.enterprise}</p>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-white/40 font-mono">{t.pricing.comingSoon}</span>

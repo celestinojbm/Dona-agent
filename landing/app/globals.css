@@ -455,6 +455,53 @@ body {
   .plan-destacado { animation: none; }
 }
 
+/* -- Micro-interaccion de pricing (LTX iter 27): al hover, la card de precio se
+   eleva y su glow de marca se intensifica, con un barrido de luz (sheen) que
+   cruza la card una sola vez — feedback tactil premium tipo Linear/Stripe en la
+   seccion de conversion. Solo afecta a :hover (transform + box-shadow + una capa
+   ::after decorativa que se desliza), sin reflow del layout. Con
+   prefers-reduced-motion queda el realce base de glass-card, sin elevacion ni
+   barrido — el efecto es enhancement, nunca requisito. -- */
+.plan-card {
+  transition:
+    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.plan-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 60px rgba(37, 99, 235, 0.12), 0 0 40px rgba(124, 58, 237, 0.08);
+}
+/* Barrido de luz: franja diagonal que arranca fuera de la card y la cruza al
+   entrar el puntero. Sobre el contenido pero muy tenue (no lava el texto). */
+.plan-card::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  transform: skewX(-18deg);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.plan-card:hover::after {
+  animation: plan-sheen 0.9s ease-out;
+}
+@keyframes plan-sheen {
+  0% { left: -60%; opacity: 0; }
+  20% { opacity: 1; }
+  100% { left: 120%; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plan-card { transition: none; }
+  .plan-card:hover { transform: none; box-shadow: none; }
+  .plan-card:hover::after { animation: none; }
+}
+
 /* -- Testimonial carousel (marquee infinito, LTX iter 16) --
    - Mascaras de desvanecido en los bordes (`carousel-mask`): las cards se
      disuelven hacia los lados en vez de cortarse en seco, dando profundidad
