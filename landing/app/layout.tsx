@@ -71,17 +71,22 @@ fbq('track', 'PageView');`,
         </noscript>
       </head>
       <body className="noise-overlay min-h-full flex flex-col relative bg-black">
-        {/* Global video background */}
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="fixed inset-0 w-full h-full object-cover z-0"
-          aria-hidden="true"
-        >
-          <source src="/hero.mp4" type="video/mp4" />
-        </video>
+        {/* Global video background — envuelto en .hero-media para la parallax de
+            "camara viva" (LTX iter 26): useCinematicMotion desplaza suavemente el
+            plano hacia el cursor (con un leve sobrescan que evita descubrir bordes).
+            Sin JS / reduced-motion el wrapper queda neutro y el video se ve igual. */}
+        <div className="hero-media fixed inset-0 z-0" aria-hidden="true">
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+            aria-hidden="true"
+          >
+            <source src="/hero.mp4" type="video/mp4" />
+          </video>
+        </div>
         <div
           className="fixed inset-0 bg-black/[0.72] z-[1] pointer-events-none"
           aria-hidden="true"

@@ -44,6 +44,11 @@ import { useEffect, useLayoutEffect } from "react";
  *    a la izquierda de los pasos se "dibuja" (scaleY 0→1) scrubbeada al recorrer
  *    la seccion, dando la sensacion de avanzar por el proceso (firma timeline
  *    tipo Linear/LTX).
+ * iter 26:
+ *  - Camara viva (`.hero-media`): el plano de fondo (video) deriva suavemente
+ *    hacia el cursor con un leve sobrescan que evita descubrir bordes, como una
+ *    camara que respira sobre la escena (parallax de puntero tipo LTX/Higgsfield).
+ *    Solo dispositivos con puntero (mousemove); convive con el zoom de scroll.
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -287,6 +292,30 @@ export function useCinematicMotion() {
               },
             }
           );
+        }
+
+        // 11. Camara viva (iter 26): el plano de fondo (.hero-media) deriva
+        //     suavemente hacia el cursor, como una camara que respira sobre la
+        //     escena (firma LTX/Higgsfield). Un leve sobrescan (scale) asegura que
+        //     el desplazamiento nunca descubra un borde negro. gsap.quickTo da el
+        //     spring-back; solo transform (GPU), sin reflow. La escala del wrapper
+        //     convive con el zoom de scroll del <video> interior (efecto 1) porque
+        //     son elementos distintos. Se escucha mousemove (no dispara en touch),
+        //     asi que el efecto es exclusivo de dispositivos con puntero.
+        const heroMedia = document.querySelector<HTMLElement>(".hero-media");
+        if (heroMedia) {
+          gsap.set(heroMedia, { scale: 1.06 });
+          const xTo = gsap.quickTo(heroMedia, "x", { duration: 1.1, ease: "power3.out" });
+          const yTo = gsap.quickTo(heroMedia, "y", { duration: 1.1, ease: "power3.out" });
+          const amp = 10; // px de amplitud a cada lado (dentro del sobrescan)
+          const onMove = (e: MouseEvent) => {
+            const nx = e.clientX / window.innerWidth - 0.5; // -0.5..0.5
+            const ny = e.clientY / window.innerHeight - 0.5;
+            xTo(nx * amp * 2);
+            yTo(ny * amp * 2);
+          };
+          window.addEventListener("mousemove", onMove, { passive: true });
+          removers.push(() => window.removeEventListener("mousemove", onMove));
         }
 
         // 10. Timeline beam de "Como funciona" (iter 20): la linea de progreso a

@@ -387,6 +387,22 @@ body {
   }
 }
 
+/* -- Camara viva (LTX iter 26): parallax del plano de fondo hacia el cursor.
+   useCinematicMotion aplica un sobrescan leve (scale) y desplaza el wrapper
+   .hero-media segun la posicion del puntero (gsap.quickTo con spring-back), dando
+   la sensacion de una camara que respira sobre la escena — firma LTX/Higgsfield.
+   El sobrescan garantiza que el desplazamiento nunca descubra un borde negro. Solo
+   transform (GPU), sin reflow. Sin JS o con reduced-motion (el efecto se salta) el
+   wrapper queda neutro y el video se ve identico. -- */
+.hero-media {
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-media {
+    will-change: auto;
+  }
+}
+
 /* -- Section spacing -- */
 .section-space {
   padding-top: 10rem;
