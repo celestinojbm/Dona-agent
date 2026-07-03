@@ -550,3 +550,139 @@ class TestGuardrailSubclases:
                 )
 
         assert revisadas >= 2  # al menos ProveedorMeta y ProveedorWhapi
+
+
+# ── 9. Fail-closed también ante error leyendo timezone (quiet hours) ──────
+
+
+class TestFailClosedTimezone:
+    """Un fallo leyendo el opt-out ya bloquea (TestFailClosed). Pero el gate
+    tiene un SEGUNDO punto de lectura de DB en el camino proactivo: la
+    timezone para quiet hours. Ese error también debe FALLAR CERRADO."""
+
+    async def test_error_timezone_bloquea_proactivo(self, memoria, monkeypatch, caplog):
+        # Opt-out habilitado: el envío pasa la primera compuerta y llega a la
+        # lectura de timezone.
+        await memoria.guardar_proactividad(TEL, proactive_enabled=True)
+
+        async def _explota(telefono):
+            raise RuntimeError("db caída leyendo tz")
+
+        monkeypatch.setattr(memoria, "obtener_timezone", _explota)
+
+        fake = _proveedor_fake()
+        with caplog.at_level(logging.CRITICAL, logger="dona"):
+            ok = await fake.enviar_mensaje(TEL, "resumen proactivo")
+
+        assert ok is False
+        assert fake.enviados == []
+        assert any("FAIL-CLOSED" in r.message for r in caplog.records)
+
+    async def test_error_timezone_no_bloquea_directo(self, memoria, monkeypatch):
+        """El camino DIRECTO ni siquiera consulta la timezone: un fallo de esa
+        lectura no debe afectar la conversación reactiva."""
+        from agent.envio_gate import contexto_envio_directo
+
+        async def _explota(telefono):
+            raise RuntimeError("db caída leyendo tz")
+
+        monkeypatch.setattr(memoria, "obtener_timezone", _explota)
+
+        fake = _proveedor_fake()
+        with contexto_envio_directo(TEL):
+            ok = await fake.enviar_mensaje(TEL, "respuesta directa")
+
+        assert ok is True
+        assert len(fake.enviados) == 1
+
+
+# ── 10. Contexto DIRECTO imperativo (activar/restaurar) ──────────────────
+
+
+class TestContextoImperativo:
+    """`activar_contexto_directo` / `restaurar_contexto` son la variante sin
+    `with` que usa el loop del webhook. Deben tener la misma semántica que el
+    context manager: DIRECTO atado al teléfono, y reversible con el token."""
+
+    async def test_activar_permite_directo_con_optout(self, memoria):
+        from agent.envio_gate import (
+            activar_contexto_directo,
+            restaurar_contexto,
+        )
+
+        await memoria.guardar_proactividad(TEL, proactive_enabled=False)
+
+        fake = _proveedor_fake()
+        token = activar_contexto_directo(TEL)
+        try:
+            ok = await fake.enviar_mensaje(TEL, "confirmación reactiva")
+        finally:
+            restaurar_contexto(token)
+
+        assert ok is True
+        assert len(fake.enviados) == 1
+
+    async def test_restaurar_revierte_a_proactivo(self, memoria):
+        """Tras restaurar el token, el contexto vuelve a lo previo (sin
+        contexto → PROACTIVO), y un envío con opt-out queda bloqueado."""
+        from agent.envio_gate import (
+            activar_contexto_directo,
+            restaurar_contexto,
+        )
+
+        await memoria.guardar_proactividad(TEL, proactive_enabled=False)
+
+        token = activar_contexto_directo(TEL)
+        restaurar_contexto(token)
+
+        fake = _proveedor_fake()
+        ok = await fake.enviar_mensaje(TEL, "proactivo tras restaurar")
+
+        assert ok is False
+        assert fake.enviados == []
+
+
+# ── 11. Bookkeeping post-envío es best-effort ────────────────────────────
+
+
+class TestRegistrarEnvioBestEffort:
+    """`registrar_envio_realizado` incrementa el contador diario proactivo en
+    el choke point. Es best-effort: un fallo del contador NO debe propagar ni
+    romper un envío ya materializado."""
+
+    async def test_fallo_del_contador_no_propaga(self, memoria, monkeypatch, caplog):
+        from agent.envio_gate import registrar_envio_realizado
+
+        async def _explota(telefono):
+            raise RuntimeError("db caída incrementando")
+
+        monkeypatch.setattr(memoria, "incrementar_mensajes_proactivos", _explota)
+
+        # Sin contexto → PROACTIVO → intenta incrementar → falla → se traga.
+        with caplog.at_level(logging.ERROR, logger="dona"):
+            await registrar_envio_realizado(TEL)  # no debe lanzar
+
+        assert any(
+            "No se pudo incrementar contador proactivo" in r.message
+            for r in caplog.records
+        )
+
+    async def test_directo_no_incrementa_contador(self, memoria, monkeypatch):
+        """Un envío DIRECTO no consume el presupuesto proactivo diario: el
+        bookkeeping debe salir temprano sin tocar el contador."""
+        from agent.envio_gate import (
+            registrar_envio_realizado,
+            contexto_envio_directo,
+        )
+
+        llamado = {"n": 0}
+
+        async def _contar(telefono):
+            llamado["n"] += 1
+
+        monkeypatch.setattr(memoria, "incrementar_mensajes_proactivos", _contar)
+
+        with contexto_envio_directo(TEL):
+            await registrar_envio_realizado(TEL)
+
+        assert llamado["n"] == 0
