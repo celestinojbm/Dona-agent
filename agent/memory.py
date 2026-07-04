@@ -2518,12 +2518,24 @@ async def borrar_datos_usuario(telefono: str) -> dict:
         except ImportError as e:
             conteos["business"] = f"módulo no disponible: {e}"
 
-        # Caché de recordatorios GCal enviados — la clave incluye el teléfono
+        # Caché de recordatorios GCal enviados — la clave tiene la forma
+        # `gcal_reminder_{telefono}_{evento_id}` (ver scheduler.py). CCPA 7.3:
+        # el match debe ser ANCLADO al prefijo exacto del usuario, nunca por
+        # subcadena. Un `LIKE '%{telefono}%'` borraría datos de OTRO usuario
+        # cuyo teléfono contenga a este (p. ej. "5511" ⊂ "115511") y, al perder
+        # su marca de dedup, ese tercero recibiría recordatorios duplicados
+        # (exposición TCPA). Escapamos '%'/'_'/'\' del teléfono para que se
+        # traten literalmente y anclamos con el delimitador '_' posterior.
         try:
             from sqlalchemy import text as _text
+            tel_like = telefono.replace("\\", "\\\\")
+            tel_like = tel_like.replace("%", "\\%").replace("_", "\\_")
             r_gcal = await session.execute(
-                _text("DELETE FROM recordatorios_gcal_enviados WHERE clave LIKE :patron"),
-                {"patron": f"%{telefono}%"},
+                _text(
+                    "DELETE FROM recordatorios_gcal_enviados "
+                    "WHERE clave LIKE :patron ESCAPE '\\'"
+                ),
+                {"patron": f"gcal_reminder_{tel_like}\\_%"},
             )
             conteos["recordatorios_gcal_enviados"] = r_gcal.rowcount
         except Exception as e:
