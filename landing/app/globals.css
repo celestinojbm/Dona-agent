@@ -476,8 +476,20 @@ body {
 .carousel-track:hover {
   animation-play-state: paused;
 }
+/* Inercia cinetica (LTX iter 30): useCinematicMotion inclina este wrapper
+   (skewX) segun la velocidad de scroll y lo devuelve suave a 0. Aqui solo damos
+   el hint de compositing; el skew lo aplica GSAP inline. transform-origin al
+   centro para que la inclinacion pivote desde el medio del strip. Sin JS o con
+   reduced-motion no se aplica ningun transform → el marquee queda recto. */
+[data-marquee] {
+  transform-origin: center center;
+  will-change: transform;
+}
 @media (prefers-reduced-motion: reduce) {
   .carousel-track {
     animation: none;
+  }
+  [data-marquee] {
+    will-change: auto;
   }
 }

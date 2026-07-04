@@ -44,6 +44,11 @@ import { useEffect, useLayoutEffect } from "react";
  *    a la izquierda de los pasos se "dibuja" (scaleY 0→1) scrubbeada al recorrer
  *    la seccion, dando la sensacion de avanzar por el proceso (firma timeline
  *    tipo Linear/LTX).
+ * iter 30:
+ *  - Inercia cinetica del marquee de testimonios (`[data-marquee]`): el strip se
+ *    inclina (skewX) segun la velocidad de scroll y vuelve suave a 0 al
+ *    detenerse, dando sensacion de peso/inercia tipo Higgsfield/awwwards. El skew
+ *    va sobre el wrapper (no sobre `.carousel-track`, que ya translada via CSS).
  *
  * Progressive enhancement: respeta `prefers-reduced-motion` (no hace nada → los
  * numeros quedan en su valor real, las cards sin spotlight y el titular visible)
@@ -313,6 +318,40 @@ export function useCinematicMotion() {
               },
             }
           );
+        }
+
+        // 11. Inercia cinetica del marquee de testimonios (iter 30): el strip se
+        //     inclina (skewX) segun la velocidad de scroll y vuelve suave a 0 al
+        //     detenerse, dando sensacion de peso/inercia (firma Higgsfield/awwwards).
+        //     Patron de referencia GSAP: leemos la velocidad del scroll
+        //     (self.getVelocity()) y solo "empujamos" el skew cuando supera el
+        //     actual; un tween lo devuelve siempre a 0 (garantiza el ease-back sin
+        //     depender de un ultimo tick a velocidad 0). El skew va sobre el wrapper
+        //     [data-marquee], no sobre .carousel-track (que ya translada via CSS),
+        //     para no pisar su transform. Solo transform (GPU), sin reflow. El
+        //     ScrollTrigger y el tween los limpia ctx.revert() al desmontar (mismo
+        //     patron que los demas bloques). Sin JS / reduced-motion todo el efecto
+        //     se salta y el marquee queda recto.
+        const marquee = document.querySelector<HTMLElement>("[data-marquee]");
+        if (marquee) {
+          const skewSetter = gsap.quickSetter(marquee, "skewX", "deg");
+          const clampSkew = gsap.utils.clamp(-7, 7);
+          const proxy = { skew: 0 };
+          ScrollTrigger.create({
+            onUpdate: (self) => {
+              const skew = clampSkew(self.getVelocity() / -180);
+              if (Math.abs(skew) > Math.abs(proxy.skew)) {
+                proxy.skew = skew;
+                gsap.to(proxy, {
+                  skew: 0,
+                  duration: 0.7,
+                  ease: "power3",
+                  overwrite: true,
+                  onUpdate: () => skewSetter(proxy.skew),
+                });
+              }
+            },
+          });
         }
 
         // 9. Reveal escalonado de las cards: cada grid [data-reveal-group] revela
