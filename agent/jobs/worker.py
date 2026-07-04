@@ -17,6 +17,9 @@ Contrato del handler:
   async def handler(telefono: str, params: dict) -> int | None
   Retorna `asset_id` si produjo un asset, o None si no.
   Cualquier excepción se captura arriba y se registra como error del job.
+  `params` incluye además la clave interna `_job_id` (inyectada por
+  `_dispatch`, no persistida) — los handlers que reembolsan créditos la
+  usan para armar una idempotency_key determinística (Fase 0 · BILL-01).
 """
 
 from __future__ import annotations
@@ -51,23 +54,32 @@ def handlers_registrados() -> list[str]:
 
 # ── Dispatcher ──────────────────────────────────────────────────────────────
 
-async def _dispatch(tipo: str, telefono: str, params: dict[str, Any]) -> int | None:
+async def _dispatch(tipo: str, telefono: str, params: dict[str, Any], job_id: int | None = None) -> int | None:
     handler = _HANDLERS.get(tipo)
     if handler is None:
         raise ValueError(f"No hay handler registrado para tipo='{tipo}'")
+    # `_job_id` viaja SOLO en memoria hacia el handler (se agrega DESPUÉS de
+    # que `_crear_fila` ya persistió params_json, así que nunca se guarda en
+    # DB). Los handlers de jobs creativos lo usan para derivar una
+    # idempotency_key determinística en `_reembolsar` (Fase 0 · BILL-01):
+    # sin esto, un reintento de arq tras un reembolso ya emitido podría
+    # duplicar créditos.
+    params_con_job = dict(params)
+    if job_id is not None:
+        params_con_job["_job_id"] = job_id
     # La entrega del resultado (y avisos de error/reembolso) es respuesta
     # DIRECTA a un trabajo que el usuario pidió y pagó — el gate de envíos
     # no la restringe.
     from agent.envio_gate import contexto_envio_directo
     with contexto_envio_directo(telefono):
-        return await handler(telefono, params)
+        return await handler(telefono, params_con_job)
 
 
 async def _ejecutar_con_estado(job_id: int, tipo: str, telefono: str, params: dict) -> None:
     """Loop de ejecución común: marca running → corre handler → marca done/error."""
     await marcar_running(job_id)
     try:
-        asset_id = await _dispatch(tipo, telefono, params)
+        asset_id = await _dispatch(tipo, telefono, params, job_id=job_id)
         await marcar_done(job_id, asset_id_resultado=asset_id)
         logger.info(f"[JOBS] Job {job_id} ({tipo}) done asset_id={asset_id}")
     except Exception as e:
