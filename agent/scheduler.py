@@ -15,7 +15,11 @@ from datetime import datetime, timedelta
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from agent.envio_gate import HORA_INICIO_ENVIOS_PROACTIVOS, contexto_envio_automatico
+from agent.envio_gate import (
+    HORA_FIN_ENVIOS_PROACTIVOS,
+    HORA_INICIO_ENVIOS_PROACTIVOS,
+    contexto_envio_automatico,
+)
 from agent.learning import actualizar_perfiles_todos
 from agent.memory import (
     _tipo_recurrencia,
@@ -96,7 +100,11 @@ def _podar_contadores_diarios(ahora: datetime) -> None:
 async def _en_quiet_hours_local(telefono: str) -> bool:
     """True si para el usuario son quiet hours locales. Sin timezone conocida
     no se aplica (la hora UTC mentiría para usuarios de EEUU); si la LECTURA
-    falla, para un catch-up tardío se asume quiet hours (mejor no enviar)."""
+    falla, para un catch-up tardío se asume quiet hours (mejor no enviar).
+
+    Ventana [HORA_INICIO, HORA_FIN) — mismo rango que el gate central (Fase 0
+    · TEMA 2): antes solo se chequeaba el piso, así que un catch-up tardío
+    podía entregarse hasta las 23:59 locales sin bloqueo."""
     try:
         offset_min = await obtener_timezone(telefono)
     except Exception:
@@ -104,7 +112,10 @@ async def _en_quiet_hours_local(telefono: str) -> bool:
     if offset_min is None:
         return False
     hora_local = (datetime.utcnow() + timedelta(minutes=offset_min)).hour
-    return hora_local < HORA_INICIO_ENVIOS_PROACTIVOS
+    return (
+        hora_local < HORA_INICIO_ENVIOS_PROACTIVOS
+        or hora_local >= HORA_FIN_ENVIOS_PROACTIVOS
+    )
 
 
 async def _elegibilidad_recordatorio(r, ahora: datetime) -> str:

@@ -305,6 +305,50 @@ class TestProactivoDefault:
 
         assert ok is True
 
+    async def test_quiet_hours_bloquea_a_las_22h(self, memoria):
+        """TCPA-01: antes el gate solo chequeaba el piso de 7am — un proactivo
+        a las 22:00 local salía sin problema. Ahora el límite superior (9pm)
+        debe bloquearlo."""
+        await memoria.guardar_timezone(TEL, _offset_para_hora_local(22))
+
+        fake = _proveedor_fake()
+        ok = await fake.enviar_mensaje(TEL, "buenas noches…?")
+
+        assert ok is False
+        assert fake.enviados == []
+
+    async def test_quiet_hours_bloquea_a_las_7_30am(self, memoria):
+        """TCPA-01: el piso se sube de 7am a 8am (estándar FCC 8am-9pm) — un
+        proactivo a las 7:30 local ahora también queda bloqueado."""
+        from agent.envio_gate import HORA_INICIO_ENVIOS_PROACTIVOS
+
+        assert HORA_INICIO_ENVIOS_PROACTIVOS == 8
+        await memoria.guardar_timezone(TEL, _offset_para_hora_local(7))
+
+        fake = _proveedor_fake()
+        ok = await fake.enviar_mensaje(TEL, "buenos días temprano")
+
+        assert ok is False
+        assert fake.enviados == []
+
+    async def test_quiet_hours_permite_borde_inferior_8am(self, memoria):
+        """Control: las 8:xx locales SÍ están dentro de la ventana [8, 21)."""
+        await memoria.guardar_timezone(TEL, _offset_para_hora_local(8))
+
+        fake = _proveedor_fake()
+        ok = await fake.enviar_mensaje(TEL, "buenos días")
+
+        assert ok is True
+
+    async def test_quiet_hours_bloquea_borde_superior_21h(self, memoria):
+        """Control: las 21:xx locales YA están fuera de la ventana [8, 21)."""
+        await memoria.guardar_timezone(TEL, _offset_para_hora_local(21))
+
+        fake = _proveedor_fake()
+        ok = await fake.enviar_mensaje(TEL, "buenas noches")
+
+        assert ok is False
+
 
 # ── 5. Supresión de emergencia ───────────────────────────────────────────
 
@@ -436,6 +480,133 @@ class TestEjecutorHighOptOutTercero:
 
         assert resultado["estado_envio"] == "sent"
         assert len(fake.enviados) == 1
+
+
+# ── 6b. Ejecutor HIGH respeta quiet hours del TERCERO (TCPA-04) ──────────
+
+
+class TestEjecutorHighQuietHoursTercero:
+    """El destinatario de un enviar_mensaje_whatsapp HIGH es un TERCERO que
+    nunca eligió la hora en que el owner decide aprobar la acción — a
+    diferencia de un recordatorio al propio owner, donde la hora la fijó él
+    mismo al programar el contenido. El ejecutor pasa
+    contexto_envio_automatico(es_tercero=True) para que el gate SÍ aplique
+    quiet hours sobre la hora local del tercero (Fase 0 · TEMA 2)."""
+
+    TEL_OWNER = "15550009999"
+
+    async def test_tercero_de_madrugada_bloqueado(self, memoria, monkeypatch):
+        """Owner aprueba a cualquier hora, pero el tercero está a las 2am
+        locales → el gate debe bloquear el envío."""
+        import json
+        import agent.automation.executors.send_message as sm
+
+        await memoria.guardar_mensaje(TEL_OTRO, "user", "hola dona")
+        await memoria.guardar_timezone(TEL_OTRO, _offset_para_hora_local(2))
+
+        fake = _proveedor_fake()
+        monkeypatch.setattr(sm, "_obtener_proveedor", lambda: fake)
+
+        async def _sin_resultado(accion_id):
+            return None
+
+        monkeypatch.setattr(sm, "_leer_result_actual", _sin_resultado)
+
+        accion = {
+            "id": 3,
+            "telefono": self.TEL_OWNER,
+            "payload_json": json.dumps(
+                {"numero_destino": TEL_OTRO, "mensaje": "hola de madrugada"}
+            ),
+        }
+
+        with pytest.raises(RuntimeError, match="provider_enviar_mensaje_failed"):
+            await sm.ejecutor_enviar_mensaje_whatsapp(accion, None)
+
+        assert fake.enviados == []
+
+    async def test_tercero_en_horario_permitido_recibe(self, memoria, monkeypatch):
+        """Control: mismo escenario pero el tercero está en horario diurno →
+        el envío procede con normalidad."""
+        import json
+        import agent.automation.executors.send_message as sm
+
+        await memoria.guardar_mensaje(TEL_OTRO, "user", "hola dona")
+        await memoria.guardar_timezone(TEL_OTRO, _offset_para_hora_local(14))
+
+        fake = _proveedor_fake()
+        monkeypatch.setattr(sm, "_obtener_proveedor", lambda: fake)
+
+        async def _sin_resultado(accion_id):
+            return None
+
+        async def _persistir_ok(accion_id, resultado):
+            return None
+
+        monkeypatch.setattr(sm, "_leer_result_actual", _sin_resultado)
+        monkeypatch.setattr(sm, "_persistir_result_inline", _persistir_ok)
+
+        accion = {
+            "id": 4,
+            "telefono": self.TEL_OWNER,
+            "payload_json": json.dumps(
+                {"numero_destino": TEL_OTRO, "mensaje": "mensaje de tarde"}
+            ),
+        }
+
+        resultado = await sm.ejecutor_enviar_mensaje_whatsapp(accion, None)
+
+        assert resultado["estado_envio"] == "sent"
+        assert len(fake.enviados) == 1
+
+    async def test_tercero_sin_tz_usa_fallback_del_owner_de_madrugada(
+        self, memoria, monkeypatch
+    ):
+        """Si no se conoce la timezone del tercero, el gate aproxima con la
+        del owner (más conservador que no aplicar quiet hours). Owner a las
+        2am locales → bloqueado aunque el tercero no tenga tz registrada."""
+        import json
+        import agent.automation.executors.send_message as sm
+
+        await memoria.guardar_mensaje(TEL_OTRO, "user", "hola dona")
+        # El tercero NO tiene timezone; el owner sí, y está de madrugada.
+        await memoria.guardar_timezone(self.TEL_OWNER, _offset_para_hora_local(2))
+
+        fake = _proveedor_fake()
+        monkeypatch.setattr(sm, "_obtener_proveedor", lambda: fake)
+
+        async def _sin_resultado(accion_id):
+            return None
+
+        monkeypatch.setattr(sm, "_leer_result_actual", _sin_resultado)
+
+        accion = {
+            "id": 5,
+            "telefono": self.TEL_OWNER,
+            "payload_json": json.dumps(
+                {"numero_destino": TEL_OTRO, "mensaje": "fallback a la tz del owner"}
+            ),
+        }
+
+        with pytest.raises(RuntimeError, match="provider_enviar_mensaje_failed"):
+            await sm.ejecutor_enviar_mensaje_whatsapp(accion, None)
+
+        assert fake.enviados == []
+
+    async def test_automatico_al_propio_owner_sigue_exento_de_madrugada(self, memoria):
+        """Control de no-regresión: un AUTOMATICO normal (es_tercero=False,
+        el caso de recordatorios/GCal donde el destinatario ES quien
+        controla su propio timing) sigue exento de quiet hours a cualquier
+        hora — el ejecutor HIGH es el único que activa es_tercero=True."""
+        from agent.envio_gate import contexto_envio_automatico
+
+        await memoria.guardar_timezone(TEL, _offset_para_hora_local(2))
+
+        fake = _proveedor_fake()
+        with contexto_envio_automatico():
+            ok = await fake.enviar_mensaje(TEL, "🔔 recordatorio programado por el propio usuario")
+
+        assert ok is True
 
 
 # ── 7. Aviso de sobrecarga es PROACTIVO (review Hermes, PR #75) ──────────

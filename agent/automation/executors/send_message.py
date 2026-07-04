@@ -609,12 +609,19 @@ async def ejecutor_enviar_mensaje_whatsapp(
 
     ok = False
     try:
-        # AUTOMATICO: el gate evalúa el opt-out del TERCERO destinatario
-        # (si alguna vez envió STOP a Dona, no se le escribe), fail-closed.
-        # Sin quiet hours/límite diario: la acción fue confirmada por el
-        # usuario con confirmación dedicada HIGH.
+        # AUTOMATICO con es_tercero=True (TCPA-04): el gate evalúa el
+        # opt-out del TERCERO destinatario (si alguna vez envió STOP a Dona,
+        # no se le escribe), fail-closed, Y quiet hours sobre SU hora local
+        # (o, si no se conoce, la del owner como aproximación conservadora).
+        # El owner controla cuándo aprueba la acción HIGH — pero el tercero
+        # nunca eligió esa hora: sin este flag, un approve a las 2am
+        # despertaría a alguien que no controla el timing. Sin límite
+        # diario: ese volumen ya lo gobiernan los límites de
+        # consent_terceros.py.
         from agent.envio_gate import contexto_envio_automatico
-        with contexto_envio_automatico():
+        with contexto_envio_automatico(
+            es_tercero=True, telefono_owner=telefono_owner_accion,
+        ):
             ok = await proveedor.enviar_mensaje(numero_destino, mensaje_envio)
     except Exception as e:
         # Provider lanzó · propagamos como RuntimeError uniforme · la
