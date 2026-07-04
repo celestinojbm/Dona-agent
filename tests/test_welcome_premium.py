@@ -443,3 +443,183 @@ class TestHookCheckoutSubscription:
                 )
             )).scalar_one()
             assert sub.bienvenida_enviada is False
+
+
+# ── 6. Helpers puros de redacción / formateo ───────────────────────────────
+#
+# Fijan el comportamiento actual de los helpers server-side que truncan
+# identificadores y teléfonos para logs, y de los formateadores de plan /
+# saludo / URL del dashboard. No tocan DB ni proveedor: son funciones puras.
+
+
+class TestShortId:
+    def test_vacio_devuelve_estrellas(self):
+        from agent.welcome import _short_id
+        assert _short_id("") == "***"
+
+    def test_corto_menor_o_igual_a_12_devuelve_estrellas(self):
+        from agent.welcome import _short_id
+        # Justo en el límite (12) también se enmascara entero.
+        assert _short_id("123456789012") == "***"
+        assert _short_id("corto") == "***"
+
+    def test_largo_deja_prefijo_y_sufijo(self):
+        from agent.welcome import _short_id
+        # len > 12 → "{primeros8}...{últimos4}".
+        assert _short_id("cus_1234567890abcdef") == "cus_1234...cdef"
+
+
+class TestShortTelefono:
+    def test_vacio_devuelve_estrellas(self):
+        from agent.welcome import _short_telefono
+        assert _short_telefono("") == "***"
+
+    def test_menor_o_igual_a_6_devuelve_estrellas(self):
+        from agent.welcome import _short_telefono
+        assert _short_telefono("123456") == "***"
+
+    def test_largo_deja_prefijo_y_ultimos_cuatro(self):
+        from agent.welcome import _short_telefono
+        # "{primeros2}****{últimos4}".
+        assert _short_telefono("14076936023") == "14****6023"
+
+
+class TestNombrePlan:
+    def test_premium_y_pro_traducen_a_etiqueta(self):
+        from agent.welcome import _nombre_plan
+        assert _nombre_plan("premium") == "Premium"
+        assert _nombre_plan("pro") == "Pro"
+
+    def test_desconocido_se_devuelve_crudo(self):
+        from agent.welcome import _nombre_plan
+        assert _nombre_plan("enterprise") == "enterprise"
+
+    def test_vacio_devuelve_guion(self):
+        from agent.welcome import _nombre_plan
+        assert _nombre_plan("") == "—"
+
+
+class TestSaludo:
+    def test_none_devuelve_hola_generico(self):
+        from agent.welcome import _saludo
+        assert _saludo(None) == "Hola!"
+
+    def test_solo_espacios_devuelve_hola_generico(self):
+        from agent.welcome import _saludo
+        # Nombre en blanco tras strip → saludo genérico (rama línea 113).
+        assert _saludo("   ") == "Hola!"
+
+    def test_nombre_toma_primer_token(self):
+        from agent.welcome import _saludo
+        assert _saludo("Carlos Alberto") == "Hola Carlos!"
+
+
+class TestDashboardUrl:
+    def _limpiar(self, monkeypatch):
+        for var in (
+            "STRIPE_PORTAL_RETURN_URL",
+            "NEXTAUTH_URL",
+            "NEXT_PUBLIC_SITE_URL",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_portal_return_url_tiene_prioridad(self, monkeypatch):
+        from agent.welcome import _dashboard_url
+        self._limpiar(monkeypatch)
+        monkeypatch.setenv(
+            "STRIPE_PORTAL_RETURN_URL", "https://portal.example.com/back"
+        )
+        # Aunque haya NEXTAUTH_URL, gana el override.
+        monkeypatch.setenv("NEXTAUTH_URL", "https://otra.example.com")
+        assert _dashboard_url() == "https://portal.example.com/back"
+
+    def test_nextauth_url_agrega_dashboard(self, monkeypatch):
+        from agent.welcome import _dashboard_url
+        self._limpiar(monkeypatch)
+        monkeypatch.setenv("NEXTAUTH_URL", "https://app.example.com/")
+        # Se recorta la barra final y se agrega /dashboard.
+        assert _dashboard_url() == "https://app.example.com/dashboard"
+
+    def test_site_url_agrega_dashboard(self, monkeypatch):
+        from agent.welcome import _dashboard_url
+        self._limpiar(monkeypatch)
+        monkeypatch.setenv("NEXT_PUBLIC_SITE_URL", "https://sitio.example.com")
+        assert _dashboard_url() == "https://sitio.example.com/dashboard"
+
+    def test_sin_env_usa_default(self, monkeypatch):
+        from agent.welcome import _dashboard_url, _DEFAULT_DASHBOARD_URL
+        self._limpiar(monkeypatch)
+        assert _dashboard_url() == _DEFAULT_DASHBOARD_URL
+
+    def test_valor_no_http_se_ignora(self, monkeypatch):
+        from agent.welcome import _dashboard_url, _DEFAULT_DASHBOARD_URL
+        self._limpiar(monkeypatch)
+        # Un valor sin esquema http(s) no cuenta y cae al default.
+        monkeypatch.setenv("STRIPE_PORTAL_RETURN_URL", "no-es-una-url")
+        assert _dashboard_url() == _DEFAULT_DASHBOARD_URL
+
+
+# ── 7. Envío real exitoso + _marcar_enviado sobre fila inexistente ─────────
+
+
+class TestEnvioRealExitoso:
+    @pytest.mark.asyncio
+    async def test_proveedor_ok_devuelve_enviado_y_marca_flag(self, db, monkeypatch):
+        # Forzar envío real (sin DRY_RUN) con proveedor que retorna True.
+        monkeypatch.delenv("WELCOME_DRY_RUN", raising=False)
+
+        async with db.async_session() as session:
+            session.add(db.SuscripcionStripe(
+                subscription_id="sub_ok",
+                telefono="14076936023",
+                customer_id="cus_ok",
+                plan_codigo="pro",
+                price_id="",
+                status="active",
+                creditos_mensuales=500,
+            ))
+            await session.commit()
+
+        enviados = []
+
+        class FakeProveedorOk:
+            async def enviar_mensaje(self, telefono, mensaje):
+                enviados.append((telefono, mensaje))
+                return True
+
+        import agent.welcome as welcome_mod
+        import agent.providers
+        monkeypatch.setattr(
+            agent.providers, "obtener_proveedor", lambda: FakeProveedorOk()
+        )
+
+        result = await welcome_mod.enviar_bienvenida_premium(
+            subscription_id="sub_ok",
+            customer_id="cus_ok",
+            telefono="14076936023",
+            plan_codigo="pro",
+            creditos_mensuales=500,
+        )
+        assert result == "enviado"
+        # El proveedor recibió exactamente un mensaje al teléfono correcto.
+        assert len(enviados) == 1
+        assert enviados[0][0] == "14076936023"
+
+        # Flag marcado tras éxito real.
+        from sqlalchemy import select
+        async with db.async_session() as session:
+            sub = (await session.execute(
+                select(db.SuscripcionStripe).where(
+                    db.SuscripcionStripe.subscription_id == "sub_ok"
+                )
+            )).scalar_one()
+            assert sub.bienvenida_enviada is True
+
+
+class TestMarcarEnviadoFilaInexistente:
+    @pytest.mark.asyncio
+    async def test_no_falla_si_sub_no_existe(self, db):
+        # _marcar_enviado sobre una subscription_id que no está en DB
+        # no debe romper (rama línea 290: sub is None → return).
+        from agent.welcome import _marcar_enviado
+        await _marcar_enviado("sub_que_no_existe")  # no levanta
