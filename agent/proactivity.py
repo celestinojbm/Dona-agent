@@ -70,17 +70,33 @@ async def _invocar_claude_proactivo(api_kwargs: dict, telefono: str):
 # en aislamiento (como primer/único contenido del mensaje), DEBE desactivarse
 # la proactividad inmediatamente. Son palabras clave reconocidas por la FCC
 # como opt-out estándar en mensajería SMS/WhatsApp en EEUU.
+#
+# TCPA-02 (auditoría 2026-07-04): el set original solo cubría un puñado de
+# palabras. Se amplía con variantes en inglés y español que un regulador
+# esperaría reconocer como intención de opt-out inequívoca, manteniendo el
+# matching de FRASE COMPLETA (nunca substring) para no disparar sobre frases
+# largas no relacionadas ("no puedo parar de pensar en tu producto").
 COMANDOS_STOP_TCPA = {
     "stop", "unsubscribe", "cancel", "end", "quit",
     "baja", "dar de baja", "no molestar",
     # 2.5 — el copy de primer contacto a terceros ofrece "responde PARAR"
     "parar",
+    # TCPA-02 — variantes en inglés reconocidas como opt-out estándar
+    "optout", "opt out", "remove me", "stop please", "revoke",
+    # TCPA-02 — variantes en español equivalentes
+    "alto", "cancelar", "no más mensajes", "no mas mensajes",
+    "date de baja", "quítame", "quitame", "para",
 }
 
 # Palabras para reactivar tras STOP (TCPA-compliant re-opt-in)
 COMANDOS_START_TCPA = {
     "start", "subscribe", "unstop", "yes",
     "alta", "reactivar", "activar proactividad",
+    # TCPA-02 — variantes simétricas de re-opt-in ("sí"/"si" NO se incluyen:
+    # son respuestas afirmativas de conversación normal demasiado frecuentes
+    # para tratarlas como opt-in inequívoco de frase completa)
+    "resume", "resubscribe", "opt in", "optin",
+    "reanudar", "continuar",
 }
 
 # Comandos que el usuario puede enviar para controlar la proactividad
@@ -98,17 +114,39 @@ COMANDOS_PROACTIVIDAD = {
 }
 
 
+def _normalizar_comando_tcpa(texto: str) -> str:
+    """Normaliza texto para matching de FRASE COMPLETA (nunca substring):
+    minúsculas, quita espacios y puntuación de apertura/cierre en ambos
+    extremos, y quita un "dona" antepuesto o pospuesto (con o sin coma/espacio
+    de separación) — p. ej. "Dona, STOP" o "stop dona" siguen siendo el mismo
+    comando. NO se hace ningún matching de substring dentro de frases largas:
+    solo se acepta si, tras esta normalización, el texto completo es
+    exactamente uno de los comandos reconocidos."""
+    normalizado = texto.strip().lower().strip(".!?;,¡¿ ")
+    # Quita un "dona" antepuesto o pospuesto (p. ej. "dona stop", "stop dona").
+    for prefijo in ("dona, ", "dona "):
+        if normalizado.startswith(prefijo):
+            normalizado = normalizado[len(prefijo):]
+            break
+    for sufijo in (", dona", " dona"):
+        if normalizado.endswith(sufijo):
+            normalizado = normalizado[: -len(sufijo)]
+            break
+    return normalizado.strip(".!?;,¡¿ ")
+
+
 def es_comando_stop_tcpa(texto: str) -> bool:
-    """Retorna True si el texto es un opt-out TCPA (STOP, UNSUBSCRIBE, BAJA, etc.).
-    La detección ignora mayúsculas/minúsculas y espacios/puntuación al final."""
-    normalizado = texto.strip().lower().rstrip(".!?;,")
-    return normalizado in COMANDOS_STOP_TCPA
+    """Retorna True si el texto es un opt-out TCPA (STOP, UNSUBSCRIBE, BAJA,
+    etc.), incluyendo variantes en inglés/español y con "dona" antepuesto o
+    pospuesto. La detección es case-insensitive y de FRASE COMPLETA — nunca
+    substring — para no disparar sobre frases largas no relacionadas."""
+    return _normalizar_comando_tcpa(texto) in COMANDOS_STOP_TCPA
 
 
 def es_comando_start_tcpa(texto: str) -> bool:
-    """Retorna True si el texto es un re-opt-in tras STOP."""
-    normalizado = texto.strip().lower().rstrip(".!?;,")
-    return normalizado in COMANDOS_START_TCPA
+    """Retorna True si el texto es un re-opt-in tras STOP (incluye variantes
+    y "dona" antepuesto/pospuesto). Matching de frase completa, no substring."""
+    return _normalizar_comando_tcpa(texto) in COMANDOS_START_TCPA
 
 
 class TCPAOptOutError(RuntimeError):

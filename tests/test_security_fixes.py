@@ -227,6 +227,91 @@ class TestTCPAOptOut:
         assert not es_comando_stop_tcpa("start")
         assert not es_comando_start_tcpa("stop")
 
+    # ── TCPA-02 (auditoría 2026-07-04): ampliación de variantes ─────────────
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "opt out", "OptOut", "optout", "OPT OUT",
+            "remove me", "Remove Me",
+            "stop please", "Stop Please",
+            "revoke", "REVOKE",
+        ],
+    )
+    def test_stop_variantes_ingles_nuevas(self, texto):
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa(texto) is True
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "alto", "ALTO",
+            "cancelar", "Cancelar",
+            "no más mensajes", "no mas mensajes",
+            "date de baja", "Date De Baja",
+            "quitame", "quítame",
+            "para", "PARA",
+        ],
+    )
+    def test_stop_variantes_espanol_nuevas(self, texto):
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa(texto) is True
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "no puedo parar de pensar en tu producto",
+            "quiero parar un rato",
+            "no voy a cancelar mi pedido",
+            "necesito que revoques el acceso de mi socio",
+            "remove me from the list please call first",
+            "el auto se va a parar en la esquina",
+            "opt out de qué exactamente",
+        ],
+    )
+    def test_stop_no_dispara_falso_positivo_en_frase_larga(self, texto):
+        """Frases largas que contienen una palabra clave como parte de una
+        oración normal NO deben disparar el opt-out (matching de frase
+        completa, nunca substring)."""
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa(texto) is False
+
+    @pytest.mark.parametrize(
+        "texto",
+        ["dona stop", "Dona STOP", "stop dona", "dona, stop", "STOP DONA"],
+    )
+    def test_stop_con_dona_antepuesto_o_pospuesto(self, texto):
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa(texto) is True
+
+    def test_stop_case_insensitive_variantes_nuevas(self):
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa("Opt Out") is True
+        assert es_comando_stop_tcpa("REMOVE ME") is True
+        assert es_comando_stop_tcpa("Revoke.") is True
+
+    @pytest.mark.parametrize(
+        "texto",
+        ["resume", "Resume", "resubscribe", "opt in", "optin", "OPT IN",
+         "reanudar", "continuar"],
+    )
+    def test_start_variantes_nuevas_simetricas(self, texto):
+        from agent.proactivity import es_comando_start_tcpa
+        assert es_comando_start_tcpa(texto) is True
+
+    @pytest.mark.parametrize(
+        "texto",
+        ["dona start", "Dona START", "start dona", "dona, resume"],
+    )
+    def test_start_con_dona_antepuesto_o_pospuesto(self, texto):
+        from agent.proactivity import es_comando_start_tcpa
+        assert es_comando_start_tcpa(texto) is True
+
+    def test_start_no_dispara_falso_positivo_en_frase_larga(self):
+        from agent.proactivity import es_comando_start_tcpa
+        assert es_comando_start_tcpa("quiero continuar leyendo el reporte") is False
+        assert es_comando_start_tcpa("vamos a reanudar la reunión mañana") is False
+
 
 # ── Legal pages ──────────────────────────────────────────────────────────────
 
