@@ -92,6 +92,46 @@ class TestAdminToolsCatalog:
 
 
 @_requiere_main
+class TestAdminTokenQueryStringRechazado:
+    """SEC-AUTH-03: el token admin ya NO se acepta por query string.
+
+    El fallback legacy dejaba el token en historial del navegador, logs de
+    proxies/CDN y edge logs de Render — fuera del control del formatter de
+    logs de la app. Ahora solo el header Authorization: Bearer funciona.
+    """
+
+    def setup_method(self):
+        from agent.main import app
+        self.client = TestClient(app)
+
+    def test_token_en_query_string_ya_no_funciona(self, monkeypatch):
+        monkeypatch.setenv("ADMIN_TOKEN", "test-admin-token")
+        r = self.client.get(
+            "/admin/tools-catalog?token=test-admin-token"
+        )
+        assert r.status_code == 403
+
+    def test_token_en_query_string_seed_creditos_ya_no_funciona(self, monkeypatch):
+        """/admin/seed-creditos acredita dinero — el endpoint más sensible
+        al fallback de query string. Debe rechazar sin el header."""
+        monkeypatch.setenv("ADMIN_TOKEN", "test-admin-token")
+        r = self.client.post(
+            "/admin/seed-creditos"
+            "?telefono=15551234567&creditos=10&token=test-admin-token"
+        )
+        assert r.status_code == 403
+
+    def test_bearer_header_correcto_sigue_funcionando(self, monkeypatch):
+        """Regresión: el header Authorization: Bearer sigue siendo válido."""
+        monkeypatch.setenv("ADMIN_TOKEN", "test-admin-token")
+        r = self.client.get(
+            "/admin/tools-catalog",
+            headers={"Authorization": "Bearer test-admin-token"},
+        )
+        assert r.status_code == 200
+
+
+@_requiere_main
 class TestAdminMetricsRegresion:
     def setup_method(self):
         from agent.main import app

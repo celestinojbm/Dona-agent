@@ -170,10 +170,17 @@ class TestVerificarAdmin:
         monkeypatch.setenv("ADMIN_TOKEN", "secreto123")
         assert _verificar_admin(self._mock_request("Bearer otro")) is False
 
-    def test_token_correcto_query_acepta(self, monkeypatch):
+    def test_query_string_ya_no_es_valido(self, monkeypatch):
+        """SEC-AUTH-03: el fallback legacy de query param se eliminó — el
+        token SOLO se acepta vía header Authorization: Bearer <token>.
+        _verificar_admin ya no acepta un segundo argumento posicional."""
         from agent.main import _verificar_admin
         monkeypatch.setenv("ADMIN_TOKEN", "secreto123")
-        assert _verificar_admin(self._mock_request(), "secreto123") is True
+        with pytest.raises(TypeError):
+            _verificar_admin(self._mock_request(), "secreto123")
+        # Sin header (aunque el caller intentara pasar el token por query
+        # string a nivel FastAPI, ya no llega a _verificar_admin): rechaza.
+        assert _verificar_admin(self._mock_request()) is False
 
     def test_token_longitud_distinta_no_crashea(self, monkeypatch):
         """compare_digest con longitudes distintas no debe lanzar excepción."""

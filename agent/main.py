@@ -532,26 +532,28 @@ def _telefono_valido(telefono: str) -> bool:
     return bool(telefono) and bool(_TELEFONO_RE.match(telefono.strip()))
 
 
-def _verificar_admin(request: Request, token_query: str = "") -> bool:
-    """Verifica autenticación admin via header (preferido) o query param (legacy).
-    Usa hmac.compare_digest para evitar timing attacks."""
+def _verificar_admin(request: Request) -> bool:
+    """Verifica autenticación admin SOLO via header Authorization: Bearer <token>.
+    Usa hmac.compare_digest para evitar timing attacks.
+
+    El query param ``token`` legacy se eliminó (SEC-AUTH-03): quedaba en
+    historial del navegador, logs de proxies/CDN y edge logs de Render, fuera
+    del control del formatter de logs de la app. Un endpoint que acredita
+    créditos (/admin/seed-creditos) o expone PII no debe depender de eso.
+    """
     admin_token = os.getenv("ADMIN_TOKEN", "")
     if not admin_token:
         return False
-    # Preferir header Authorization: Bearer <token>
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         return hmac.compare_digest(auth_header[7:], admin_token)
-    # Fallback a query param (legacy, menos seguro)
-    if token_query:
-        return hmac.compare_digest(token_query, admin_token)
     return False
 
 
 @app.get("/diagnostico")
-async def diagnostico(request: Request, token: str = ""):
+async def diagnostico(request: Request):
     """Prueba la conectividad con Whapi desde Railway. Requiere auth admin."""
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
 
     whapi_token = os.getenv("WHAPI_TOKEN", "")
@@ -580,9 +582,9 @@ async def diagnostico(request: Request, token: str = ""):
 
 
 @app.get("/admin/metrics")
-async def admin_metrics(request: Request, token: str = ""):
+async def admin_metrics(request: Request):
     """Métricas de la aplicación: requests, errores, latencia, mensajes."""
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     from datetime import datetime as _dt
     data = metricas.snapshot()
@@ -592,7 +594,7 @@ async def admin_metrics(request: Request, token: str = ""):
 
 
 @app.get("/admin/tools-catalog")
-async def admin_tools_catalog(request: Request, token: str = ""):
+async def admin_tools_catalog(request: Request):
     """Catálogo M0 (T1.6): tools con nivel de riesgo, permiso y costo.
 
     Read-only. Sirve para que el owner / Dona Control pueda diagnosticar
@@ -600,7 +602,7 @@ async def admin_tools_catalog(request: Request, token: str = ""):
     riesgo×permiso del producto. Base para M1 Playbook Engine que
     consultará permisos antes de ejecutar.
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.tools_catalog import resumen_catalogo
     return resumen_catalogo()
@@ -616,12 +618,12 @@ async def webhook_verificacion(request: Request):
 
 
 @app.get("/admin/onboarding")
-async def admin_onboarding_estado(request: Request, telefono: str, token: str = ""):
+async def admin_onboarding_estado(request: Request, telefono: str):
     """
     Diagnóstico de onboarding en producción.
     Uso: /admin/onboarding?telefono=521234567890 + Header Authorization: Bearer <token>
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     if not _telefono_valido(telefono):
         raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
@@ -636,12 +638,12 @@ async def admin_onboarding_estado(request: Request, telefono: str, token: str = 
 
 
 @app.post("/admin/onboarding/reset")
-async def admin_onboarding_reset(request: Request, telefono: str, fase: int = 0, paso: int = 0, token: str = ""):
+async def admin_onboarding_reset(request: Request, telefono: str, fase: int = 0, paso: int = 0):
     """
     Resetea el estado de onboarding de un usuario.
     Uso: POST /admin/onboarding/reset?telefono=521234567890&fase=0&paso=2 + Header Auth
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     if not _telefono_valido(telefono):
         raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
@@ -651,9 +653,9 @@ async def admin_onboarding_reset(request: Request, telefono: str, fase: int = 0,
 
 
 @app.get("/admin/jobs-recientes")
-async def admin_jobs_recientes(request: Request, telefono: str, limite: int = 10, token: str = ""):
+async def admin_jobs_recientes(request: Request, telefono: str, limite: int = 10):
     """Diagnóstico: últimos N jobs creativos del usuario con estado y error_msg."""
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     if not _telefono_valido(telefono):
         raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
@@ -663,13 +665,13 @@ async def admin_jobs_recientes(request: Request, telefono: str, limite: int = 10
 
 
 @app.get("/admin/r2-check")
-async def admin_r2_check(request: Request, token: str = ""):
+async def admin_r2_check(request: Request):
     """
     Diagnóstico de Cloudflare R2.
     Reporta qué env vars están seteadas, intenta un put/get de prueba y retorna
     el error exacto si falla. No registra nada en DB.
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
 
     from agent import storage as _st
@@ -725,13 +727,13 @@ async def admin_r2_check(request: Request, token: str = ""):
 
 
 @app.post("/admin/seed-creditos")
-async def admin_seed_creditos(request: Request, telefono: str, creditos: int = 100, razon: str = "seed admin", token: str = ""):
+async def admin_seed_creditos(request: Request, telefono: str, creditos: int = 100, razon: str = "seed admin"):
     """
     Acredita N créditos al usuario indicado. Sirve para seed manual mientras
     Stripe no está configurado, o para regalar créditos.
     Uso: POST /admin/seed-creditos?telefono=15551234567&creditos=100 + Header Auth
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     if not _telefono_valido(telefono):
         raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
@@ -750,12 +752,12 @@ async def admin_seed_creditos(request: Request, telefono: str, creditos: int = 1
 
 
 @app.get("/admin/recordatorios")
-async def admin_recordatorios(request: Request, telefono: str, token: str = ""):
+async def admin_recordatorios(request: Request, telefono: str):
     """
     Diagnóstico de recordatorios en producción.
     Uso: /admin/recordatorios?telefono=15551234567 + Header Authorization: Bearer <token>
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     if not _telefono_valido(telefono):
         raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
@@ -775,7 +777,7 @@ async def admin_recordatorios(request: Request, telefono: str, token: str = ""):
 
 
 @app.get("/admin/inbound/token")
-async def admin_generar_token_inbound(request: Request, telefono: str, token: str = ""):
+async def admin_generar_token_inbound(request: Request, telefono: str):
     """
     Genera una URL de webhook inbound firmada para el usuario dado.
     El usuario pega esta URL en Zapier/Make/n8n para que servicios externos
@@ -783,7 +785,7 @@ async def admin_generar_token_inbound(request: Request, telefono: str, token: st
 
     Uso: GET /admin/inbound/token?telefono=15551234567 + Authorization: Bearer <admin>
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     if not _telefono_valido(telefono):
         raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
@@ -2975,11 +2977,11 @@ def _filtrar_accion_para_dashboard(accion: dict) -> dict:
 
 @app.get("/admin/automation/oportunidades")
 async def admin_automation_oportunidades(
-    request: Request, telefono: str = "", token: str = "",
+    request: Request, telefono: str = "",
 ):
     """Lista oportunidades detectadas para un telefono. Incluye estado
     del perfil (missing|incomplete|ready) y siguiente_paso si aplica."""
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     if not telefono:
         raise HTTPException(status_code=400, detail="telefono requerido")
@@ -2993,10 +2995,9 @@ async def admin_automation_oportunidades(
 @app.get("/admin/automation/acciones")
 async def admin_automation_acciones(
     request: Request, telefono: str = "", estado: str = "",
-    token: str = "",
 ):
     """Lista acciones del usuario."""
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     if not telefono:
         raise HTTPException(status_code=400, detail="telefono requerido")
@@ -3009,14 +3010,14 @@ async def admin_automation_acciones(
 
 
 @app.post("/admin/automation/acciones/generar")
-async def admin_automation_acciones_generar(request: Request, token: str = ""):
+async def admin_automation_acciones_generar(request: Request):
     """Genera acciones a partir del Opportunity Engine.
 
     Body: {"telefono": "..."}
     Ejecuta detectar_oportunidades_para_telefono y crea una acción por
     oportunidad usando el primer paso del playbook sugerido (idempotente).
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     try:
         payload = await request.json()
@@ -3067,9 +3068,9 @@ async def admin_automation_acciones_generar(request: Request, token: str = ""):
 
 @app.post("/admin/automation/acciones/{accion_id}/aprobar")
 async def admin_automation_aprobar(
-    request: Request, accion_id: int, token: str = "",
+    request: Request, accion_id: int,
 ):
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.automation.action_center import aprobar_accion
     a = await aprobar_accion(accion_id)
@@ -3080,9 +3081,9 @@ async def admin_automation_aprobar(
 
 @app.post("/admin/automation/acciones/{accion_id}/rechazar")
 async def admin_automation_rechazar(
-    request: Request, accion_id: int, token: str = "",
+    request: Request, accion_id: int,
 ):
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.automation.action_center import rechazar_accion
     a = await rechazar_accion(accion_id)
@@ -3093,12 +3094,12 @@ async def admin_automation_rechazar(
 
 @app.post("/admin/automation/acciones/{accion_id}/ejecutar")
 async def admin_automation_ejecutar(
-    request: Request, accion_id: int, token: str = "",
+    request: Request, accion_id: int,
 ):
     """Ejecuta una acción · solo dry-run en T2.1.A/B.
     CRITICAL queda bloqueado · HIGH sin ejecutor T2.1.A queda bloqueado.
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     from sqlalchemy import select
 
@@ -3145,14 +3146,13 @@ async def admin_automation_ejecutar(
 @app.get("/admin/automation/prune/preview")
 async def admin_automation_prune_preview(
     request: Request,
-    token: str = "",
     dias_acciones: int = 180,
     dias_reservas: int = 180,
     dias_audit: int = 365,
 ):
     """Preview · cuenta cuántas filas serían borradas. NO borra nada.
     Útil antes de invocar el endpoint POST con confirm=BORRAR."""
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.automation.pruning import (
         pruning_acciones,
@@ -3171,7 +3171,6 @@ async def admin_automation_prune_preview(
 @app.post("/admin/automation/prune")
 async def admin_automation_prune_execute(
     request: Request,
-    token: str = "",
     confirm: str = "",
     tabla: str = "all",
     dias: int = 180,
@@ -3180,7 +3179,7 @@ async def admin_automation_prune_execute(
     """Ejecuta el pruning · borra filas viejas. Requiere confirm=BORRAR
     explícito · sin él retorna 400. Sólo borra una tabla por invocación
     (o 'all' para las 3) · respeta max_delete (default 1000, máx 10000)."""
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     if confirm != "BORRAR":
         raise HTTPException(
@@ -3228,12 +3227,11 @@ async def admin_automation_prune_execute(
 @app.get("/admin/automation/scheduler/status")
 async def admin_automation_scheduler_status(
     request: Request,
-    token: str = "",
 ):
     """Snapshot del scheduler de mantenimiento de automation: si está
     habilitado, intervalo configurado, última corrida, conteos
     acumulados (totales, saltadas por lock, fallidas). Solo lectura."""
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.automation.scheduler import obtener_estado
     return obtener_estado()
@@ -3245,7 +3243,6 @@ async def admin_automation_scheduler_status(
 @app.get("/admin/automation/credits/reconciliar/preview")
 async def admin_automation_credits_reconcile_preview(
     request: Request,
-    token: str = "",
     max_edad_segundos: int = 120,
     limit: int = 500,
 ):
@@ -3253,7 +3250,7 @@ async def admin_automation_credits_reconcile_preview(
     reconciliación (promoted / marked_failed / intactas) SIN tocar
     estado ni emitir audit. Útil para auditar el riesgo residual.
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.automation.credits import reconciliar_reservas
     try:
@@ -3267,7 +3264,6 @@ async def admin_automation_credits_reconcile_preview(
 @app.post("/admin/automation/credits/reconciliar")
 async def admin_automation_credits_reconcile_execute(
     request: Request,
-    token: str = "",
     max_edad_segundos: int = 120,
     limit: int = 500,
 ):
@@ -3276,7 +3272,7 @@ async def admin_automation_credits_reconcile_execute(
     no hay tx. Emite audit 'credits_reservation_reconciled' por cada
     fila tocada. No requiere confirm porque NO borra datos.
     """
-    if not _verificar_admin(request, token):
+    if not _verificar_admin(request):
         raise HTTPException(status_code=403, detail="Token inválido")
     from agent.automation.credits import reconciliar_reservas
     try:
