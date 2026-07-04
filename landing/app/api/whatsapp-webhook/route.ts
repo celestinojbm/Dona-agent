@@ -30,9 +30,20 @@ setInterval(() => {
 }, 5 * 60_000);
 
 export async function GET(request: NextRequest) {
+  // SEC-WEB-05 (Fase 0): NO reenviar Object.fromEntries(request.headers) —
+  // eso incluye cookies de sesión del dominio landing (ej. la cookie httpOnly
+  // de /engineering) y headers internos x-vercel-* hacia un host externo
+  // (dona-agent.onrender.com). El backend (agent/providers/meta.py
+  // validar_webhook) solo lee query params (hub.mode/hub.verify_token/
+  // hub.challenge) para la verificación GET de Meta — no necesita NINGÚN
+  // header del cliente. Allowlist explícito y mínimo: solo Content-Type,
+  // por si el backend algún día espera negociar el tipo de respuesta.
   const params = request.nextUrl.searchParams.toString();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
   const res = await fetch(`${RENDER_WEBHOOK_URL}?${params}`, {
-    headers: Object.fromEntries(request.headers),
+    headers,
   });
   const data = await res.json();
   return NextResponse.json(data, { status: res.status });
