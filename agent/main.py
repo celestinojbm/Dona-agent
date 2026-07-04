@@ -18,7 +18,7 @@ from time import monotonic
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 load_dotenv()
@@ -352,59 +352,161 @@ async def terms_of_service():
     return HTMLResponse(terms_html())
 
 
-@app.get("/privacy/export")
-async def privacy_export(telefono: str):
-    """
-    Export de datos del usuario (portabilidad — CCPA/CPRA derecho de acceso).
-    Requiere que el usuario se autentique enviando un código de verificación
-    por WhatsApp primero. Por ahora retorna instrucciones de contacto.
-    """
+# ── CCPA/CPRA: solicitudes VERIFICADAS de export/borrado (TEMA 7.1/7.2) ──────
+#
+# El teléfono NO es secreto (§7.1): no basta con POSTear un número para exportar
+# o borrar sus datos. El flujo es de dos pasos con verified consumer request:
+#   1. POST /privacy/export|delete {telefono}  → enviamos un OTP por WhatsApp.
+#   2. POST /privacy/verify {telefono, codigo} → validamos y EJECUTAMOS el efecto
+#      real (exportar_datos_usuario / borrar_datos_usuario), marcando la solicitud
+#      completada. La tabla solicitudes_privacidad traza estado + SLA de 45 días.
+# El teléfono se recibe en el BODY (no en query string) para no filtrarlo a logs.
+
+
+async def _leer_telefono_privacidad(request: Request) -> str:
+    """Extrae y valida el teléfono del body JSON de una solicitud de privacidad."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail='JSON inválido: envía {"telefono": "..."}')
+    telefono = str((body or {}).get("telefono", "")).strip()
     if not _telefono_valido(telefono):
         raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
-    # MVP: exigir confirmación por WhatsApp antes de exportar (evita scraping).
-    # Implementación completa requiere flujo de verificación de código de un solo uso.
+    return telefono
+
+
+async def _iniciar_solicitud_privacidad(telefono: str, tipo: str) -> dict:
+    """Paso 1 de una solicitud CCPA: registra la solicitud y envía el OTP por
+    WhatsApp. El envío usa `contexto_envio_directo` — transaccional y auto-
+    iniciado, así NO lo bloquea el opt-out de marketing (un STOP no debe impedir
+    ejercer un derecho legal). Idempotente por la ventana de validez del código.
+    """
+    from agent.envio_gate import contexto_envio_directo
+    from agent.memory import crear_solicitud_privacidad
+
+    codigo = await crear_solicitud_privacidad(telefono, tipo)
+    if codigo is None:
+        return {
+            "status": "verification_pending",
+            "mensaje": (
+                "Ya te enviamos un código de verificación por WhatsApp. Revísalo y "
+                "envíalo en POST /privacy/verify. Si expiró, vuelve a solicitarlo."
+            ),
+        }
+
+    accion = "exportar" if tipo == "export" else "borrar"
+    try:
+        with contexto_envio_directo(telefono):
+            await proveedor.enviar_mensaje(
+                telefono,
+                f"Tu código para {accion} tus datos en Dona es: {codigo}\n"
+                "Vence en 15 minutos. Si no lo solicitaste, ignora este mensaje.",
+            )
+    except Exception as e:
+        logger.error(
+            f"[PRIVACY] No se pudo enviar OTP {tipo} a {telefono[:4]}***: {type(e).__name__}"
+        )
+        # La solicitud queda registrada (SLA corriendo); ofrecer canal alterno.
+        return {
+            "status": "verification_send_failed",
+            "mensaje": (
+                "Registramos tu solicitud, pero no pudimos enviarte el código por "
+                f"WhatsApp. Escríbenos a {os.getenv('LEGAL_EMAIL', 'privacy@dona.ai')} "
+                "para completar la verificación (respondemos en 45 días)."
+            ),
+        }
     return {
-        "status": "pending_verification",
+        "status": "verification_sent",
         "mensaje": (
-            "Para ejercer tu derecho de acceso/portabilidad, escríbenos a "
-            f"{os.getenv('LEGAL_EMAIL', 'privacy@dona.ai')} desde una dirección de correo "
-            "asociada a tu cuenta, o envía el comando 'dona exportar datos' por WhatsApp. "
-            "Responderemos dentro de 45 días (CCPA/CPRA)."
+            "Te enviamos un código por WhatsApp. Complétalo con POST /privacy/verify "
+            '{"telefono": "...", "codigo": "..."} para ejecutar tu solicitud.'
         ),
     }
 
 
+@app.get("/privacy/export")
+async def privacy_export_info():
+    """GET informativo: el export real es un POST verificado (dos pasos)."""
+    return {
+        "status": "verified_request_required",
+        "mensaje": (
+            "El derecho de acceso/portabilidad (CCPA/CPRA) exige verificar que "
+            'controlas el número. Haz POST /privacy/export con {"telefono": "..."}; '
+            "te enviaremos un código por WhatsApp para confirmar."
+        ),
+    }
+
+
+@app.post("/privacy/export")
+async def privacy_export(request: Request):
+    """Derecho de acceso/portabilidad (CCPA/CPRA §1798.100/.110) — paso 1:
+    verifica control del número enviando un código por WhatsApp."""
+    telefono = await _leer_telefono_privacidad(request)
+    return await _iniciar_solicitud_privacidad(telefono, "export")
+
+
 @app.post("/privacy/delete")
-async def privacy_delete(
-    request: Request,
-    telefono: str,
-    confirmacion: str = "",
-):
-    """
-    Solicitud de borrado de datos (CCPA/CPRA derecho de eliminación).
-    Requiere que el usuario confirme enviando el comando 'dona borrar mis datos'
-    por WhatsApp. Este endpoint inicia el ticket; la verificación ocurre por WhatsApp.
-    """
+async def privacy_delete(request: Request):
+    """Derecho de eliminación (CCPA/CPRA §1798.105) — paso 1: verifica control
+    del número enviando un código por WhatsApp."""
+    telefono = await _leer_telefono_privacidad(request)
+    return await _iniciar_solicitud_privacidad(telefono, "delete")
+
+
+@app.post("/privacy/verify")
+async def privacy_verify(request: Request):
+    """Paso 2: valida el código y EJECUTA el efecto real (export inline o borrado).
+    Verified consumer request completado; la solicitud queda `completada`."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido")
+    telefono = str((body or {}).get("telefono", "")).strip()
+    codigo = str((body or {}).get("codigo", "")).strip()
     if not _telefono_valido(telefono):
         raise HTTPException(status_code=400, detail="Formato de teléfono inválido")
-    if confirmacion != "BORRAR":
-        return {
-            "status": "instrucciones",
-            "mensaje": (
-                "Para confirmar el borrado de tus datos envía por WhatsApp el mensaje: "
-                "'dona borrar mis datos'. Dona te pedirá confirmación antes de proceder. "
-                "Alternativamente, escribe a "
-                f"{os.getenv('LEGAL_EMAIL', 'privacy@dona.ai')} desde un correo asociado."
-            ),
+
+    from agent.memory import (
+        borrar_datos_usuario,
+        exportar_datos_usuario,
+        marcar_solicitud_privacidad_completada,
+        verificar_solicitud_privacidad,
+    )
+
+    res = await verificar_solicitud_privacidad(telefono, codigo)
+    if not res["ok"]:
+        _MSGS = {
+            "sin_solicitud": "No hay ninguna solicitud pendiente para ese número.",
+            "expirada": "El código expiró. Vuelve a solicitarlo.",
+            "demasiados_intentos": "Demasiados intentos. Vuelve a solicitar un código.",
+            "codigo_invalido": "Código incorrecto.",
         }
-    # Confirmación explícita: registrar solicitud.
-    logger.info(f"[PRIVACY] Solicitud de borrado registrada para {telefono}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "verification_failed",
+                "razon": res["razon"],
+                "mensaje": _MSGS.get(res["razon"], "Verificación fallida."),
+            },
+        )
+
+    if res["tipo"] == "export":
+        datos = await exportar_datos_usuario(telefono)
+        await marcar_solicitud_privacidad_completada(res["solicitud_id"])
+        logger.info(f"[PRIVACY] Export verificado completado sol={res['solicitud_id']}")
+        return {"status": "completed", "tipo": "export", "datos": datos}
+
+    conteos = await borrar_datos_usuario(telefono)
+    await marcar_solicitud_privacidad_completada(res["solicitud_id"])
+    total = sum(v for v in conteos.values() if isinstance(v, int))
+    logger.info(
+        f"[PRIVACY] Borrado verificado completado sol={res['solicitud_id']} registros={total}"
+    )
     return {
-        "status": "registered",
-        "mensaje": (
-            "Tu solicitud ha sido registrada. Responde al mensaje de confirmación que "
-            "te enviaremos por WhatsApp para completar el borrado (45 días máx.)."
-        ),
+        "status": "completed",
+        "tipo": "delete",
+        "registros_eliminados": total,
+        "detalle": conteos,
     }
 
 

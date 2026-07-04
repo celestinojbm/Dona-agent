@@ -7,9 +7,12 @@ por número de teléfono usando SQLite (local) o PostgreSQL (producción).
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
+import secrets
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
@@ -318,6 +321,31 @@ class RecordatorioGCalEnviado(Base):
     enviado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class SolicitudPrivacidad(Base):
+    """Solicitud verificada de privacidad — CCPA/CPRA export/delete (TEMA 7.1/7.2).
+
+    El teléfono NO es secreto, así que una solicitud desde el endpoint HTTP no
+    basta para exportar o borrar datos: exige un segundo paso — un código de un
+    solo uso enviado por WhatsApp al número, que prueba control del canal
+    (*verified consumer request*, CCPA §1798.130). Se guarda solo el HASH del
+    código, nunca el texto. `sla_limite` = `creada` + 45 días (plazo CCPA) para
+    rastrear cumplimiento; `estado` traza el ciclo pendiente→verificada→
+    completada (o expirada/fallida).
+    """
+    __tablename__ = "solicitudes_privacidad"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    tipo: Mapped[str] = mapped_column(String(20))  # "export" | "delete"
+    estado: Mapped[str] = mapped_column(String(30), default="pendiente_verificacion")
+    codigo_hash: Mapped[str] = mapped_column(String(64), default="")  # sha256 hex; nunca el texto
+    intentos: Mapped[int] = mapped_column(Integer, default=0)
+    creada: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    expira: Mapped[datetime] = mapped_column(DateTime)          # validez del OTP
+    sla_limite: Mapped[datetime] = mapped_column(DateTime)      # creada + 45 días (CCPA)
+    completada: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+
+
 class SesionConversacion(Base):
     """Sesión de conversación — agrupa mensajes por ventana de inactividad."""
     __tablename__ = "sesiones_conversacion"
@@ -499,6 +527,22 @@ _MIGRACIONES = [
     # ejecuta `alembic upgrade head` automáticamente.
     "ALTER TABLE suscripcion_stripe ADD COLUMN bienvenida_enviada BOOLEAN DEFAULT FALSE",
     # ── Tablas nuevas (respaldo explícito) ──────────────────────────────────
+    # TEMA 7.1/7.2 — solicitudes verificadas de privacidad (CCPA export/delete).
+    """
+    CREATE TABLE IF NOT EXISTS solicitudes_privacidad (
+        id          INTEGER PRIMARY KEY,
+        telefono    VARCHAR(50) NOT NULL,
+        tipo        VARCHAR(20) NOT NULL,
+        estado      VARCHAR(30) NOT NULL DEFAULT 'pendiente_verificacion',
+        codigo_hash VARCHAR(64) NOT NULL DEFAULT '',
+        intentos    INTEGER     NOT NULL DEFAULT 0,
+        creada      TIMESTAMP,
+        expira      TIMESTAMP,
+        sla_limite  TIMESTAMP,
+        completada  TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_solicitudes_privacidad_telefono ON solicitudes_privacidad (telefono)",
     """
     CREATE TABLE IF NOT EXISTS memoria_largo_plazo (
         telefono    VARCHAR(50) PRIMARY KEY,
@@ -2384,6 +2428,107 @@ async def obtener_uso_tokens(telefono: str, dias: int = 30) -> list[dict]:
     except Exception as e:
         logger.debug(f"obtener_uso_tokens: {e}")
         return []
+
+
+# ── Solicitudes verificadas de privacidad (CCPA export/delete · TEMA 7.1/7.2) ──
+
+_OTP_PRIVACIDAD_EXPIRA_MIN = 15    # validez del código enviado por WhatsApp
+_OTP_PRIVACIDAD_MAX_INTENTOS = 5   # intentos de código por solicitud antes de fallar
+_SLA_PRIVACIDAD_DIAS = 45          # plazo de respuesta CCPA/CPRA
+
+
+def _hash_codigo_privacidad(codigo: str) -> str:
+    """Hash del OTP para no persistir el texto. Sal de dominio + sha256."""
+    return hashlib.sha256(b"ccpa-otp|" + codigo.encode("utf-8")).hexdigest()
+
+
+async def crear_solicitud_privacidad(telefono: str, tipo: str) -> str | None:
+    """Crea una solicitud de privacidad y devuelve el código de un solo uso a
+    enviar por WhatsApp, o None si ya hay una solicitud viva del mismo tipo.
+
+    Anti-abuso: si existe una solicitud `pendiente_verificacion` no expirada para
+    (telefono, tipo), NO crea otra ni genera un código nuevo — el número recibe a
+    lo sumo un OTP por ventana de validez, evitando usar el endpoint como vector
+    de spam de WhatsApp hacia un tercero.
+    """
+    if tipo not in ("export", "delete"):
+        raise ValueError(f"tipo de solicitud inválido: {tipo!r}")
+    ahora = datetime.utcnow()
+    async with async_session() as session:
+        existente = (await session.execute(
+            select(SolicitudPrivacidad).where(
+                SolicitudPrivacidad.telefono == telefono,
+                SolicitudPrivacidad.tipo == tipo,
+                SolicitudPrivacidad.estado == "pendiente_verificacion",
+                SolicitudPrivacidad.expira > ahora,
+            )
+        )).scalars().first()
+        if existente is not None:
+            return None  # ya hay un código vivo; el caller pide revisar WhatsApp
+
+        codigo = f"{secrets.randbelow(1_000_000):06d}"
+        session.add(SolicitudPrivacidad(
+            telefono=telefono,
+            tipo=tipo,
+            estado="pendiente_verificacion",
+            codigo_hash=_hash_codigo_privacidad(codigo),
+            intentos=0,
+            creada=ahora,
+            expira=ahora + timedelta(minutes=_OTP_PRIVACIDAD_EXPIRA_MIN),
+            sla_limite=ahora + timedelta(days=_SLA_PRIVACIDAD_DIAS),
+        ))
+        await session.commit()
+    return codigo
+
+
+async def verificar_solicitud_privacidad(telefono: str, codigo: str) -> dict:
+    """Verifica el OTP de la solicitud viva más reciente para `telefono`.
+
+    Retorna {"ok", "razon", "tipo", "solicitud_id"}. Cuenta intentos (falla tras
+    `_OTP_PRIVACIDAD_MAX_INTENTOS`) y compara el hash en tiempo constante. NO
+    ejecuta el export/delete: eso lo hace el caller tras un ok, para separar
+    verificación de efecto.
+    """
+    ahora = datetime.utcnow()
+    async with async_session() as session:
+        sol = (await session.execute(
+            select(SolicitudPrivacidad).where(
+                SolicitudPrivacidad.telefono == telefono,
+                SolicitudPrivacidad.estado == "pendiente_verificacion",
+            ).order_by(SolicitudPrivacidad.creada.desc())
+        )).scalars().first()
+
+        if sol is None:
+            return {"ok": False, "razon": "sin_solicitud", "tipo": None, "solicitud_id": None}
+        if sol.expira <= ahora:
+            sol.estado = "expirada"
+            await session.commit()
+            return {"ok": False, "razon": "expirada", "tipo": sol.tipo, "solicitud_id": sol.id}
+
+        sol.intentos += 1
+        if sol.intentos > _OTP_PRIVACIDAD_MAX_INTENTOS:
+            sol.estado = "fallida"
+            await session.commit()
+            return {"ok": False, "razon": "demasiados_intentos", "tipo": sol.tipo, "solicitud_id": sol.id}
+
+        if not hmac.compare_digest(sol.codigo_hash, _hash_codigo_privacidad(codigo or "")):
+            await session.commit()  # persiste el conteo de intentos
+            return {"ok": False, "razon": "codigo_invalido", "tipo": sol.tipo, "solicitud_id": sol.id}
+
+        sol.estado = "verificada"
+        await session.commit()
+        return {"ok": True, "razon": "verificada", "tipo": sol.tipo, "solicitud_id": sol.id}
+
+
+async def marcar_solicitud_privacidad_completada(solicitud_id: int) -> None:
+    """Marca una solicitud verificada como completada (efecto ya ejecutado)."""
+    async with async_session() as session:
+        await session.execute(
+            update(SolicitudPrivacidad)
+            .where(SolicitudPrivacidad.id == solicitud_id)
+            .values(estado="completada", completada=datetime.utcnow())
+        )
+        await session.commit()
 
 
 async def borrar_datos_usuario(telefono: str) -> dict:
