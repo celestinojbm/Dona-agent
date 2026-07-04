@@ -139,6 +139,42 @@ class TestRegistrarEvento:
         assert "oferta_principal" not in summary
 
     @pytest.mark.asyncio
+    async def test_payload_con_tipos_no_serializables_no_rompe_audit(self, db):
+        """8.1 · el audit trail es promesa de producto ("audit HIGH
+        incondicional"): un valor no JSON-serializable en el payload
+        (datetime, Decimal, set) NUNCA debe romper la escritura del audit.
+        `default=str` los estringiza en lugar de lanzar TypeError y perder
+        el evento — crítico en flujos de dinero/HIGH donde el summary suele
+        arrastrar montos (Decimal desde columnas Numeric) y timestamps."""
+        from datetime import datetime as _dt
+        from decimal import Decimal
+
+        from sqlalchemy import select
+
+        from agent.automation.models import AuditLogAutomatizacion
+
+        log_id = await db.registrar_evento(
+            evento="credits_reserved",
+            telefono="5215551234567",
+            riesgo="high",
+            payload={
+                "cuando": _dt(2026, 7, 4, 12, 0, 0),
+                "monto": Decimal("10.5"),
+                "tags": {"solo_un_elemento"},
+                "creditos": 10,
+            },
+        )
+        # Sin `default=str` esto lanzaba TypeError y el evento se perdía.
+        assert log_id > 0
+        async with agent.memory.async_session() as session:
+            r = await session.execute(select(AuditLogAutomatizacion))
+            log = r.scalars().first()
+        summary = json.loads(log.payload_summary)  # debe ser JSON válido
+        assert summary["creditos"] == 10
+        assert "2026-07-04" in summary["cuando"]
+        assert summary["monto"] == "10.5"
+
+    @pytest.mark.asyncio
     async def test_no_loguea_pii_en_stdout(self, db, caplog):
         with caplog.at_level(logging.INFO, logger="dona"):
             caplog.clear()

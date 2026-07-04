@@ -199,7 +199,12 @@ async def registrar_evento(
     from agent.memory import async_session
 
     safe = sanitizar_payload(payload or {})
-    summary = json.dumps(safe, ensure_ascii=False, sort_keys=True)
+    # `default=str` (8.1): el audit trail es promesa de producto y el audit
+    # HIGH es incondicional — nunca debe perderse por un valor no
+    # JSON-serializable que sobrevivió al sanitizado (datetime, Decimal desde
+    # columnas Numeric, set, etc.). Estringizar es preferible a lanzar
+    # TypeError y dejar el evento sin registrar.
+    summary = json.dumps(safe, ensure_ascii=False, sort_keys=True, default=str)
     telefono_short = _short_telefono(telefono)
 
     async with async_session() as session:
