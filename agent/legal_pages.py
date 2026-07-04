@@ -179,9 +179,9 @@ tienes los siguientes derechos:</p>
   <li>Envía <code>STOP</code> por WhatsApp para opt-out inmediato de mensajes proactivos (TCPA compliant).</li>
   <li>Por WhatsApp: escribe <em>"dona exportar datos"</em> o <em>"dona borrar mis datos"</em> — Dona te guía con confirmación.</li>
   <li>Self-service web (solicitud verificada): <code>POST /privacy/export</code> o <code>/privacy/delete</code> con
-      <code>{"telefono": TU_NUMERO}</code>. Como tu teléfono no es un secreto, te enviamos un
+      <code>{{"telefono": TU_NUMERO}}</code>. Como tu teléfono no es un secreto, te enviamos un
       <strong>código de un solo uso por WhatsApp</strong> para confirmar que controlas el número; luego
-      <code>POST /privacy/verify</code> con <code>{"telefono", "codigo"}</code> ejecuta tu solicitud.</li>
+      <code>POST /privacy/verify</code> con <code>{{"telefono", "codigo"}}</code> ejecuta tu solicitud.</li>
   <li>Escribe a <a href="mailto:{EMPRESA_EMAIL}">{EMPRESA_EMAIL}</a> para cualquier solicitud o si no recibes el código.</li>
 </ul>
 <p>Respondemos a todas las solicitudes dentro de <strong>45 días</strong> (CCPA) / <strong>30 días</strong> (estados similares).</p>
