@@ -113,7 +113,9 @@ el ejemplo canónico.
 
 - **Runtime**: Python 3.11+ · FastAPI + Uvicorn/Gunicorn
 - **LLM principal**: `claude-sonnet-4-6` (Anthropic)
-  - Fallbacks: DeepSeek, GPT-4o, Haiku (ver `agent/brain.py`)
+  - Fallbacks: GPT-4o, Haiku (ver `agent/brain.py`) — DeepSeek fue eliminado
+    del fallback conversacional por manejar PII sin redacción (Fase 2 ·
+    TEMA 7 · 7.5)
 - **DB**: PostgreSQL prod / SQLite dev · SQLAlchemy 2 async · Alembic
 - **Queue**: Redis + **arq** (fallback `inproc` si no hay `REDIS_URL`)
 - **Storage**: Cloudflare R2 (S3 compatible vía `aioboto3`) · fallback local

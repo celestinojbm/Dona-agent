@@ -95,9 +95,8 @@ async def _llm_completar(
     """Llama al LLM. Retorna (texto, provider).
 
     provider es 'llm' si la llamada sucedió y devolvió contenido, o
-    'fallback' si no hay LLM disponible o todos los proveedores
-    fallaron. El módulo agent.llm ya maneja el fallback DeepSeek →
-    Haiku internamente.
+    'fallback' si no hay LLM disponible o Haiku falló. El módulo
+    agent.llm ya maneja esa llamada internamente.
     """
     try:
         from agent.llm import completar_con_sistema

@@ -1,8 +1,8 @@
 # agent/llm.py — Cliente centralizado para modelos secundarios (tareas ligeras)
 
 """
-Reemplaza las llamadas directas a Claude Haiku por DeepSeek (más barato).
-Fallback a Claude Haiku si DeepSeek falla.
+Modelo secundario: Claude Haiku, para tareas ligeras de clasificación,
+extracción y resumen que no requieren el modelo principal.
 
 Uso:
     from agent.llm import completar_texto
@@ -17,6 +17,12 @@ Tareas que usan este módulo:
   - Detección de ubicación (location.py)
   - Onboarding NLP (onboarding.py)
   - Contexto real-world (real_world.py)
+
+DeepSeek fue eliminado de esta vía (Fase 2 · TEMA 7 · 7.5): todas las tareas
+de arriba mandan fragmentos de mensajes del usuario (PII, contexto de
+negocio) en el prompt sin redacción — no hay ninguna lo bastante neutra
+como para justificar un subprocesador adicional. Solo Anthropic (Haiku)
+procesa estos payloads.
 
 Presupuesto (entregable F · F-1): este módulo ES la vía AUXILIAR del
 RuntimeBudgetGuard por contrato — todas sus tareas son ligeras y de
@@ -35,16 +41,8 @@ import os
 
 logger = logging.getLogger("dona")
 
-_DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 _ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
-# Cliente primario: DeepSeek (barato, rápido, bueno en JSON/clasificación)
-_deepseek = None
-if _DEEPSEEK_KEY:
-    from openai import AsyncOpenAI
-    _deepseek = AsyncOpenAI(api_key=_DEEPSEEK_KEY, base_url="https://api.deepseek.com")
-
-# Fallback: Claude Haiku
 _anthropic = None
 if _ANTHROPIC_KEY:
     from anthropic import AsyncAnthropic
@@ -52,7 +50,6 @@ if _ANTHROPIC_KEY:
 
 # Precios aprox. (USD por millón de tokens) para estimar el costo consumido.
 # No tienen que ser exactos: alimentan los topes de costo del guard.
-_PRECIO_DEEPSEEK_USD_MTOK = 0.3      # sobre total_tokens
 _PRECIO_HAIKU_IN_USD_MTOK = 1.0
 _PRECIO_HAIKU_OUT_USD_MTOK = 5.0
 
@@ -68,71 +65,45 @@ def _reservar_aux(telefono: str) -> bool:
     return True
 
 
-async def _completar(mensajes_openai: list, system: str | None, max_tokens: int, telefono: str) -> str | None:
-    """Núcleo gateado: una reserva auxiliar cubre el intento lógico
-    (DeepSeek + fallback Haiku). Timeout del guard por proveedor; el costo
-    se consume con el proveedor que respondió."""
+async def _completar(mensaje: str, system: str | None, max_tokens: int, telefono: str) -> str | None:
+    """Núcleo gateado: una reserva auxiliar cubre el intento lógico contra
+    Claude Haiku. Timeout del guard; el costo se consume si respondió."""
     from agent.presupuesto_runtime import TimeoutPresupuesto, con_timeout_llm, consumir_llm
 
-    # Intento 1: DeepSeek
-    if _deepseek:
-        try:
-            resp = await con_timeout_llm(
-                _deepseek.chat.completions.create(
-                    model="deepseek-chat",
-                    max_tokens=max_tokens,
-                    messages=mensajes_openai,
-                ),
-                telefono,
-            )
-            texto = resp.choices[0].message.content
-            if texto:
-                try:
-                    consumir_llm(resp.usage.total_tokens * _PRECIO_DEEPSEEK_USD_MTOK / 1_000_000, modelo="deepseek-chat")
-                except Exception:
-                    consumir_llm(0.0)
-                return texto.strip()
-        except TimeoutPresupuesto as t:
-            if t.razon == "timeout_budget_global":
-                return None  # sin tiempo global: no intentar el fallback
-            logger.warning("[LLM] DeepSeek timeout, intentando Haiku")
-        except Exception as e:
-            logger.warning(f"[LLM] DeepSeek falló, intentando Haiku: {e}")
+    if not _anthropic:
+        return None
 
-    # Intento 2: Claude Haiku (fallback, misma reserva lógica)
-    if _anthropic:
-        try:
-            kwargs = dict(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=max_tokens,
-                messages=[m for m in mensajes_openai if m["role"] != "system"],
-            )
-            if system:
-                kwargs["system"] = system
-            resp = await con_timeout_llm(_anthropic.messages.create(**kwargs), telefono)
-            texto = resp.content[0].text
-            if texto:
-                try:
-                    costo = (
-                        resp.usage.input_tokens * _PRECIO_HAIKU_IN_USD_MTOK
-                        + resp.usage.output_tokens * _PRECIO_HAIKU_OUT_USD_MTOK
-                    ) / 1_000_000
-                    consumir_llm(costo, modelo="claude-haiku")
-                except Exception:
-                    consumir_llm(0.0)
-                return texto.strip()
-        except TimeoutPresupuesto:
-            logger.warning("[LLM] Haiku timeout — sin más fallbacks")
-        except Exception as e:
-            logger.error(f"[LLM] Haiku también falló: {e}")
+    try:
+        kwargs = dict(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": mensaje}],
+        )
+        if system:
+            kwargs["system"] = system
+        resp = await con_timeout_llm(_anthropic.messages.create(**kwargs), telefono)
+        texto = resp.content[0].text
+        if texto:
+            try:
+                costo = (
+                    resp.usage.input_tokens * _PRECIO_HAIKU_IN_USD_MTOK
+                    + resp.usage.output_tokens * _PRECIO_HAIKU_OUT_USD_MTOK
+                ) / 1_000_000
+                consumir_llm(costo, modelo="claude-haiku")
+            except Exception:
+                consumir_llm(0.0)
+            return texto.strip()
+    except TimeoutPresupuesto:
+        logger.warning("[LLM] Haiku timeout")
+    except Exception as e:
+        logger.error(f"[LLM] Haiku falló: {e}")
 
     return None
 
 
 async def completar_texto(prompt: str, max_tokens: int = 500, telefono: str = "") -> str | None:
     """
-    Envía un prompt simple y retorna la respuesta como texto.
-    Usa DeepSeek si disponible, sino Claude Haiku.
+    Envía un prompt simple y retorna la respuesta como texto (Claude Haiku).
 
     Gateada como llamada AUXILIAR del presupuesto: bloqueada → None
     (los callers degradan).
@@ -144,14 +115,12 @@ async def completar_texto(prompt: str, max_tokens: int = 500, telefono: str = ""
             presupuesto de mensaje activo (background sin contexto)
 
     Returns:
-        El texto de la respuesta, o None si todos los modelos fallan
-        o el presupuesto la bloquea.
+        El texto de la respuesta, o None si el modelo falla o el
+        presupuesto la bloquea.
     """
     if not _reservar_aux(telefono):
         return None
-    return await _completar(
-        [{"role": "user", "content": prompt}], None, max_tokens, telefono,
-    )
+    return await _completar(prompt, None, max_tokens, telefono)
 
 
 async def completar_con_sistema(system: str, mensaje: str, max_tokens: int = 500, telefono: str = "") -> str | None:
@@ -162,10 +131,4 @@ async def completar_con_sistema(system: str, mensaje: str, max_tokens: int = 500
     """
     if not _reservar_aux(telefono):
         return None
-    return await _completar(
-        [
-            {"role": "system", "content": system},
-            {"role": "user", "content": mensaje},
-        ],
-        system, max_tokens, telefono,
-    )
+    return await _completar(mensaje, system, max_tokens, telefono)

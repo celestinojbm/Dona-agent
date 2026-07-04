@@ -24,22 +24,25 @@ logger = logging.getLogger("dona")
 # Cliente de Anthropic
 client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-# ── Clientes de fallback (DeepSeek → GPT-4o) ────────────────────────────────
-_deepseek_client = None
+# ── Clientes de fallback (GPT-4o → Claude Haiku) ────────────────────────────
+# DeepSeek fue eliminado del fallback conversacional (Fase 2 · TEMA 7 · 7.5):
+# esta vía manda system prompt + historial completo (PII, datos de negocio)
+# sin redacción — no debe salir de Anthropic/OpenAI, los únicos subprocesadores
+# declarados para conversación en la política de privacidad.
 _openai_client = None
+_haiku_client = None
 
-_DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 _OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
-
-if _DEEPSEEK_KEY:
-    from openai import AsyncOpenAI as _AsyncOpenAI
-    _deepseek_client = _AsyncOpenAI(api_key=_DEEPSEEK_KEY, base_url="https://api.deepseek.com")
-    logger.info("[BRAIN] Fallback DeepSeek configurado")
+_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 if _OPENAI_KEY:
     from openai import AsyncOpenAI as _AsyncOpenAI
     _openai_client = _AsyncOpenAI(api_key=_OPENAI_KEY)
     logger.info("[BRAIN] Fallback GPT-4o configurado")
+
+if _ANTHROPIC_KEY:
+    _haiku_client = AsyncAnthropic(api_key=_ANTHROPIC_KEY)
+    logger.info("[BRAIN] Fallback Haiku configurado")
 
 # Borradores de correo pendientes de confirmación — keyed by telefono
 # (en memoria: válido para Render single-worker free tier)
@@ -1683,7 +1686,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
             logger.error(f"Error Claude API (sin reintento): {e}")
             break
 
-    # ── Fallback: DeepSeek → GPT-4o ─────────────────────────────────────────
+    # ── Fallback: GPT-4o → Claude Haiku ──────────────────────────────────────
     # Claude no disponible — responder con modelo alternativo (sin tool use)
     respuesta_fallback = await _responder_con_fallback(system_prompt, mensajes, telefono)
     if respuesta_fallback:
@@ -1694,8 +1697,8 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
 
 async def _responder_con_fallback(system_prompt: str, mensajes: list, telefono: str = "") -> str | None:
     """
-    Intenta responder con DeepSeek o GPT-4o cuando Claude no está disponible.
-    Sin tool use — solo conversación de texto.
+    Intenta responder con GPT-4o o Claude Haiku cuando Claude Sonnet no está
+    disponible. Sin tool use — solo conversación de texto.
     Retorna None si ningún fallback funciona.
 
     El intento de recuperación es UNA llamada LLM lógica gateada por el
@@ -1708,32 +1711,9 @@ async def _responder_con_fallback(system_prompt: str, mensajes: list, telefono: 
         logger.warning("[BUDGET] Fallback omitido: presupuesto/kill-switch activo")
         return None
 
-    # Formato OpenAI: system message + user/assistant messages
-    mensajes_openai = [{"role": "system", "content": system_prompt}] + mensajes
-
-    # Intento 1: DeepSeek
-    if _deepseek_client:
-        try:
-            resp = await con_timeout_llm(
-                _deepseek_client.chat.completions.create(
-                    model="deepseek-chat",
-                    max_tokens=1024,
-                    messages=mensajes_openai,
-                ),
-                telefono,
-            )
-            texto = resp.choices[0].message.content
-            logger.info(f"[FALLBACK] DeepSeek respondió ({resp.usage.total_tokens} tokens)")
-            try:
-                consumir_llm(resp.usage.total_tokens * 0.3 / 1_000_000, modelo="deepseek-chat")
-            except Exception:
-                consumir_llm(0.0)
-            return texto
-        except Exception as e:
-            logger.warning(f"[FALLBACK] DeepSeek falló: {e}")
-
-    # Intento 2: GPT-4o
+    # Intento 1: GPT-4o (formato OpenAI: system message + user/assistant)
     if _openai_client:
+        mensajes_openai = [{"role": "system", "content": system_prompt}] + mensajes
         try:
             resp = await con_timeout_llm(
                 _openai_client.chat.completions.create(
@@ -1752,6 +1732,32 @@ async def _responder_con_fallback(system_prompt: str, mensajes: list, telefono: 
             return texto
         except Exception as e:
             logger.warning(f"[FALLBACK] GPT-4o falló: {e}")
+
+    # Intento 2: Claude Haiku (formato Anthropic: system aparte)
+    if _haiku_client:
+        try:
+            resp = await con_timeout_llm(
+                _haiku_client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=1024,
+                    system=system_prompt,
+                    messages=mensajes,
+                ),
+                telefono,
+            )
+            texto = resp.content[0].text
+            tokens = resp.usage.input_tokens + resp.usage.output_tokens
+            logger.info(f"[FALLBACK] Haiku respondió ({tokens} tokens)")
+            try:
+                costo = (
+                    resp.usage.input_tokens * 1.0 + resp.usage.output_tokens * 5.0
+                ) / 1_000_000
+                consumir_llm(costo, modelo="claude-haiku")
+            except Exception:
+                consumir_llm(0.0)
+            return texto
+        except Exception as e:
+            logger.warning(f"[FALLBACK] Haiku falló: {e}")
 
     return None
 
