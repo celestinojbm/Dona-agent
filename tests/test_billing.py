@@ -306,6 +306,46 @@ class TestProcesarEventoStripe:
         assert await db.obtener_saldo("5552000") == 150
 
     @pytest.mark.asyncio
+    async def test_acreditar_revienta_libera_el_gate(self, db, monkeypatch):
+        # Si acreditar falla (excepción transitoria), el gate EventoStripeProcesado
+        # debe LIBERARSE para que Stripe reintente — sin esto el event_id quedaría
+        # envenenado permanentemente y el crédito legítimo se perdería. El dinero
+        # sigue protegido por la idempotencia de acreditar en el reintento.
+        evento = {
+            "id": "evt_boom",
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "id": "cs_boom",
+                "mode": "payment",
+                "payment_status": "paid",
+                "client_reference_id": "5554000",
+                "metadata": {"telefono": "5554000", "creditos": "100"},
+            }},
+        }
+
+        original = db.acreditar
+        llamadas = {"n": 0}
+
+        async def _acreditar_falla_una_vez(*a, **k):
+            llamadas["n"] += 1
+            if llamadas["n"] == 1:
+                raise RuntimeError("boom transitorio")
+            return await original(*a, **k)
+
+        monkeypatch.setattr(db, "acreditar", _acreditar_falla_una_vez)
+
+        # 1ª entrega: acreditar revienta → la excepción propaga y el gate se libera.
+        with pytest.raises(RuntimeError):
+            await db.procesar_evento_stripe(evento)
+        assert await db.obtener_saldo("5554000") == 0
+
+        # Reintento de Stripe (mismo event.id): como el gate se liberó, reprocesa
+        # y esta vez acredita.
+        r2 = await db.procesar_evento_stripe(evento)
+        assert r2["handled"] is True
+        assert await db.obtener_saldo("5554000") == 100
+
+    @pytest.mark.asyncio
     async def test_evento_sin_id_mantiene_comportamiento_legacy(self, db):
         # Compat: eventos sin top-level event.id (shape sintético) caen al camino
         # legacy — el gate se omite y acreditar sigue protegiendo el dinero. No se
