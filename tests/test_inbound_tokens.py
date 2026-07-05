@@ -129,3 +129,80 @@ class TestSecretoProduction:
         # _secreto() debe levantar RuntimeError en producción aunque ADMIN_TOKEN exista.
         with pytest.raises(RuntimeError, match="INBOUND_WEBHOOK_SECRET"):
             inbound_tokens._secreto()
+
+
+class TestSecretoFallbackDevTest:
+    """Fija el comportamiento de los fallbacks de `_secreto()` en entorno
+    permisivo (dev/test). Estos paths NUNCA corren en producción (ver
+    TestSecretoProduction), pero sí en desarrollo local sin secret configurado;
+    conviene fijar exactamente qué secreto derivan para que un cambio silencioso
+    no altere qué tokens quedan válidos entre reinicios de dev.
+    """
+
+    def test_deriva_de_admin_token_cuando_no_hay_secret(self, monkeypatch):
+        """Sin INBOUND_WEBHOOK_SECRET pero con ADMIN_TOKEN → deriva SHA256 del token."""
+        import hashlib
+
+        monkeypatch.setenv("ENVIRONMENT", "test")  # permisivo
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("ADMIN_TOKEN", "admintok")
+        esperado = hashlib.sha256(b"inbound-webhook-derived|admintok").digest()
+        assert inbound_tokens._secreto() == esperado
+
+    def test_literal_dev_cuando_no_hay_secret_ni_admin(self, monkeypatch):
+        """Sin secret ni ADMIN_TOKEN → literal de desarrollo INSEGURO."""
+        monkeypatch.setenv("ENVIRONMENT", "test")  # permisivo
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+        assert inbound_tokens._secreto() == b"dona-inbound-dev-secret-do-not-use-in-prod"
+
+    def test_admin_token_solo_whitespace_cae_al_literal(self, monkeypatch):
+        """ADMIN_TOKEN con solo espacios cuenta como vacío (.strip()) → literal dev."""
+        monkeypatch.setenv("ENVIRONMENT", "test")
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("ADMIN_TOKEN", "   ")
+        assert inbound_tokens._secreto() == b"dona-inbound-dev-secret-do-not-use-in-prod"
+
+    def test_token_generado_con_fallback_admin_es_verificable(self, monkeypatch):
+        """El token derivado de ADMIN_TOKEN hace roundtrip consigo mismo."""
+        monkeypatch.setenv("ENVIRONMENT", "test")
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("ADMIN_TOKEN", "admintok")
+        tok = inbound_tokens.generar_token("14076936023")
+        assert inbound_tokens.verificar_token(tok) == "14076936023"
+
+
+class TestVerificarTokenRamasError:
+    """Cubre las ramas de rechazo internas de `verificar_token`: payload con
+    firma válida pero estructura inesperada. Todas deben devolver None sin
+    propagar excepción (defensa: input hostil no debe tumbar el webhook)."""
+
+    def test_payload_firmado_pero_sin_separador_pipe(self):
+        """Firma correcta sobre un payload sin '|' → None (len(partes) != 2)."""
+        import hashlib
+        import hmac
+
+        payload = b"nopipe"
+        firma = hmac.new(b"test-secret-xyz", payload, hashlib.sha256).hexdigest()
+        tok = f"{inbound_tokens._b64u(payload)}.{firma}"
+        assert inbound_tokens.verificar_token(tok) is None
+
+    def test_payload_firmado_pero_no_utf8_no_propaga(self):
+        """Firma correcta sobre bytes no-UTF8 → la excepción de decode se captura y da None."""
+        import hashlib
+        import hmac
+
+        payload = b"\xff\xfe\xfa"  # secuencia inválida en UTF-8
+        firma = hmac.new(b"test-secret-xyz", payload, hashlib.sha256).hexdigest()
+        tok = f"{inbound_tokens._b64u(payload)}.{firma}"
+        assert inbound_tokens.verificar_token(tok) is None
+
+    def test_payload_firmado_solo_pipe_da_telefono_vacio_none(self):
+        """Payload '|' (nonce y telefono vacíos) firmado → telefono vacío → None."""
+        import hashlib
+        import hmac
+
+        payload = b"|"
+        firma = hmac.new(b"test-secret-xyz", payload, hashlib.sha256).hexdigest()
+        tok = f"{inbound_tokens._b64u(payload)}.{firma}"
+        assert inbound_tokens.verificar_token(tok) is None
