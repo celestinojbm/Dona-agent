@@ -247,6 +247,87 @@ class TestProcesarEventoStripe:
         assert r["handled"] is False
         assert await db.obtener_saldo("5557777") == 0
 
+    @pytest.mark.asyncio
+    async def test_reentrega_con_event_id_no_reprocesa_ni_renotifica(self, db):
+        # Fase 1 · TEMA 3.1: el gate atómico EventoStripeProcesado (por event.id)
+        # debe cubrir también el path directo de top-ups one-time. Stripe reentrega
+        # (at-least-once); sin el gate, la 2ª entrega volvía a retornar handled=True
+        # y el webhook re-disparaba la notificación "gracias por tu compra" (aunque
+        # acreditar ya no doblaba el saldo). La reentrega debe devolver handled=False.
+        evento = {
+            "id": "evt_topup_1",
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "id": "cs_evt_1",
+                "mode": "payment",
+                "payment_status": "paid",
+                "client_reference_id": "5551000",
+                "metadata": {"telefono": "5551000", "creditos": "300"},
+            }},
+        }
+        r1 = await db.procesar_evento_stripe(evento)
+        assert r1["handled"] is True
+        assert r1["saldo"] == 300
+        # Reentrega EXACTA del mismo evento (mismo event.id).
+        r2 = await db.procesar_evento_stripe(evento)
+        assert r2["handled"] is False
+        assert r2["reason"] == "duplicate_event"
+        # El dinero no se duplicó y la notificación no se re-disparará (handled=False).
+        assert await db.obtener_saldo("5551000") == 300
+
+    @pytest.mark.asyncio
+    async def test_reentrega_concurrente_solo_una_acredita_y_notifica(self, db):
+        # Adversarial · concurrencia: dos entregas del mismo event.id llegan a la
+        # vez. El PK de EventoStripeProcesado decide la propiedad por construcción:
+        # exactamente UNA obtiene handled=True; la otra choca con el PK y devuelve
+        # handled=False. Ni doble crédito ni doble notificación.
+        import asyncio
+
+        evento = {
+            "id": "evt_topup_race",
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "id": "cs_evt_race",
+                "mode": "payment",
+                "payment_status": "paid",
+                "client_reference_id": "5552000",
+                "metadata": {"telefono": "5552000", "creditos": "150"},
+            }},
+        }
+        r_a, r_b = await asyncio.gather(
+            db.procesar_evento_stripe(evento),
+            db.procesar_evento_stripe(evento),
+        )
+        handled = [r for r in (r_a, r_b) if r.get("handled")]
+        no_handled = [r for r in (r_a, r_b) if not r.get("handled")]
+        assert len(handled) == 1
+        assert len(no_handled) == 1
+        assert no_handled[0]["reason"] == "duplicate_event"
+        assert await db.obtener_saldo("5552000") == 150
+
+    @pytest.mark.asyncio
+    async def test_evento_sin_id_mantiene_comportamiento_legacy(self, db):
+        # Compat: eventos sin top-level event.id (shape sintético) caen al camino
+        # legacy — el gate se omite y acreditar sigue protegiendo el dinero. No se
+        # rompe ningún consumidor que construya eventos sin event.id.
+        evento = {
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "id": "cs_sin_evt_id",
+                "mode": "payment",
+                "payment_status": "paid",
+                "client_reference_id": "5553000",
+                "metadata": {"telefono": "5553000", "creditos": "77"},
+            }},
+        }
+        r1 = await db.procesar_evento_stripe(evento)
+        assert r1["handled"] is True
+        # Sin event.id no hay gate; la reentrega vuelve a handled=True pero acreditar
+        # (idempotente por session_id) evita el doble crédito.
+        r2 = await db.procesar_evento_stripe(evento)
+        assert r2["handled"] is True
+        assert await db.obtener_saldo("5553000") == 77
+
 
 class TestVerificarFirmaDev:
     """Comportamiento de verificar_firma_stripe en development/test.

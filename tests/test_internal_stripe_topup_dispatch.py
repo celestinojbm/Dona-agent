@@ -135,8 +135,17 @@ class TestDispatchTopup:
         assert j["creditos"] == 100
         assert j["saldo"] == 100
 
-    def test_topup_idempotente_por_session_id(self, setup):
-        """Reentregar el mismo evento (mismo session.id) NO duplica créditos."""
+    def test_topup_idempotente_por_event_id(self, setup):
+        """Reentregar el mismo evento NO duplica créditos NI re-notifica.
+
+        Fase 1 · TEMA 3.1: con el gate atómico EventoStripeProcesado ahora
+        también en el path de top-ups, la reentrega se corta a nivel de EVENTO
+        (handled=False, reason=duplicate_event) — más fuerte que el viejo
+        empate por saldo: no re-ejecuta el handler ni re-dispara la
+        notificación "gracias por tu compra".
+        """
+        import asyncio
+
         client, memory, billing = setup
         ev = _evento_topup(
             event_id="evt_topup_dup",
@@ -153,17 +162,24 @@ class TestDispatchTopup:
             headers={"X-Internal-Signature": sig},
         )
         assert r1.status_code == 200
+        assert r1.json()["handled"] is True
         assert r1.json()["saldo"] == 200
 
-        # Reentrega (mismo body → mismo session_id).
+        # Reentrega (mismo body → mismo event.id).
         r2 = client.post(
             "/internal/stripe-event",
             content=body,
             headers={"X-Internal-Signature": sig},
         )
         assert r2.status_code == 200
+        # Gate: el evento ya fue procesado → no-handled, sin re-notificar.
+        assert r2.json()["handled"] is False
+        assert r2.json()["reason"] == "duplicate_event"
         # Saldo NO sumó otra vez.
-        assert r2.json()["saldo"] == 200
+        saldo = asyncio.get_event_loop().run_until_complete(
+            billing.obtener_saldo("14076936023")
+        )
+        assert saldo == 200
 
     def test_topup_sin_metadata_creditos_no_acredita(self, setup):
         """Si falta metadata.creditos, procesar_evento_stripe responde 'metadata faltante'."""
