@@ -5,6 +5,9 @@ Verifica generación y verificación timing-safe de tokens del webhook inbound
 (Zapier/Make/n8n).
 """
 
+import hashlib
+import hmac
+
 import pytest
 from agent import inbound_tokens
 
@@ -13,6 +16,18 @@ from agent import inbound_tokens
 def _secreto_fijo(monkeypatch):
     """Fija un secreto determinístico para los tests."""
     monkeypatch.setenv("INBOUND_WEBHOOK_SECRET", "test-secret-xyz")
+
+
+def _firmar_payload(payload: bytes) -> str:
+    """Firma bytes de payload arbitrarios con el secreto actual del módulo y
+    devuelve un token con el mismo formato que ``generar_token`` produce.
+
+    Sirve para construir tokens con firma VÁLIDA pero payload fuera de las
+    invariantes que ``generar_token`` garantiza (sin '|', bytes no-utf8),
+    y así ejercitar las ramas defensivas de ``verificar_token``.
+    """
+    firma = hmac.new(inbound_tokens._secreto(), payload, hashlib.sha256).hexdigest()
+    return f"{inbound_tokens._b64u(payload)}.{firma}"
 
 
 class TestInboundTokens:
@@ -129,3 +144,91 @@ class TestSecretoProduction:
         # _secreto() debe levantar RuntimeError en producción aunque ADMIN_TOKEN exista.
         with pytest.raises(RuntimeError, match="INBOUND_WEBHOOK_SECRET"):
             inbound_tokens._secreto()
+
+
+class TestSecretoFallbackDevTest:
+    """Fija el comportamiento del fallback INSEGURO de ``_secreto()`` en entorno
+    permisivo (dev/test), donde no hay ``INBOUND_WEBHOOK_SECRET`` configurado.
+
+    Este path NUNCA corre en producción (lo garantiza el check de import-time y
+    la defensa en profundidad ya cubiertos por ``TestSecretoProduction``), pero
+    es el que hace correr las pruebas locales sin Zapier/Stripe. Lo cubrimos
+    para que un cambio accidental en la derivación no pase inadvertido.
+    """
+
+    def test_deriva_de_admin_token_cuando_falta_secret(self, monkeypatch):
+        """Sin INBOUND_WEBHOOK_SECRET pero con ADMIN_TOKEN → deriva por SHA-256."""
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("ADMIN_TOKEN", "admin-dev-123")
+        esperado = hashlib.sha256(
+            b"inbound-webhook-derived|" + b"admin-dev-123"
+        ).digest()
+        assert inbound_tokens._secreto() == esperado
+
+    def test_admin_token_con_espacios_se_recorta(self, monkeypatch):
+        """El ADMIN_TOKEN se normaliza con .strip() antes de derivar."""
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("ADMIN_TOKEN", "  admin-dev-123  ")
+        esperado = hashlib.sha256(
+            b"inbound-webhook-derived|" + b"admin-dev-123"
+        ).digest()
+        assert inbound_tokens._secreto() == esperado
+
+    def test_literal_dev_cuando_falta_secret_y_admin_token(self, monkeypatch):
+        """Sin INBOUND_WEBHOOK_SECRET ni ADMIN_TOKEN → literal de desarrollo."""
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+        assert (
+            inbound_tokens._secreto()
+            == b"dona-inbound-dev-secret-do-not-use-in-prod"
+        )
+
+    def test_admin_token_solo_espacios_cae_al_literal(self, monkeypatch):
+        """ADMIN_TOKEN de solo whitespace cuenta como vacío → literal dev."""
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("ADMIN_TOKEN", "   ")
+        assert (
+            inbound_tokens._secreto()
+            == b"dona-inbound-dev-secret-do-not-use-in-prod"
+        )
+
+    def test_roundtrip_con_fallback_derivado(self, monkeypatch):
+        """Con el fallback derivado de ADMIN_TOKEN, generar/verificar siguen
+        siendo consistentes entre sí (mismo secreto en ambos extremos)."""
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("ADMIN_TOKEN", "admin-dev-123")
+        tok = inbound_tokens.generar_token("14076936023")
+        assert inbound_tokens.verificar_token(tok) == "14076936023"
+
+    def test_roundtrip_con_fallback_literal(self, monkeypatch):
+        """Con el fallback literal, generar/verificar siguen siendo consistentes."""
+        monkeypatch.delenv("INBOUND_WEBHOOK_SECRET", raising=False)
+        monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+        tok = inbound_tokens.generar_token("14076936023")
+        assert inbound_tokens.verificar_token(tok) == "14076936023"
+
+
+class TestVerificarTokenBordes:
+    """Ramas defensivas de ``verificar_token`` con firma VÁLIDA pero payload
+    fuera de las invariantes de ``generar_token``."""
+
+    def test_payload_firmado_sin_separador_rechaza(self):
+        """Firma válida pero payload sin '|' → None (partes != 2)."""
+        tok = _firmar_payload(b"sin-separador-alguno")
+        assert inbound_tokens.verificar_token(tok) is None
+
+    def test_payload_firmado_telefono_vacio_rechaza(self):
+        """Firma válida, formato 'nonce|' con teléfono vacío → None."""
+        tok = _firmar_payload(b"nonce-abc|")
+        assert inbound_tokens.verificar_token(tok) is None
+
+    def test_payload_firmado_bytes_no_utf8_rechaza(self):
+        """Firma válida pero bytes no decodificables como utf-8 → None
+        (se captura la excepción y se rechaza en vez de propagar)."""
+        tok = _firmar_payload(b"\xff\xfe-no-utf8")
+        assert inbound_tokens.verificar_token(tok) is None
+
+    def test_base64_invalido_en_payload_rechaza(self):
+        """Un payload_b64 que no decodifica lanza en _b64u_decode y se captura."""
+        # Byte de padding mal colocado / carácter fuera del alfabeto urlsafe.
+        assert inbound_tokens.verificar_token("========.deadbeef") is None
