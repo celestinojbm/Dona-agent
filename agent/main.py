@@ -586,6 +586,10 @@ async def admin_metrics(request: Request, token: str = ""):
         raise HTTPException(status_code=403, detail="Token inválido")
     from datetime import datetime as _dt
     data = metricas.snapshot()
+    # Medición del loop (TEMA 4 · 4.4): usos de tokens registrados vs fallidos.
+    # `fallos` > 0 es la alerta de que la medición se está perdiendo.
+    from agent.memory import snapshot_metricas_uso_tokens
+    data["uso_tokens_medicion"] = snapshot_metricas_uso_tokens()
     data["timestamp"] = _dt.now(UTC).isoformat()
     data["uptime_info"] = "desde último deploy"
     return data

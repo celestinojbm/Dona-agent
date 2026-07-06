@@ -2380,8 +2380,29 @@ async def obtener_todos_con_google_calendar() -> list[str]:
         return [row[0] for row in result.fetchall()]
 
 
+# ── Medición de uso de tokens (TEMA 4 · 4.4) ────────────────────────────────
+# Contadores observables de la MEDICIÓN del loop. "registrados" = usos
+# persistidos; "fallos" = usos que NO se pudieron contabilizar. Un fallo aquí
+# es una alerta: sin medición fiable, el loop medición→reporte miente. Se
+# exponen en /admin/metrics. In-memory per-proceso (se resetean al deploy),
+# mismo trade-off que el resto de contadores de la app.
+_metricas_uso_tokens: dict[str, int] = {"registrados": 0, "fallos": 0}
+
+
+def snapshot_metricas_uso_tokens() -> dict[str, int]:
+    """Foto inmutable de los contadores de medición de tokens."""
+    return dict(_metricas_uso_tokens)
+
+
 async def registrar_uso_tokens(telefono: str, tokens_in: int, tokens_out: int):
-    """Registra el uso de tokens de una llamada a Claude. Acumula por usuario/día."""
+    """Registra el uso de tokens de una llamada a Claude. Acumula por usuario/día.
+
+    Medición del loop (TEMA 4 · 4.4): NO fire-and-forget silencioso. El caller
+    la ESPERA (no la dispara con create_task, que sin referencia puede ni
+    ejecutarse). Un fallo de persistencia se CUENTA y se ALERTA en WARNING
+    —nunca DEBUG—, con el teléfono enmascarado (TEMA 7.4), para que aparezca
+    en /admin/metrics y en logs. No relanza: la medición no debe romper la
+    respuesta al usuario, pero tampoco desaparecer en silencio."""
     try:
         from datetime import date
         hoy = date.today()
@@ -2401,8 +2422,14 @@ async def registrar_uso_tokens(telefono: str, tokens_in: int, tokens_out: int):
                 {"tel": telefono, "fecha": hoy, "tin": tokens_in, "tout": tokens_out},
             )
             await session.commit()
+        _metricas_uso_tokens["registrados"] += 1
     except Exception as e:
-        logger.debug(f"registrar_uso_tokens: {e}")
+        _metricas_uso_tokens["fallos"] += 1
+        tel_mask = f"...{telefono[-4:]}" if telefono else "?"
+        logger.warning(
+            f"[MEDICION] registrar_uso_tokens FALLÓ (tel={tel_mask}): "
+            f"{type(e).__name__}: {e} — uso de tokens NO contabilizado"
+        )
 
 
 async def obtener_uso_tokens(telefono: str, dias: int = 30) -> list[dict]:

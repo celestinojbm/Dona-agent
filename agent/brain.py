@@ -1648,9 +1648,14 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
             _tout = response.usage.output_tokens
             logger.info(f"Claude respuesta ({_tin} in / {_tout} out) stop={response.stop_reason}")
 
-            # Registrar uso de tokens en background (no bloquear)
+            # Medición del loop (TEMA 4 · 4.4): NO fire-and-forget. Se ESPERA
+            # el registro de uso de tokens — una create_task sin referencia
+            # puede ni ejecutarse (GC), y el fallo debe contabilizarse/alertar
+            # (lo hace registrar_uso_tokens), no perderse. El costo es un UPSERT
+            # indexado, despreciable frente al roundtrip del LLM ya realizado.
             if telefono:
-                _asyncio.create_task(_registrar_tokens_bg(telefono, _tin, _tout))
+                from agent.memory import registrar_uso_tokens as _registrar_uso_tokens
+                await _registrar_uso_tokens(telefono, _tin, _tout)
 
             # Si Claude quiere usar una herramienta
             if response.stop_reason == "tool_use":
@@ -3405,15 +3410,6 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
         )
 
     return _extraer_texto(respuesta_final)
-
-
-async def _registrar_tokens_bg(telefono: str, tokens_in: int, tokens_out: int):
-    """Registra uso de tokens en DB (background, no bloquea respuesta)."""
-    try:
-        from agent.memory import registrar_uso_tokens
-        await registrar_uso_tokens(telefono, tokens_in, tokens_out)
-    except Exception as e:
-        logger.debug(f"Error registrando tokens: {e}")
 
 
 async def _guardar_emocion_background(telefono: str, emotion: dict):
