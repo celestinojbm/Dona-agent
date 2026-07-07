@@ -121,8 +121,8 @@ def _mock_create(monkeypatch, secuencia):
 @pytest.fixture
 def sin_fallback(monkeypatch):
     """Neutraliza los clientes de fallback para aislar el path primario."""
-    monkeypatch.setattr(brain, "_deepseek_client", None)
     monkeypatch.setattr(brain, "_openai_client", None)
+    monkeypatch.setattr(brain, "_haiku_client", None)
 
 
 @pytest.fixture
@@ -319,15 +319,17 @@ class TestTimeoutSinRunaway:
 
 
 class _FakeOpenAIClient:
-    """Cliente estilo OpenAI con contador de llamadas reales."""
+    """Cliente estilo OpenAI (GPT-4o) con contador de llamadas reales."""
 
-    def __init__(self, texto="respuesta del fallback"):
+    def __init__(self, texto="respuesta del fallback", falla=False):
         self.llamadas = 0
         cliente = self
 
         class _Completions:
             async def create(self, **kwargs):
                 cliente.llamadas += 1
+                if falla:
+                    raise Exception("gpt-4o no disponible")
 
                 class _R:
                     class usage:
@@ -343,6 +345,31 @@ class _FakeOpenAIClient:
         self.chat = _Chat()
 
 
+class _FakeHaikuClient:
+    """Cliente estilo Anthropic (Haiku) con contador de llamadas reales."""
+
+    def __init__(self, texto="respuesta haiku", falla=False):
+        self.llamadas = 0
+        cliente = self
+
+        class _Messages:
+            async def create(self, **kwargs):
+                cliente.llamadas += 1
+                if falla:
+                    raise Exception("haiku no disponible")
+
+                class _R:
+                    class usage:
+                        input_tokens = 10
+                        output_tokens = 10
+
+                    content = [type("B", (), {"text": texto})()]
+
+                return _R()
+
+        self.messages = _Messages()
+
+
 class TestFallbackGateado:
     async def test_fallback_no_se_llama_sin_presupuesto(self, monkeypatch):
         """Primario falla y el cupo LLM ya se agotó → el fallback NO llama
@@ -351,34 +378,60 @@ class TestFallbackGateado:
         monkeypatch.setattr(brain, "seleccionar_tools", lambda m, t: [])
         _mock_create(monkeypatch, lambda n: Exception("400 invalid_request_error"))
 
-        deepseek = _FakeOpenAIClient()
-        monkeypatch.setattr(brain, "_deepseek_client", deepseek)
-        monkeypatch.setattr(brain, "_openai_client", None)
+        openai_fake = _FakeOpenAIClient()
+        monkeypatch.setattr(brain, "_openai_client", openai_fake)
+        monkeypatch.setattr(brain, "_haiku_client", None)
 
         with pr.presupuesto_de_mensaje(TEL):
             resp = await brain.generar_respuesta("hola", [], telefono=TEL)
 
-        assert deepseek.llamadas == 0
+        assert openai_fake.llamadas == 0
         assert isinstance(resp, str) and resp
 
     async def test_fallback_con_presupuesto_llama_una_vez(self, monkeypatch):
-        """Con presupuesto disponible, el fallback corre UNA vez bajo el
-        guard y responde."""
+        """Con presupuesto disponible, el fallback (GPT-4o) corre UNA vez
+        bajo el guard y responde."""
         monkeypatch.setattr(brain, "seleccionar_tools", lambda m, t: [])
         llamadas = _mock_create(
             monkeypatch, lambda n: Exception("400 invalid_request_error")
         )
 
-        deepseek = _FakeOpenAIClient("texto del fallback")
-        monkeypatch.setattr(brain, "_deepseek_client", deepseek)
-        monkeypatch.setattr(brain, "_openai_client", None)
+        openai_fake = _FakeOpenAIClient("texto del fallback")
+        monkeypatch.setattr(brain, "_openai_client", openai_fake)
+        monkeypatch.setattr(brain, "_haiku_client", None)
 
         with pr.presupuesto_de_mensaje(TEL):
             resp = await brain.generar_respuesta("hola", [], telefono=TEL)
 
-        assert llamadas["n"] == 1          # primario: una sola (sin retry oculto)
-        assert deepseek.llamadas == 1      # fallback: exactamente una
+        assert llamadas["n"] == 1           # primario: una sola (sin retry oculto)
+        assert openai_fake.llamadas == 1    # fallback: exactamente una
         assert "texto del fallback" in resp
+
+    async def test_fallback_cae_a_haiku_si_gpt4o_falla(self, monkeypatch):
+        """DeepSeek fue eliminado del fallback (Fase 2 · TEMA 7 · 7.5): la
+        cadena es Claude → GPT-4o → Haiku. Si GPT-4o también falla, Haiku
+        responde."""
+        monkeypatch.setattr(brain, "seleccionar_tools", lambda m, t: [])
+        _mock_create(monkeypatch, lambda n: Exception("400 invalid_request_error"))
+
+        openai_fake = _FakeOpenAIClient(falla=True)
+        haiku_fake = _FakeHaikuClient("texto de haiku")
+        monkeypatch.setattr(brain, "_openai_client", openai_fake)
+        monkeypatch.setattr(brain, "_haiku_client", haiku_fake)
+
+        with pr.presupuesto_de_mensaje(TEL):
+            resp = await brain.generar_respuesta("hola", [], telefono=TEL)
+
+        assert openai_fake.llamadas == 1
+        assert haiku_fake.llamadas == 1
+        assert "texto de haiku" in resp
+
+    def test_sin_rastro_de_deepseek_en_brain(self):
+        """Sentinel (Fase 2 · TEMA 7 · 7.5): brain.py no debe instanciar ni
+        referenciar un cliente DeepSeek — el fallback conversacional con PII
+        solo puede ir a Anthropic/OpenAI."""
+        assert not hasattr(brain, "_deepseek_client")
+        assert not hasattr(brain, "_deepseek")
 
 
 # ── 3b. Timeout en fallback + cap de entrada (4.1) ───────────────────────
@@ -386,7 +439,7 @@ class TestFallbackGateado:
 
 class TestFallbackTimeoutYCapEntrada:
     async def test_fallback_colgado_no_cuelga(self, monkeypatch):
-        """4.1: un fallback (DeepSeek) que se cuelga queda acotado por
+        """4.1: un fallback (GPT-4o) que se cuelga queda acotado por
         con_timeout_llm — el guard lo corta y la respuesta vuelve segura en
         vez de colgar el request para siempre."""
         monkeypatch.setattr(brain, "seleccionar_tools", lambda m, t: [])
@@ -395,7 +448,7 @@ class TestFallbackTimeoutYCapEntrada:
 
         colgado = {"n": 0}
 
-        class _DeepseekColgado:
+        class _OpenAIColgado:
             def __init__(self):
                 colg = colgado
 
@@ -410,8 +463,8 @@ class TestFallbackTimeoutYCapEntrada:
 
                 self.chat = _Chat()
 
-        monkeypatch.setattr(brain, "_deepseek_client", _DeepseekColgado())
-        monkeypatch.setattr(brain, "_openai_client", None)
+        monkeypatch.setattr(brain, "_openai_client", _OpenAIColgado())
+        monkeypatch.setattr(brain, "_haiku_client", None)
 
         pres = pr.PresupuestoMensaje(TEL, config=_config_con(llm_timeout_segundos=0.05))
         token = pr._presupuesto_actual.set(pres)

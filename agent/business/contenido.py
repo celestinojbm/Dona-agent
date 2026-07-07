@@ -1,7 +1,7 @@
 # agent/business/contenido.py — Generación de contenido para redes sociales
 
 """
-Genera copy para redes sociales usando el LLM secundario (DeepSeek/Haiku).
+Genera copy para redes sociales usando el LLM secundario (Claude Haiku).
 El usuario copia y publica — Dona no publica directamente.
 """
 

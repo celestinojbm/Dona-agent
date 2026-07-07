@@ -31,21 +31,20 @@ class FakeProveedor:
         return self.resultado
 
 
-class _FakeDeepSeek:
+class _FakeHaikuLLM:
     def __init__(self, texto="Hola, ¿retomamos tu consulta?"):
         cliente = self
 
-        class _Completions:
+        class _Messages:
             async def create(self, **kwargs):
                 class _R:
                     class usage:
-                        total_tokens = 60
-                    choices = [type("C", (), {"message": type("M", (), {"content": texto})()})()]
+                        input_tokens = 30
+                        output_tokens = 30
+                    content = [type("B", (), {"text": texto})()]
                 return _R()
 
-        class _Chat:
-            completions = _Completions()
-        self.chat = _Chat()
+        self.messages = _Messages()
 
 
 @pytest.fixture
@@ -71,8 +70,7 @@ async def env(tmp_path, monkeypatch):
     await agent.memory.inicializar_db()
 
     import agent.llm as llm
-    monkeypatch.setattr(llm, "_deepseek", _FakeDeepSeek())
-    monkeypatch.setattr(llm, "_anthropic", None)
+    monkeypatch.setattr(llm, "_anthropic", _FakeHaikuLLM())
     return _ac, _sm, _bi, _missions
 
 

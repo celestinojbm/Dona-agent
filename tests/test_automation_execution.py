@@ -45,8 +45,8 @@ class TestEjecutarLowAuto:
         assert r["estado_final"] == "completed"
         assert "result" in r
         # T2.1.C: modo='llm' si LLM responde · 'fallback' si no.
-        # En tests sin DEEPSEEK_API_KEY/ANTHROPIC_API_KEY el LLM
-        # retorna None y se usa fallback determinístico.
+        # En tests sin ANTHROPIC_API_KEY el LLM retorna None y se
+        # usa fallback determinístico.
         assert r["result"]["modo"] in ("llm", "fallback")
 
     @pytest.mark.asyncio

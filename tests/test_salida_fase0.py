@@ -103,8 +103,8 @@ def _mock_create(monkeypatch, secuencia):
 
 @pytest.fixture
 def sin_fallback(monkeypatch):
-    monkeypatch.setattr(brain, "_deepseek_client", None)
     monkeypatch.setattr(brain, "_openai_client", None)
+    monkeypatch.setattr(brain, "_haiku_client", None)
 
 
 @pytest.fixture

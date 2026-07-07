@@ -26,7 +26,7 @@ diagnóstico → oportunidad → activo → acción propuesta → permiso humano
 
 ### Conversación inteligente (canal WhatsApp)
 - Motor de IA con **Claude Sonnet 4.6** (Anthropic) como modelo principal,
-  con fallbacks automáticos (DeepSeek, GPT-4o, Haiku).
+  con fallbacks automáticos (GPT-4o, Claude Haiku).
 - Memoria persistente por usuario + resumen automático de historial largo.
 - Notas de voz (STT Whisper/Groq, respuesta TTS) y análisis de imágenes.
 
@@ -119,7 +119,7 @@ agent/entorno.py    Helper único de entorno (fail-closed por defecto)
 |------|-----------|
 | Runtime | Python 3.11+ · FastAPI + Uvicorn/Gunicorn |
 | LLM primario | Anthropic Claude Sonnet 4.6 |
-| LLM fallback | DeepSeek, OpenAI GPT-4o, Claude Haiku |
+| LLM fallback | OpenAI GPT-4o, Claude Haiku |
 | WhatsApp | Whapi.cloud / Meta Cloud API / Twilio (seleccionable por env) |
 | Base de datos | PostgreSQL (prod) / SQLite (dev) · SQLAlchemy 2 async · Alembic |
 | Cache/queue | Redis + **arq** — opcional, fallback inproc |

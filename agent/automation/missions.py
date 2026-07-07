@@ -361,9 +361,7 @@ async def _generar_draft(telefono: str, prompt: str) -> tuple[str | None, str]:
         # Bloqueado ANTES de tocar al provider (BudgetGuard).
         return None, _reason_code_por_presupuesto(decision.razon)
 
-    texto = await _llm._completar(
-        [{"role": "user", "content": prompt}], None, 400, telefono,
-    )
+    texto = await _llm._completar(prompt, None, 400, telefono)
     if not texto:
         return None, "provider_failed"
     return texto.strip()[:MAX_LEN_DRAFT], ""

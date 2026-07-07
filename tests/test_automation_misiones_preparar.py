@@ -53,39 +53,36 @@ OTRO = "5215599998888"
 DESTINO = "+5215512345678"
 
 
-class _FakeDeepSeek:
-    """Cliente estilo OpenAI con contador y captura del prompt enviado."""
+class _FakeHaikuLLM:
+    """Cliente estilo Anthropic (Haiku) con contador y captura del prompt enviado."""
 
     def __init__(self, texto="¡Hola Ana! Quedé pendiente de tu consulta, ¿te ayudo a retomarla?"):
         self.llamadas = 0
         self.prompts: list[str] = []
         cliente = self
 
-        class _Completions:
+        class _Messages:
             async def create(self, **kwargs):
                 cliente.llamadas += 1
                 cliente.prompts.append(kwargs["messages"][-1]["content"])
 
                 class _R:
                     class usage:
-                        total_tokens = 60
-                    choices = [type("C", (), {"message": type("M", (), {"content": texto})()})()]
+                        input_tokens = 30
+                        output_tokens = 30
+                    content = [type("B", (), {"text": texto})()]
                 return _R()
 
-        class _Chat:
-            completions = _Completions()
-
-        self.chat = _Chat()
+        self.messages = _Messages()
 
 
 @pytest.fixture
 def llm_mock(monkeypatch):
-    """Mockea el LLM auxiliar (DeepSeek) y desactiva el fallback Haiku."""
+    """Mockea el LLM auxiliar (Claude Haiku, único provider tras eliminar DeepSeek)."""
     import agent.llm as llm
-    ds = _FakeDeepSeek()
-    monkeypatch.setattr(llm, "_deepseek", ds)
-    monkeypatch.setattr(llm, "_anthropic", None)
-    return ds
+    fake = _FakeHaikuLLM()
+    monkeypatch.setattr(llm, "_anthropic", fake)
+    return fake
 
 
 async def _audit_rows():
@@ -178,9 +175,9 @@ class TestOwnerScopePreview:
 class TestAuditSinPII:
     async def test_audit_no_filtra_destino_ni_draft(self, db, llm_mock):
         draft_texto = "Hola Ana, te escribo a tu WhatsApp +5215512345678 personal"
-        llm_mock_texto = _FakeDeepSeek(draft_texto)
+        llm_mock_texto = _FakeHaikuLLM(draft_texto)
         import agent.llm as llm
-        llm._deepseek = llm_mock_texto
+        llm._anthropic = llm_mock_texto
 
         await db.preparar_recuperar_lead(
             telefono=OWNER, destino=DESTINO, lead_nombre="Ana",

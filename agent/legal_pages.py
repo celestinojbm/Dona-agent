@@ -134,9 +134,9 @@ negocios a organizar tareas, clientes, ventas y comunicaciones.</p>
 <h2 id="compartir">4. Con quién compartimos tus datos</h2>
 <p>Usamos los siguientes proveedores ("subprocessors") para operar el servicio:</p>
 <ul>
-  <li><strong>Anthropic, Inc.</strong> — procesa tus mensajes via API de Claude para generar respuestas. Retención por parte de Anthropic: 30 días (logs), no usa datos para entrenamiento.</li>
-  <li><strong>OpenAI</strong> — usado únicamente para transcripción de audios (Whisper). No se retienen datos.</li>
-  <li><strong>Groq</strong> — procesamiento acelerado de modelos de lenguaje.</li>
+  <li><strong>Anthropic, Inc.</strong> — procesa tus mensajes via API de Claude (modelos Sonnet y Haiku) para generar respuestas. Retención por parte de Anthropic: 30 días (logs), no usa datos para entrenamiento.</li>
+  <li><strong>OpenAI</strong> — transcripción de audios (Whisper) y, solo si Claude no está disponible, respaldo temporal para generar tu respuesta (GPT-4o). No se retienen datos.</li>
+  <li><strong>Groq</strong> — transcripción de audios (Whisper) como respaldo de OpenAI.</li>
   <li><strong>Google LLC</strong> — si conectas Calendar/Gmail/Sheets voluntariamente.</li>
   <li><strong>Meta Platforms / WhatsApp / Whapi.cloud / Twilio</strong> — entrega de mensajes (tu proveedor de WhatsApp).</li>
   <li><strong>Railway / PostgreSQL managed hosting</strong> — almacenamiento de datos (cifrado en reposo).</li>

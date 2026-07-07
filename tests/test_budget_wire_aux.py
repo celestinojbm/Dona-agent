@@ -55,31 +55,6 @@ def _budget_limpio(monkeypatch):
 # ── Fakes ────────────────────────────────────────────────────────────────
 
 
-class _FakeDeepSeek:
-    """Cliente estilo OpenAI con contador de llamadas reales."""
-
-    def __init__(self, texto="respuesta deepseek"):
-        self.llamadas = 0
-        cliente = self
-
-        class _Completions:
-            async def create(self, **kwargs):
-                cliente.llamadas += 1
-
-                class _R:
-                    class usage:
-                        total_tokens = 50
-
-                    choices = [type("C", (), {"message": type("M", (), {"content": texto})()})()]
-
-                return _R()
-
-        class _Chat:
-            completions = _Completions()
-
-        self.chat = _Chat()
-
-
 class _FakeAnthropic:
     """Cliente estilo Anthropic con contador de llamadas reales."""
 
@@ -112,62 +87,54 @@ class TestLlmAuxGateado:
         """REGRESIÓN: contra el código viejo, completar_texto llamaba al
         provider con el kill-switch activo."""
         monkeypatch.setenv("DONA_LLM_COST_KILL_SWITCH", "true")
-        ds = _FakeDeepSeek()
         an = _FakeAnthropic()
-        monkeypatch.setattr(llm, "_deepseek", ds)
         monkeypatch.setattr(llm, "_anthropic", an)
 
         r = await llm.completar_texto("clasifica esto", telefono=TEL)
 
         assert r is None
-        assert ds.llamadas == 0
         assert an.llamadas == 0
 
     async def test_kill_switch_bloquea_completar_con_sistema(self, monkeypatch):
         monkeypatch.setenv("DONA_LLM_COST_KILL_SWITCH", "true")
-        ds = _FakeDeepSeek()
         an = _FakeAnthropic()
-        monkeypatch.setattr(llm, "_deepseek", ds)
         monkeypatch.setattr(llm, "_anthropic", an)
 
         r = await llm.completar_con_sistema("sys", "msg", telefono=TEL)
 
         assert r is None
-        assert ds.llamadas == 0 and an.llamadas == 0
+        assert an.llamadas == 0
 
     async def test_aux_cero_bloquea_sin_llamar_provider(self, monkeypatch):
         """REGRESIÓN: max_llm_aux_calls=0 → la vía auxiliar degrada (None)
         sin tocar el provider."""
         monkeypatch.setenv("BUDGET_MAX_LLM_AUX_CALLS_MENSAJE", "0")
-        ds = _FakeDeepSeek()
-        monkeypatch.setattr(llm, "_deepseek", ds)
-        monkeypatch.setattr(llm, "_anthropic", None)
+        an = _FakeAnthropic()
+        monkeypatch.setattr(llm, "_anthropic", an)
 
         with pr.presupuesto_de_mensaje(TEL):
             r = await llm.completar_texto("clasifica", telefono=TEL)
 
         assert r is None
-        assert ds.llamadas == 0
+        assert an.llamadas == 0
 
     async def test_aux_no_compite_con_cupo_principal(self, monkeypatch):
         """Snapshot: la llamada aux usa SU contador (llm_aux_calls), no el
         principal (llm_calls) — el loop de brain conserva sus 3."""
-        ds = _FakeDeepSeek()
-        monkeypatch.setattr(llm, "_deepseek", ds)
-        monkeypatch.setattr(llm, "_anthropic", None)
+        an = _FakeAnthropic()
+        monkeypatch.setattr(llm, "_anthropic", an)
 
         with pr.presupuesto_de_mensaje(TEL) as pres:
             r = await llm.completar_texto("clasifica", telefono=TEL)
-            assert r == "respuesta deepseek"
+            assert r == "respuesta haiku"
             assert pres.llm_aux_calls == 1
             assert pres.llm_calls == 0          # cupo principal intacto
             assert pres.costo_usd > 0           # costo SÍ compartido
 
     async def test_aux_agotado_no_bloquea_principal(self, monkeypatch):
         """Agotar el cupo aux NO niega el principal (dimensiones aparte)."""
-        ds = _FakeDeepSeek()
-        monkeypatch.setattr(llm, "_deepseek", ds)
-        monkeypatch.setattr(llm, "_anthropic", None)
+        an = _FakeAnthropic()
+        monkeypatch.setattr(llm, "_anthropic", an)
 
         with pr.presupuesto_de_mensaje(TEL) as pres:
             for _ in range(pres.config.max_llm_aux_calls):
@@ -186,6 +153,13 @@ class TestLlmAuxGateado:
             dec = pres.reservar_llm()
             assert dec.permitido is False
             assert dec.razon == "max_costo_mensaje"
+
+    def test_sin_rastro_de_deepseek_en_llm(self):
+        """Sentinel (Fase 2 · TEMA 7 · 7.5): agent/llm.py no debe instanciar
+        ni referenciar un cliente DeepSeek — todas sus tareas mandan
+        fragmentos de mensajes del usuario (PII) y solo pueden ir a
+        Anthropic (Haiku)."""
+        assert not hasattr(llm, "_deepseek")
 
 
 # ── 2. proactivity gateada + presupuesto por unidad ──────────────────────

@@ -56,33 +56,31 @@ OTRO = "5215599998888"
 DESTINO = "+5215512345678"
 
 
-class _FakeDeepSeek:
+class _FakeHaikuLLM:
     def __init__(self, texto="Hola, quedé pendiente de tu consulta, ¿la retomamos?"):
         self.llamadas = 0
         cliente = self
 
-        class _Completions:
+        class _Messages:
             async def create(self, **kwargs):
                 cliente.llamadas += 1
 
                 class _R:
                     class usage:
-                        total_tokens = 60
-                    choices = [type("C", (), {"message": type("M", (), {"content": texto})()})()]
+                        input_tokens = 30
+                        output_tokens = 30
+                    content = [type("B", (), {"text": texto})()]
                 return _R()
 
-        class _Chat:
-            completions = _Completions()
-        self.chat = _Chat()
+        self.messages = _Messages()
 
 
 @pytest.fixture
 def llm_mock(monkeypatch):
     import agent.llm as llm
-    ds = _FakeDeepSeek()
-    monkeypatch.setattr(llm, "_deepseek", ds)
-    monkeypatch.setattr(llm, "_anthropic", None)
-    return ds
+    fake = _FakeHaikuLLM()
+    monkeypatch.setattr(llm, "_anthropic", fake)
+    return fake
 
 
 async def _preparar(db, telefono=OWNER, destino=DESTINO):
