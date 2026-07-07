@@ -179,13 +179,13 @@ function SectionHead({
   sub?: string;
 }) {
   return (
-    <div className="mx-auto max-w-2xl text-center">
+    <div className="mx-auto max-w-3xl text-center">
       <p className="eyebrow">{eyebrow}</p>
-      <h2 className="mt-4 text-3xl font-semibold leading-tight tracking-tight text-[color:var(--ink)] sm:text-4xl md:text-[2.75rem]">
+      <h2 className="mt-4 text-4xl font-semibold leading-tight tracking-tight text-[color:var(--ink)] sm:text-5xl md:text-[3.4rem]">
         {titulo}
       </h2>
       {sub && (
-        <p className="mt-4 text-lg leading-relaxed text-[color:var(--ink-2)]">{sub}</p>
+        <p className="mt-5 text-xl leading-relaxed text-[color:var(--ink-2)]">{sub}</p>
       )}
     </div>
   );
@@ -261,7 +261,7 @@ export default function Home() {
 
       {/* ── Nav ── */}
       <nav className="sticky top-0 z-40 border-b border-[color:var(--line)] bg-white/80 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <a href="#" className="text-[22px] font-semibold tracking-tight text-[color:var(--ink)]">
             Dona
           </a>
@@ -319,70 +319,65 @@ export default function Home() {
       </nav>
 
       {/* ══════════════════ HERO ══════════════════ */}
-      <section className="relative z-10 mx-auto max-w-4xl px-6 pt-20 pb-8 text-center md:pt-28">
+      <section className="relative z-10 mx-auto max-w-5xl px-6 pt-24 pb-10 text-center md:pt-32">
         <div className="aurora aurora--hero" aria-hidden />
 
-        <span className="hero-mono inline-flex items-center gap-2 rounded-full border border-[color:var(--line)] bg-white/70 px-3.5 py-1.5 text-[12px] uppercase tracking-[0.16em] text-[color:var(--ink-2)] backdrop-blur">
-          <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--brand)" }} />
-          Plataforma-agente de negocio
-        </span>
-
-        <h1 className="mx-auto mt-7 max-w-3xl text-[2.9rem] font-semibold leading-[1.04] tracking-tight text-[color:var(--ink)] sm:text-6xl md:text-7xl">
+        <h1 className="mx-auto max-w-4xl text-[3.6rem] font-semibold leading-[1.02] tracking-tight text-[color:var(--ink)] sm:text-7xl md:text-8xl">
           Convierte intención
           <br />
           en <span className="text-aurora">ejecución real.</span>
         </h1>
 
-        <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-[color:var(--ink-2)] md:text-xl">
+        <p className="mx-auto mt-8 max-w-3xl text-xl leading-relaxed text-[color:var(--ink-2)] md:text-2xl">
           Dona convierte situaciones, recursos y objetivos en activos, workflows y
           acciones reales — con permisos, créditos, trazabilidad y medición. No solo
           responde: prepara, confirma y ejecuta contigo.
         </p>
 
-        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <a href="#pricing" className="btn-primary inline-flex cursor-pointer items-center gap-2 rounded-full px-6 py-3 text-sm font-medium">
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+          <a href="#pricing" className="btn-primary inline-flex cursor-pointer items-center gap-2 rounded-full px-8 py-4 text-base font-medium">
             Empezar con Dona
-            <ArrowRight className="h-4 w-4" />
+            <ArrowRight className="h-5 w-5" />
           </a>
-          <a href="#loop" className="btn-ghost inline-flex cursor-pointer items-center gap-2 rounded-full px-6 py-3 text-sm font-medium">
+          <a href="#loop" className="btn-ghost inline-flex cursor-pointer items-center gap-2 rounded-full px-8 py-4 text-base font-medium">
             Ver Dona en acción
           </a>
         </div>
 
-        <p className="hero-mono mt-6 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[12px] uppercase tracking-[0.14em] text-[color:var(--muted)]">
-          <MessageSquare className="h-3.5 w-3.5" aria-hidden /> WhatsApp
+        <p className="hero-mono mt-8 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-[13px] uppercase tracking-[0.14em] text-[color:var(--muted)]">
+          <MessageSquare className="h-4 w-4" aria-hidden /> WhatsApp
           <span aria-hidden>·</span>
-          <Globe className="h-3.5 w-3.5" aria-hidden /> web
+          <Globe className="h-4 w-4" aria-hidden /> web
           <span aria-hidden>·</span>
-          <Mic className="h-3.5 w-3.5" aria-hidden /> voz
+          <Mic className="h-4 w-4" aria-hidden /> voz
           <span aria-hidden>·</span>
-          <Paperclip className="h-3.5 w-3.5" aria-hidden /> archivos
+          <Paperclip className="h-4 w-4" aria-hidden /> archivos
         </p>
       </section>
 
       {/* ══════════════════ PRUEBA DE PRODUCTO: EL LOOP (tarjeta) ══════════════════ */}
-      <section className="relative z-10 mx-auto max-w-4xl px-6 pb-24">
-        <div className="proof-card mx-auto rounded-2xl p-5 md:p-7">
-          <div className="flex items-center gap-2 rounded-xl border border-[color:var(--line)] bg-[color:var(--bg-soft)] px-4 py-3 text-left">
-            <span className="hero-mono text-[11px] uppercase tracking-wider text-[color:var(--muted)]">
+      <section className="relative z-10 mx-auto max-w-5xl px-6 pb-28">
+        <div className="proof-card mx-auto rounded-3xl p-6 md:p-9">
+          <div className="flex items-center gap-3 rounded-2xl border border-[color:var(--line)] bg-[color:var(--bg-soft)] px-5 py-4 text-left">
+            <span className="hero-mono text-[12px] uppercase tracking-wider text-[color:var(--muted)]">
               Intención
             </span>
-            <span className="ml-1 text-[15px] text-[color:var(--ink)]">
+            <span className="ml-1 text-[17px] text-[color:var(--ink)]">
               &ldquo;Necesito lanzar mi nuevo servicio esta semana.&rdquo;
             </span>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-            <LoopChip icon={<FileText className="h-4 w-4" />} label="Plan" sub="Playbook y pasos" />
-            <LoopChip icon={<Sparkles className="h-4 w-4" />} label="Activos" sub="Copy · diseño · página" />
-            <LoopChip icon={<ShieldCheck className="h-4 w-4" />} label="Acción" sub="Permiso · costo · preview" accent />
-            <LoopChip icon={<BarChart3 className="h-4 w-4" />} label="Medición" sub="Resultados y próximo paso" />
+          <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+            <LoopChip icon={<FileText className="h-5 w-5" />} label="Plan" sub="Playbook y pasos" />
+            <LoopChip icon={<Sparkles className="h-5 w-5" />} label="Activos" sub="Copy · diseño · página" />
+            <LoopChip icon={<ShieldCheck className="h-5 w-5" />} label="Acción" sub="Permiso · costo · preview" accent />
+            <LoopChip icon={<BarChart3 className="h-5 w-5" />} label="Medición" sub="Resultados y próximo paso" />
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-[color:var(--line)] pt-4">
+          <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-[color:var(--line)] pt-5">
             {["Preview antes de ejecutar", "Costo en créditos", "Aprobación humana", "Audit trail"].map((t) => (
-              <span key={t} className="inline-flex items-center gap-1.5 text-[13px] text-[color:var(--ink-2)]">
-                <Check className="h-3.5 w-3.5" style={{ color: "var(--brand-ink)" }} />
+              <span key={t} className="inline-flex items-center gap-2 text-[15px] text-[color:var(--ink-2)]">
+                <Check className="h-4 w-4" style={{ color: "var(--brand-ink)" }} />
                 {t}
               </span>
             ))}
@@ -391,7 +386,7 @@ export default function Home() {
       </section>
 
       {/* ══════════════════ DE INTENCIÓN A EJECUCIÓN (loop de 6 pasos) ══════════════════ */}
-      <section id="loop" className="relative z-10 mx-auto max-w-6xl px-6 py-20 md:py-28">
+      <section id="loop" className="relative z-10 mx-auto max-w-7xl px-6 py-20 md:py-28">
         <SectionHead
           eyebrow="De intención a ejecución"
           titulo="Un solo loop, de la idea al resultado"
@@ -405,18 +400,18 @@ export default function Home() {
                 key={p.titulo}
                 data-reveal
                 style={{ "--reveal-delay": `${i * 60}ms` } as React.CSSProperties}
-                className="surface-card p-6"
+                className="surface-card p-8"
               >
                 <div className="flex items-center gap-3">
-                  <span className="icon-badge h-9 w-9">
+                  <span className="icon-badge h-11 w-11">
                     <Icon className="h-[18px] w-[18px]" />
                   </span>
                   <span className="hero-mono text-[11px] uppercase tracking-[0.14em] text-[color:var(--muted)]">
                     Paso {String(i + 1).padStart(2, "0")}
                   </span>
                 </div>
-                <h3 className="mt-4 text-lg font-semibold text-[color:var(--ink)]">{p.titulo}</h3>
-                <p className="mt-1.5 text-[15px] leading-relaxed text-[color:var(--ink-2)]">{p.desc}</p>
+                <h3 className="mt-5 text-xl font-semibold text-[color:var(--ink)]">{p.titulo}</h3>
+                <p className="mt-2 text-[17px] leading-relaxed text-[color:var(--ink-2)]">{p.desc}</p>
               </li>
             );
           })}
@@ -425,7 +420,7 @@ export default function Home() {
 
       {/* ══════════════════ MÓDULOS DE PLATAFORMA ══════════════════ */}
       <section id="modulos" className="relative z-10 border-y border-[color:var(--line)] bg-[color:var(--bg-soft)]">
-        <div className="mx-auto max-w-6xl px-6 py-20 md:py-28">
+        <div className="mx-auto max-w-7xl px-6 py-20 md:py-28">
           <SectionHead
             eyebrow="Plataforma"
             titulo="Seis módulos, un sistema con control"
@@ -439,15 +434,15 @@ export default function Home() {
                   key={m.nombre}
                   data-reveal
                   style={{ "--reveal-delay": `${i * 60}ms` } as React.CSSProperties}
-                  className="surface-card flex flex-col p-6"
+                  className="surface-card flex flex-col p-8"
                 >
-                  <span className="icon-badge h-10 w-10">
+                  <span className="icon-badge h-12 w-12">
                     <Icon className="h-5 w-5" />
                   </span>
-                  <h3 className="mt-4 text-lg font-semibold text-[color:var(--ink)]">
+                  <h3 className="mt-5 text-xl font-semibold text-[color:var(--ink)]">
                     Dona {m.nombre}
                   </h3>
-                  <p className="mt-1.5 text-[15px] leading-relaxed text-[color:var(--ink-2)]">{m.linea}</p>
+                  <p className="mt-2 text-[17px] leading-relaxed text-[color:var(--ink-2)]">{m.linea}</p>
                   <p className="mt-4 border-t border-[color:var(--line)] pt-3 text-[13px] text-[color:var(--muted)]">
                     {m.meta}
                   </p>
@@ -459,7 +454,7 @@ export default function Home() {
       </section>
 
       {/* ══════════════════ GALERÍA DE OUTPUTS ══════════════════ */}
-      <section id="outputs" className="relative z-10 mx-auto max-w-6xl px-6 py-20 md:py-28">
+      <section id="outputs" className="relative z-10 mx-auto max-w-7xl px-6 py-20 md:py-28">
         <SectionHead
           eyebrow="Outputs"
           titulo="Lo que Dona produce"
@@ -491,7 +486,7 @@ export default function Home() {
                 </div>
                 <div className="p-6">
                   <h3 className="text-[15px] font-semibold text-[color:var(--ink)]">{o.titulo}</h3>
-                  <p className="mt-1.5 text-[14px] leading-relaxed text-[color:var(--ink-2)]">{o.desc}</p>
+                  <p className="mt-2 text-[16px] leading-relaxed text-[color:var(--ink-2)]">{o.desc}</p>
                 </div>
               </div>
             );
@@ -501,7 +496,7 @@ export default function Home() {
 
       {/* ══════════════════ CONTROL HUMANO Y CONFIANZA (obligatoria) ══════════════════ */}
       <section id="control" className="relative z-10 border-y border-[color:var(--line)] bg-[color:var(--bg-soft)]">
-        <div className="mx-auto max-w-6xl px-6 py-20 md:py-28">
+        <div className="mx-auto max-w-7xl px-6 py-20 md:py-28">
           <SectionHead
             eyebrow="Control humano y confianza"
             titulo="Dona no ejecuta a ciegas"
@@ -515,13 +510,13 @@ export default function Home() {
                   key={c.titulo}
                   data-reveal
                   style={{ "--reveal-delay": `${i * 60}ms` } as React.CSSProperties}
-                  className="surface-card p-6"
+                  className="surface-card p-8"
                 >
-                  <span className="icon-badge h-10 w-10">
+                  <span className="icon-badge h-12 w-12">
                     <Icon className="h-5 w-5" />
                   </span>
                   <h3 className="mt-4 text-[15px] font-semibold text-[color:var(--ink)]">{c.titulo}</h3>
-                  <p className="mt-1.5 text-[14px] leading-relaxed text-[color:var(--ink-2)]">{c.desc}</p>
+                  <p className="mt-2 text-[16px] leading-relaxed text-[color:var(--ink-2)]">{c.desc}</p>
                 </div>
               );
             })}
@@ -530,7 +525,7 @@ export default function Home() {
       </section>
 
       {/* ══════════════════ CASOS POR SEGMENTO ══════════════════ */}
-      <section id="casos" className="relative z-10 mx-auto max-w-6xl px-6 py-20 md:py-28">
+      <section id="casos" className="relative z-10 mx-auto max-w-7xl px-6 py-20 md:py-28">
         <SectionHead
           eyebrow="Casos"
           titulo="Un resultado concreto para cada quien"
@@ -544,13 +539,13 @@ export default function Home() {
                 key={c.segmento}
                 data-reveal
                 style={{ "--reveal-delay": `${i * 50}ms` } as React.CSSProperties}
-                className="surface-card flex flex-col p-6"
+                className="surface-card flex flex-col p-8"
               >
-                <span className="icon-badge h-9 w-9">
+                <span className="icon-badge h-11 w-11">
                   <Icon className="h-[18px] w-[18px]" />
                 </span>
                 <h3 className="mt-4 text-[15px] font-semibold text-[color:var(--ink)]">{c.segmento}</h3>
-                <p className="mt-1.5 text-[14px] leading-relaxed text-[color:var(--ink-2)]">{c.resultado}</p>
+                <p className="mt-2 text-[16px] leading-relaxed text-[color:var(--ink-2)]">{c.resultado}</p>
               </div>
             );
           })}
@@ -672,7 +667,7 @@ export default function Home() {
 
       {/* ══════════════════ FOOTER ══════════════════ */}
       <footer className="relative z-10 border-t border-[color:var(--line)] bg-white">
-        <div className="mx-auto max-w-6xl px-6 py-14">
+        <div className="mx-auto max-w-7xl px-6 py-14">
           <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
             <div className="flex items-center gap-3">
               <span className="text-xl font-semibold tracking-tight text-[color:var(--ink)]">Dona</span>
