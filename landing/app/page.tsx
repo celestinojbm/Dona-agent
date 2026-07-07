@@ -22,6 +22,7 @@ import {
   Mic,
   Paperclip,
   Globe,
+  Smartphone,
   Eye,
   Coins,
   AlertTriangle,
@@ -102,7 +103,7 @@ const CASOS = [
 ];
 
 const FAQ = [
-  { q: "¿Dona es un chatbot de WhatsApp?", a: "No. Dona es una plataforma-agente de negocio: convierte intención en activos, workflows y acciones reales, con permisos y medición. WhatsApp es uno de los canales de entrada — también puedes empezar desde web, voz o archivos." },
+  { q: "¿Dona es un chatbot de WhatsApp?", a: "No. Dona es una plataforma-agente de negocio: convierte intención en activos, workflows y acciones reales, con permisos y medición. WhatsApp es uno de los canales de entrada — también puedes empezar desde la web, la app, voz o archivos." },
   { q: "¿Dona ejecuta acciones sin preguntarme?", a: "No. Toda acción con costo o efecto irreversible pasa por un paso de preparación con preview, costo en créditos y nivel de riesgo. Solo se materializa cuando tú la confirmas, y queda registrada en el audit trail." },
   { q: "¿Cómo funcionan los créditos?", a: "Las acciones con efecto real (como generar piezas o ejecutar automatizaciones) consumen créditos. Antes de ejecutar, ves el costo estimado. Puedes definir topes de gasto y permisos por herramienta." },
   { q: "¿Es seguro conectar mis herramientas y datos?", a: "Usamos TLS en todas las comunicaciones y ciframos en reposo los datos sensibles (tokens de acceso). No entrenamos modelos con tu información. Trabajamos con un conjunto acotado de proveedores técnicos listados en nuestra política de privacidad." },
@@ -119,7 +120,7 @@ const PRICING = [
       "Studio, Flow y Memory",
       "Acciones con preview y aprobación",
       "Créditos incluidos cada mes",
-      "Entrada por WhatsApp, web y voz",
+      "Entrada por WhatsApp, web, app y voz",
       "Audit trail y límites de gasto",
       "Soporte prioritario",
     ],
@@ -251,7 +252,7 @@ function MockControlRoom() {
         <div className="flex items-center justify-between gap-4">
           <span className="text-[17px] font-semibold tracking-tight text-[color:var(--ink)]">Dona</span>
           <div className="hidden items-center gap-1 md:flex">
-            <span className="mock-pill-active px-3.5 py-1.5 text-[12px] font-medium">Control Room</span>
+            <span className="pill-active px-3.5 py-1.5 text-[12px] font-medium">Control Room</span>
             {["Studio", "Flow", "Agents", "Memory", "Actions"].map((m) => (
               <span key={m} className="px-3 py-1.5 text-[12px] text-[color:var(--ink-2)]">
                 {m}
@@ -281,7 +282,7 @@ function MockControlRoom() {
           </p>
           <div className="hidden items-center gap-1 sm:flex">
             <span className="px-3 py-1.5 text-[12px] text-[color:var(--ink-2)]">Hoy</span>
-            <span className="mock-pill-active px-3.5 py-1.5 text-[12px] font-medium">Semana</span>
+            <span className="pill-active px-3.5 py-1.5 text-[12px] font-medium">Semana</span>
             <span className="px-3 py-1.5 text-[12px] text-[color:var(--ink-2)]">Mes</span>
           </div>
         </div>
@@ -292,7 +293,7 @@ function MockControlRoom() {
           <div className="rounded-2xl border border-[color:var(--line)] p-5">
             <div className="flex items-baseline justify-between gap-3">
               <p className="text-[14px] font-medium text-[color:var(--ink)]">Resultados de campañas</p>
-              <p className="hero-mono text-[10px] uppercase tracking-[0.14em] text-[color:var(--muted)]">30 días</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">30 días</p>
             </div>
             <div className="relative mt-4 h-36">
               <span className="mock-chip-neg absolute left-[8%] top-1 px-2.5 py-1 text-[11px] font-medium">
@@ -319,7 +320,7 @@ function MockControlRoom() {
               </div>
             </div>
             <div className="mt-3 border-t border-dashed border-[color:var(--line)] pt-2">
-              <p className="hero-mono text-[10px] uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
                 Campañas · emails · seguimientos
               </p>
             </div>
@@ -358,15 +359,15 @@ function MockControlRoom() {
         {/* Franja inferior de estado */}
         <div className="mt-5 hidden items-center gap-10 border-t border-[color:var(--line)] pt-4 sm:flex">
           <div>
-            <p className="hero-mono text-[10px] uppercase tracking-[0.14em] text-[color:var(--muted)]">Workflows activos</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">Workflows activos</p>
             <p className="mt-0.5 text-lg font-medium text-[color:var(--ink)]">06</p>
           </div>
           <div>
-            <p className="hero-mono text-[10px] uppercase tracking-[0.14em] text-[color:var(--muted)]">Activos creados</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">Activos creados</p>
             <p className="mt-0.5 text-lg font-medium text-[color:var(--ink)]">24</p>
           </div>
           <div>
-            <p className="hero-mono text-[10px] uppercase tracking-[0.14em] text-[color:var(--muted)]">Audit trail</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">Audit trail</p>
             <p className="mt-0.5 flex items-center gap-1.5 text-lg font-medium text-[color:var(--ink)]">
               Al día
               <Check className="h-4 w-4" style={{ color: "var(--brand-ink)" }} />
@@ -381,7 +382,29 @@ function MockControlRoom() {
 export default function Home() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [seccionActiva, setSeccionActiva] = useState<string | null>(null);
   const rootRef = useReveal();
+
+  // Scrollspy: al bajar (o al hacer clic en la nav) la sección visible se
+  // marca con la pill negra, como la nav del mockup. Progressive enhancement:
+  // sin JS simplemente no hay resaltado.
+  useEffect(() => {
+    const ids = ["loop", "modulos", "control", "pricing", "faq"];
+    const secciones = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) setSeccionActiva(e.target.id);
+        }
+      },
+      // franja central del viewport: la sección que la cruza es la activa
+      { rootMargin: "-40% 0px -55% 0px" }
+    );
+    secciones.forEach((s) => obs.observe(s));
+    return () => obs.disconnect();
+  }, []);
 
   // Checkout Stripe — mismo contrato que la landing anterior: POST /api/checkout
   // con { plan }. El endpoint corre 100% server-side y devuelve session.url.
@@ -425,12 +448,24 @@ export default function Home() {
           <a href="#" className="text-[22px] font-semibold tracking-tight text-[color:var(--ink)]">
             Dona
           </a>
-          <div className="hidden items-center gap-8 text-sm text-[color:var(--ink-2)] md:flex">
-            {navLinks.map((l) => (
-              <a key={l.href} href={l.href} className="cursor-pointer transition-colors hover:text-[color:var(--ink)]">
-                {l.label}
-              </a>
-            ))}
+          <div className="hidden items-center gap-1 text-sm md:flex">
+            {navLinks.map((l) => {
+              const activa = seccionActiva === l.href.slice(1);
+              return (
+                <a
+                  key={l.href}
+                  href={l.href}
+                  onClick={() => setSeccionActiva(l.href.slice(1))}
+                  className={`cursor-pointer rounded-full px-3.5 py-1.5 transition-colors ${
+                    activa
+                      ? "pill-active font-medium"
+                      : "text-[color:var(--ink-2)] hover:text-[color:var(--ink)]"
+                  }`}
+                >
+                  {l.label}
+                </a>
+              );
+            })}
           </div>
           <div className="hidden items-center gap-3 md:flex">
             <a href="/login" className="cursor-pointer text-sm text-[color:var(--ink-2)] transition-colors hover:text-[color:var(--ink)]">
@@ -453,16 +488,26 @@ export default function Home() {
         {mobileMenu && (
           <div className="border-t border-[color:var(--line)] bg-[color:var(--bg)] md:hidden">
             <div className="flex flex-col gap-1 px-6 py-4 text-sm text-[color:var(--ink-2)]">
-              {navLinks.map((l) => (
-                <a
-                  key={l.href}
-                  href={l.href}
-                  onClick={() => setMobileMenu(false)}
-                  className="cursor-pointer py-2 transition-colors hover:text-[color:var(--ink)]"
-                >
-                  {l.label}
-                </a>
-              ))}
+              {navLinks.map((l) => {
+                const activa = seccionActiva === l.href.slice(1);
+                return (
+                  <a
+                    key={l.href}
+                    href={l.href}
+                    onClick={() => {
+                      setSeccionActiva(l.href.slice(1));
+                      setMobileMenu(false);
+                    }}
+                    className={`cursor-pointer transition-colors ${
+                      activa
+                        ? "pill-active w-fit px-3.5 py-1.5 font-medium"
+                        : "py-2 hover:text-[color:var(--ink)]"
+                    }`}
+                  >
+                    {l.label}
+                  </a>
+                );
+              })}
               <a href="/login" onClick={() => setMobileMenu(false)} className="cursor-pointer py-2 hover:text-[color:var(--ink)]">
                 Entrar
               </a>
@@ -480,8 +525,6 @@ export default function Home() {
 
       {/* ══════════════════ HERO ══════════════════ */}
       <section className="relative z-10 mx-auto max-w-5xl px-6 pt-24 pb-10 text-center md:pt-32">
-        <div className="aurora aurora--hero" aria-hidden />
-
         <h1 className="mx-auto max-w-4xl text-[3.6rem] font-medium leading-[1.02] tracking-tight text-[color:var(--ink)] sm:text-7xl md:text-8xl">
           Convierte intención
           <br />
@@ -505,10 +548,12 @@ export default function Home() {
           </a>
         </div>
 
-        <p className="hero-mono mt-8 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-[13px] uppercase tracking-[0.14em] text-[color:var(--muted)]">
+        <p className="mt-8 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-[13px] font-medium uppercase tracking-[0.14em] text-[color:var(--muted)]">
           <MessageSquare className="h-4 w-4" aria-hidden /> WhatsApp
           <span aria-hidden>·</span>
           <Globe className="h-4 w-4" aria-hidden /> web
+          <span aria-hidden>·</span>
+          <Smartphone className="h-4 w-4" aria-hidden /> app
           <span aria-hidden>·</span>
           <Mic className="h-4 w-4" aria-hidden /> voz
           <span aria-hidden>·</span>
@@ -756,11 +801,11 @@ export default function Home() {
               className={`${p.destacado ? "card-gradient" : "surface-card"} flex flex-col p-7`}
             >
               {p.destacado && (
-                <span className="hero-mono mb-3 inline-flex w-fit items-center rounded-full bg-white/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-white">
+                <span className="mb-3 inline-flex w-fit items-center rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white">
                   Recomendado
                 </span>
               )}
-              <p className={p.destacado ? "hero-mono text-[12px] uppercase tracking-[0.16em] text-white/80" : "eyebrow"}>
+              <p className={p.destacado ? "text-[12px] font-semibold uppercase tracking-[0.14em] text-white/80" : "eyebrow"}>
                 {p.nombre}
               </p>
               <div className="mt-3 flex items-end gap-1">
@@ -798,7 +843,7 @@ export default function Home() {
           <div className="surface-fill flex flex-col p-7">
             <div className="flex items-center gap-2">
               <p className="eyebrow">Enterprise</p>
-              <span className="hero-mono rounded-full bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)]">
+              <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--muted)]">
                 Próximamente
               </span>
             </div>
@@ -831,7 +876,6 @@ export default function Home() {
       {/* ══════════════════ CTA FINAL ══════════════════ */}
       <section className="relative z-10 overflow-hidden">
         <div className="relative mx-auto max-w-3xl px-6 py-24 text-center md:py-32">
-          <div className="aurora aurora--cta" aria-hidden />
           <h2 className="relative mx-auto max-w-2xl text-4xl font-medium leading-tight tracking-tight text-[color:var(--ink)] sm:text-5xl md:text-6xl">
             Empieza con una idea. <span className="text-aurora">Dona la convierte en ejecución.</span>
           </h2>
@@ -898,7 +942,7 @@ export default function Home() {
             </div>
             <div className="meta-item">
               <dt>Canales de entrada</dt>
-              <dd>WhatsApp · web · voz</dd>
+              <dd>WhatsApp · web · app · voz</dd>
             </div>
             <div className="meta-item">
               <dt>Año</dt>

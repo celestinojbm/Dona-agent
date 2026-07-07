@@ -52,49 +52,10 @@ body {
   color: var(--ink);
 }
 
-/* ── Aurora viva (sello Luma, CONTENIDA y en familia violeta) ───────────── */
-.aurora {
-  position: absolute;
-  pointer-events: none;
-  filter: blur(56px);
-  opacity: 0.5;
-  z-index: 0;
-  will-change: transform;
-}
-.aurora--hero {
-  top: -8%;
-  left: 50%;
-  width: min(1100px, 120vw);
-  height: 620px;
-  transform: translateX(-50%);
-  background:
-    radial-gradient(38% 55% at 30% 40%, rgba(99, 102, 241, 0.45), transparent 70%),
-    radial-gradient(34% 50% at 68% 32%, rgba(139, 92, 246, 0.36), transparent 70%),
-    radial-gradient(40% 60% at 78% 66%, rgba(147, 197, 253, 0.3), transparent 72%),
-    radial-gradient(36% 52% at 22% 72%, rgba(196, 181, 253, 0.32), transparent 72%);
-  animation: aurora-drift 22s ease-in-out infinite alternate;
-}
-/* Variante contenida para franjas/CTA (más tenue, sin dominar la sección) */
-.aurora--cta {
-  top: -30%;
-  left: 50%;
-  width: min(900px, 110vw);
-  height: 460px;
-  transform: translateX(-50%);
-  opacity: 0.38;
-  background:
-    radial-gradient(40% 55% at 32% 42%, rgba(99, 102, 241, 0.42), transparent 70%),
-    radial-gradient(38% 52% at 70% 40%, rgba(139, 92, 246, 0.32), transparent 72%),
-    radial-gradient(42% 58% at 74% 70%, rgba(196, 181, 253, 0.28), transparent 74%);
-  animation: aurora-drift 26s ease-in-out infinite alternate;
-}
-@keyframes aurora-drift {
-  0%   { transform: translateX(-50%) translateY(0) scale(1); }
-  50%  { transform: translateX(-48%) translateY(14px) scale(1.06); }
-  100% { transform: translateX(-52%) translateY(-8px) scale(1.02); }
-}
-
-/* Texto con el gradiente vivo (la palabra-sello del titular) — familia violeta */
+/* Texto con el gradiente vivo (la palabra-sello del titular) — familia violeta.
+   El lavado de aurora de fondo salió por pedido del dueño (2026-07-07): el
+   gris cálido queda limpio y el violeta vive solo en la palabra-sello, el
+   escenario del hero y los acentos. */
 .text-aurora {
   background: linear-gradient(100deg, #4a3fd6 0%, #6366f1 32%, #8b5cf6 58%, #a78bfa 78%, #4a3fd6 100%);
   background-size: 220% 100%;
@@ -108,17 +69,19 @@ body {
 }
 
 /* ── Botones ── */
+/* Acción principal en NEGRO (pedido del dueño, patrón pill Merxo). Las
+   páginas legacy oscuras lo devuelven a violeta más abajo. */
 .btn-primary {
-  background: var(--brand);
+  background: var(--ink);
   color: #fff;
   border: 1px solid transparent;
-  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.08), 0 8px 24px -12px rgba(91, 91, 240, 0.5);
+  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.1), 0 10px 26px -14px rgba(11, 11, 18, 0.5);
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 .btn-primary:hover {
-  background: #4f4fe6;
+  background: #26262e;
   transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.08), 0 14px 30px -12px rgba(91, 91, 240, 0.55);
+  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.1), 0 16px 32px -14px rgba(11, 11, 18, 0.55);
 }
 .btn-primary:disabled {
   opacity: 0.55;
@@ -180,12 +143,13 @@ body {
   background: var(--fill);
   border-radius: 1.25rem;
 }
-/* Tarjeta destacada con gradiente de marca (una sola por franja) */
+/* Tarjeta destacada en negro (una sola por franja — pedido del dueño,
+   como la tarjeta oscura #0B0C13 de la paleta Merxo) */
 .card-gradient {
-  background: linear-gradient(150deg, #5b5bf0 0%, #7c7cf5 55%, #a5a5fb 100%);
+  background: linear-gradient(150deg, #0b0b12 0%, #1a1a22 60%, #26262e 100%);
   border-radius: 1.25rem;
   color: #fff;
-  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.06), 0 24px 48px -24px rgba(91, 91, 240, 0.55);
+  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.08), 0 24px 48px -24px rgba(11, 11, 18, 0.5);
 }
 
 /* Icono de módulo/capacidad */
@@ -208,12 +172,13 @@ body {
   mask-image: radial-gradient(70% 60% at 50% 30%, #000 40%, transparent 78%);
 }
 
-/* Etiqueta de sección (eyebrow) */
+/* Etiqueta de sección (eyebrow) — en la sans de la página, no mono
+   (pedido del dueño: fuera la letra mono en labels) */
 .eyebrow {
-  font-family: var(--font-hero-mono), ui-monospace, monospace;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   font-size: 12px;
+  font-weight: 600;
   color: var(--muted);
 }
 
@@ -312,8 +277,8 @@ body {
   box-shadow: 0 6px 14px -6px rgba(11, 11, 18, 0.35);
 }
 
-/* Pill de navegación activa dentro del mockup */
-.mock-pill-active {
+/* Pill activa (nav del sitio con scrollspy y nav del mockup) */
+.pill-active {
   background: var(--ink);
   color: #fff;
   border-radius: 9999px;
@@ -365,8 +330,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .aurora--hero,
-  .aurora--cta { animation: none; }
   .text-aurora { animation: none; }
   .btn-primary:hover,
   .btn-ghost:hover,
@@ -392,6 +355,16 @@ body {
   background: #0a0a0a;
   color: #f5f5f5;
   font-weight: 300;
+}
+
+/* En las superficies oscuras legacy el botón principal vuelve a violeta:
+   el negro de la landing sería invisible sobre #0a0a0a. */
+.legacy-shell .btn-primary {
+  background: var(--brand);
+  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.08), 0 8px 24px -12px rgba(91, 91, 240, 0.5);
+}
+.legacy-shell .btn-primary:hover {
+  background: #4f4fe6;
 }
 
 .legacy-shell .text-gradient {
