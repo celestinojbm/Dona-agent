@@ -3788,6 +3788,156 @@ async def internal_reportes(request: Request):
     return {"reporte": reporte}
 
 
+# ── /internal/chat · Chat web con PARIDAD TOTAL con WhatsApp (HMAC bridge) ───
+#
+# El usuario habla con Dona desde el dashboard web y tiene EXACTAMENTE las
+# mismas herramientas que por WhatsApp (incluidas las pagadas y los envíos),
+# pasando por LOS MISMOS gates.
+#
+# Contrato de seguridad (CRÍTICO):
+#   - Este handler NO reimplementa el pipeline del cerebro ni crea un camino
+#     paralelo. Es un THIN ADAPTER que enruta el mensaje web a la MISMA función
+#     que ya procesa WhatsApp (brain.generar_respuesta), de modo que TODOS los
+#     gates se preservan POR CONSTRUCCIÓN:
+#       · cobrar_o_rechazar antes de trabajo caro (dentro de cada tool paga),
+#       · puede_enviar / TCPA antes de envíos (dentro de proveedor.enviar_mensaje
+#         y de las tools de envío),
+#       · preparar_X / confirmar_X para acciones pagadas o irreversibles.
+#   - Auth: mismo HMAC bridge que /internal/assets y /internal/reportes. El
+#     landing manda subscription_id desde la sesión NextAuth; el backend lo
+#     resuelve a telefono server-side (anti-IDOR: NUNCA acepta un telefono del
+#     cliente; el mensaje se procesa SIEMPRE sobre el telefono resuelto).
+#   - Rate limit: reusa agent/rate_limiter.dentro_de_limite (el MISMO gate que
+#     WhatsApp). El canal web NO se salta el rate limit.
+#   - Historial compartido web↔WhatsApp: carga y persiste con las MISMAS
+#     funciones (obtener_historial / guardar_mensaje) por telefono.
+#
+# Diferencia única con WhatsApp: la RESPUESTA del usuario NO se auto-envía con
+# proveedor.enviar_mensaje; es el valor de retorno de generar_respuesta y se
+# devuelve por HTTP. Se pasa el proveedor REAL para que las tools que envían
+# WhatsApp a terceros (p.ej. ejecutor HIGH) sigan funcionando idénticas.
+#
+# Primera versión NO-streaming: el landing muestra un spinner ("escribiendo…")
+# mientras espera. Streaming SSE queda como follow-up (requiere refactor de
+# generar_respuesta para emitir tokens incrementales).
+
+# Cota de tamaño del mensaje web · defensa antes de tocar el LLM. brain.py
+# tiene su propio cap interno (_MAX_LONGITUD_MENSAJE_USUARIO), este es el primer
+# cinturón a nivel de endpoint para no aceptar payloads desmesurados.
+_CHAT_MAX_LONGITUD_MENSAJE = 8000
+
+
+def _extraer_sub_y_mensaje(payload: dict) -> tuple[str, str]:
+    """Valida y extrae (subscription_id, mensaje) del body del chat web.
+
+    Lanza HTTPException(400) si falta o es inválido cualquiera de los dos. Se
+    extrajo a función pura para poder testearlo DIRECTAMENTE (sin ruteo por la
+    app): la cobertura del handler ruteado no se acredita de forma fiable bajo
+    la suite completa por el reload de módulos. El mensaje se normaliza (strip)
+    y se trunca a _CHAT_MAX_LONGITUD_MENSAJE.
+    """
+    sub_id = (payload.get("subscription_id") or "").strip()
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="missing_subscription_id")
+    mensaje = payload.get("mensaje")
+    if not isinstance(mensaje, str) or not mensaje.strip():
+        raise HTTPException(status_code=400, detail="missing_mensaje")
+    mensaje = mensaje.strip()
+    if len(mensaje) > _CHAT_MAX_LONGITUD_MENSAJE:
+        mensaje = mensaje[:_CHAT_MAX_LONGITUD_MENSAJE]
+    return sub_id, mensaje
+
+
+@app.post("/internal/chat")
+async def internal_chat(request: Request):
+    """Procesa un turno de chat web con paridad total con WhatsApp.
+
+    Body: {"subscription_id": "sub_xxx", "mensaje": "texto del usuario"}
+
+    Flujo (réplica del webhook de WhatsApp salvo el envío final):
+      a. Resuelve telefono desde subscription_id (server-side, anti-IDOR).
+      b. Rate-limit por telefono (mismo gate que WhatsApp).
+      c. Carga el historial del telefono (compartido con WhatsApp).
+      d. Llama generar_respuesta(mensaje, historial, telefono, timestamp,
+         proveedor=<proveedor real>) — la MISMA función con todos sus gates.
+      e. Persiste el intercambio (user + assistant) por telefono.
+      f. Devuelve {"respuesta": texto}.
+
+    Códigos:
+        401 → firma HMAC faltante o inválida.
+        400 → JSON malformado / no objeto / sin subscription_id / sin mensaje.
+        404 → subscription_id no existe en suscripcion_stripe.
+        429 → rate limit excedido para este telefono.
+        200 → {"respuesta": "..."}.
+    """
+    import asyncio as _asyncio
+    import time as _time
+
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id, mensaje = _extraer_sub_y_mensaje(payload)
+
+    # a. subscription_id → telefono (server-side). El cliente NUNCA manda
+    #    telefono: si lo incluyera en el body, se ignora por completo.
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+
+    # b. Rate limit · mismo gate que WhatsApp. El canal web no lo salta.
+    if not _dentro_de_limite(telefono):
+        logger.warning(f"[CHAT-WEB] Rate limit excedido para {telefono[-4:]}")
+        raise HTTPException(status_code=429, detail="rate_limit_excedido")
+
+    # Presupuesto de ejecución del mensaje + contexto de envío DIRECTO,
+    # igual que el webhook: lo heredan brain.py y las tareas en background.
+    # El contexto DIRECTO deja que las tools respondan al usuario que escribió
+    # sin que el gate de envíos restrinja esa conversación reactiva; los gates
+    # de envío PROACTIVO (TCPA / quiet hours) siguen aplicando a envíos no
+    # solicitados que las tools disparen.
+    _token_presupuesto = abrir_presupuesto_mensaje(telefono)
+    _token_envio = activar_contexto_directo(telefono)
+    try:
+        # c. Historial compartido web↔WhatsApp (por telefono).
+        try:
+            historial = await obtener_historial(telefono)
+        except Exception as _e_hist:
+            logger.error(f"[CHAT-WEB] Error cargando historial: {_e_hist}")
+            historial = []  # continuar sin historial antes que no responder
+
+        # d. MISMA función que WhatsApp · todos los gates viven aquí dentro.
+        #    Se pasa el proveedor REAL (no None) para que las tools de envío a
+        #    terceros funcionen idénticas. El timeout replica el del webhook.
+        try:
+            respuesta = await _asyncio.wait_for(
+                generar_respuesta(
+                    mensaje, historial,
+                    telefono=telefono,
+                    timestamp_mensaje=int(_time.time()),
+                    proveedor=proveedor,
+                ),
+                timeout=90.0,
+            )
+        except TimeoutError:
+            logger.error(f"[CHAT-WEB] generar_respuesta timeout (90s) para {telefono[-4:]}")
+            respuesta = (
+                "Disculpa, tardé demasiado en procesar tu mensaje. "
+                "¿Puedes intentarlo de nuevo?"
+            )
+
+        # e. Persistir el intercambio (no fatal si falla): el historial queda
+        #    compartido con WhatsApp por telefono.
+        try:
+            await guardar_mensaje(telefono, "user", mensaje)
+            await guardar_mensaje(telefono, "assistant", respuesta)
+        except Exception as _e_save:
+            logger.error(f"[CHAT-WEB] Error guardando mensajes: {_e_save}")
+
+        # f. Devolver por HTTP · NO se auto-envía con proveedor.enviar_mensaje.
+        return {"respuesta": respuesta}
+    finally:
+        restaurar_contexto(_token_envio)
+        cerrar_presupuesto_mensaje(_token_presupuesto)
+
+
 # ── /internal/auth/* (HMAC bridge · lockout de login del dashboard, rank 4) ──
 #
 # Llamados por landing/lib/auth-lockout-bridge.ts (server-side) desde el

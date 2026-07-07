@@ -27,6 +27,7 @@ import SeccionControlRoom from "./seccion-control-room";
 import SeccionOportunidades from "./seccion-oportunidades";
 import SeccionReportes from "./seccion-reportes";
 import SeccionGaleria from "./seccion-galeria";
+import SeccionChat from "./seccion-chat";
 
 interface DashboardProps {
   session: { user?: { email?: string | null } };
@@ -296,6 +297,13 @@ export default function DashboardClient({ session }: DashboardProps) {
               onComprar={handleTopup}
             />
             <SeccionHistorial data={load.data} />
+            {/* Chat con Dona (Fase 1) · paridad total con WhatsApp. El
+                usuario habla con Dona desde la web y tiene TODAS las
+                herramientas (incluidas pagadas y envíos), pasando por LOS
+                MISMOS gates que WhatsApp (el backend reusa generar_respuesta).
+                Se muestra siempre que haya datos, incluso con sub cancelada:
+                los gates de cobro deciden qué puede ejecutar según su saldo. */}
+            <SeccionChat />
             {/* Oportunidades detectadas · el eslabón diagnóstico→
                 oportunidad del core loop, antes del Action Center.
                 Solo lectura: detectar es gratis; convertir en acciones
