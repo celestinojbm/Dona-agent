@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-// Base clara premium: Inter para lectura, JetBrains Mono para labels técnicos
-// (métricas, estados de agentes, créditos). Ambas autoalojadas vía next/font
-// (se sirven desde 'self', sin fetch a Google Fonts — la CSP no abre
-// fonts.gstatic.com). Las CSS variables coinciden con las del hero aprobado.
-const sans = Inter({
+// Base clara editorial: Plus Jakarta Sans (grotesca suave, la misma de la
+// referencia Merxo) para titulares y lectura; JetBrains Mono para labels
+// técnicos (métricas, estados de agentes, créditos). Ambas autoalojadas vía
+// next/font (se sirven desde 'self', sin fetch a Google Fonts — la CSP no
+// abre fonts.gstatic.com).
+const sans = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-hero-sans",
   display: "swap",

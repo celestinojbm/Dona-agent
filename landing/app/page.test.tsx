@@ -81,8 +81,8 @@ describe("landing pública · narrativa canónica", () => {
     expect(globalCss).not.toMatch(/^\s*\[data-reveal\]\s*\{[^}]*opacity\s*:\s*0/m);
   });
 
-  it("usa la base clara premium (fondo blanco, un solo acento de marca)", () => {
-    expect(globalCss).toContain("--bg: #ffffff");
+  it("usa la base clara premium (gris cálido editorial, un solo acento de marca)", () => {
+    expect(globalCss).toContain("--bg: #f2f2f0");
     expect(globalCss).toContain("--brand: #5b5bf0");
     // El chrome oscuro viejo salió del layout: sin video de fondo, overlay
     // negro, noise-overlay ni ambient blobs.

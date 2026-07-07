@@ -1,10 +1,12 @@
 @import "tailwindcss";
 
 /*
-  DONA — Design System v6 (landing clara premium)
-  Base clara Linear/Stripe + vitalidad de gradiente Luma CONTENIDA.
-  Un solo acento de marca (violeta-índigo). Tokens y clases derivados
-  del hero aprobado (app/prototipo/hero.css) — todo es UN solo sistema.
+  DONA — Design System v7 (landing clara editorial)
+  Base editorial tipo case-study premium: fondo gris cálido, tarjetas blancas
+  de radio generoso, titulares gigantes a dos líneas, párrafos con énfasis a
+  dos tonos y UN solo acento de marca (violeta-índigo). La vitalidad Luma
+  vive contenida en el escenario del hero (panel de gradiente) y en la
+  palabra-sello del titular.
 */
 
 @theme inline {
@@ -15,15 +17,18 @@
 }
 
 :root {
-  /* Tokens del hero aprobado */
-  --bg: #ffffff;
-  --bg-soft: #fafafb;
-  --ink: #0b0b12;        /* texto principal — contraste ~19:1 */
-  --ink-2: #3f3f4b;      /* texto secundario — ~9:1 */
-  --muted: #6b6b78;      /* muted — ~5.4:1, pasa AA */
-  --line: #ececf1;       /* hairlines */
+  /* Superficie de página: gris cálido editorial (no blanco puro) */
+  --bg: #f2f2f0;
+  --bg-soft: #fafaf9;    /* hover fills y superficies internas sutiles */
+  --fill: #e9eaf4;       /* relleno gris-violeta para chips/celdas dentro de tarjetas */
+  --ink: #0b0b12;        /* texto principal — contraste ~17:1 sobre --bg */
+  --ink-2: #3f3f4b;      /* texto secundario — ~8:1 */
+  --muted: #66666f;      /* muted — ~5:1, pasa AA sobre --bg */
+  --line: #e2e2dd;       /* hairlines sobre gris cálido y dentro de tarjetas */
   --brand: #5b5bf0;      /* acento de marca (un solo acento) */
   --brand-ink: #4a3fd6;  /* brand para texto sobre claro (más contraste) */
+  --brand-soft: #8f8ff7; /* extremo claro del gradiente de marca */
+  --dato-neg: #e64263;   /* semántica de datos en mockups: negativo (rojo Merxo) */
 }
 
 html {
@@ -47,12 +52,12 @@ body {
   color: var(--ink);
 }
 
-/* ── Aurora viva (sello LumaLabs, CONTENIDA) ────────────────────────────── */
+/* ── Aurora viva (sello Luma, CONTENIDA y en familia violeta) ───────────── */
 .aurora {
   position: absolute;
   pointer-events: none;
   filter: blur(56px);
-  opacity: 0.55;
+  opacity: 0.5;
   z-index: 0;
   will-change: transform;
 }
@@ -63,10 +68,10 @@ body {
   height: 620px;
   transform: translateX(-50%);
   background:
-    radial-gradient(38% 55% at 30% 40%, rgba(99, 102, 241, 0.55), transparent 70%),
-    radial-gradient(34% 50% at 68% 32%, rgba(139, 92, 246, 0.42), transparent 70%),
-    radial-gradient(40% 60% at 78% 66%, rgba(251, 146, 108, 0.35), transparent 72%),
-    radial-gradient(36% 52% at 22% 72%, rgba(56, 189, 248, 0.34), transparent 72%);
+    radial-gradient(38% 55% at 30% 40%, rgba(99, 102, 241, 0.45), transparent 70%),
+    radial-gradient(34% 50% at 68% 32%, rgba(139, 92, 246, 0.36), transparent 70%),
+    radial-gradient(40% 60% at 78% 66%, rgba(147, 197, 253, 0.3), transparent 72%),
+    radial-gradient(36% 52% at 22% 72%, rgba(196, 181, 253, 0.32), transparent 72%);
   animation: aurora-drift 22s ease-in-out infinite alternate;
 }
 /* Variante contenida para franjas/CTA (más tenue, sin dominar la sección) */
@@ -76,11 +81,11 @@ body {
   width: min(900px, 110vw);
   height: 460px;
   transform: translateX(-50%);
-  opacity: 0.4;
+  opacity: 0.38;
   background:
-    radial-gradient(40% 55% at 32% 42%, rgba(99, 102, 241, 0.5), transparent 70%),
-    radial-gradient(38% 52% at 70% 40%, rgba(139, 92, 246, 0.38), transparent 72%),
-    radial-gradient(42% 58% at 74% 70%, rgba(251, 146, 108, 0.3), transparent 74%);
+    radial-gradient(40% 55% at 32% 42%, rgba(99, 102, 241, 0.42), transparent 70%),
+    radial-gradient(38% 52% at 70% 40%, rgba(139, 92, 246, 0.32), transparent 72%),
+    radial-gradient(42% 58% at 74% 70%, rgba(196, 181, 253, 0.28), transparent 74%);
   animation: aurora-drift 26s ease-in-out infinite alternate;
 }
 @keyframes aurora-drift {
@@ -89,9 +94,9 @@ body {
   100% { transform: translateX(-52%) translateY(-8px) scale(1.02); }
 }
 
-/* Texto con el gradiente vivo (la palabra-sello del titular) */
+/* Texto con el gradiente vivo (la palabra-sello del titular) — familia violeta */
 .text-aurora {
-  background: linear-gradient(100deg, #6366f1 0%, #8b5cf6 38%, #ec4899 66%, #fb923c 100%);
+  background: linear-gradient(100deg, #4a3fd6 0%, #6366f1 32%, #8b5cf6 58%, #a78bfa 78%, #4a3fd6 100%);
   background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -127,44 +132,60 @@ body {
   transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
 }
 .btn-ghost:hover {
-  border-color: #d7d7e0;
+  border-color: #cfcfc9;
   background: var(--bg-soft);
   transform: translateY(-1px);
 }
+/* Botón sobre superficies de gradiente (tarjetas destacadas) */
+.btn-inverse {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid transparent;
+  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.12);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.btn-inverse:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px -8px rgba(11, 11, 18, 0.35);
+}
+.btn-inverse:disabled {
+  opacity: 0.6;
+  transform: none;
+  cursor: not-allowed;
+}
+
+/* ── Nav translúcida sobre el gris cálido ── */
+.nav-blur {
+  background: rgba(242, 242, 240, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
 
 /* ── Superficies / tarjetas ── */
-.proof-card {
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--line);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 24px 60px -30px rgba(11, 11, 18, 0.28),
-    0 8px 24px -18px rgba(11, 11, 18, 0.2);
-}
-.loop-chip {
-  border: 1px solid var(--line);
-  background: #fff;
-}
-.loop-arrow { color: #c3c3ce; }
-
-/* Tarjeta base para módulos, outputs, casos, pricing */
 .surface-card {
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 1rem;
-  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.04), 0 12px 32px -24px rgba(11, 11, 18, 0.18);
+  border-radius: 1.25rem;
+  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.03), 0 12px 32px -26px rgba(11, 11, 18, 0.16);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .surface-card:hover {
   transform: translateY(-2px);
-  border-color: #dcdce6;
-  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.05), 0 22px 46px -26px rgba(11, 11, 18, 0.22);
+  border-color: #d4d4ce;
+  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.04), 0 22px 46px -28px rgba(11, 11, 18, 0.2);
 }
-.surface-soft {
-  background: var(--bg-soft);
-  border: 1px solid var(--line);
-  border-radius: 1rem;
+/* Celda/tarjeta de relleno gris-violeta (patrón Merxo: celdas tintadas dentro
+   de superficies blancas, sin borde) */
+.surface-fill {
+  background: var(--fill);
+  border-radius: 1.25rem;
+}
+/* Tarjeta destacada con gradiente de marca (una sola por franja) */
+.card-gradient {
+  background: linear-gradient(150deg, #5b5bf0 0%, #7c7cf5 55%, #a5a5fb 100%);
+  border-radius: 1.25rem;
+  color: #fff;
+  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.06), 0 24px 48px -24px rgba(91, 91, 240, 0.55);
 }
 
 /* Icono de módulo/capacidad */
@@ -172,10 +193,9 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0.7rem;
-  background: rgba(91, 91, 240, 0.09);
+  border-radius: 0.8rem;
+  background: var(--fill);
   color: var(--brand-ink);
-  border: 1px solid rgba(91, 91, 240, 0.14);
 }
 
 /* Rejilla técnica muy tenue, desvanecida hacia los bordes */
@@ -195,6 +215,138 @@ body {
   letter-spacing: 0.16em;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* ── Párrafo editorial a dos tonos (patrón case-study) ──────────────────
+   Base en gris; las frases clave van en <strong> y suben a tinta con peso
+   medio. Jerarquía sin negritas gritonas. */
+.lead {
+  color: var(--muted);
+  font-weight: 400;
+}
+.lead strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* ── Ficha editorial (metadata con hairline, patrón case-study) ── */
+.meta-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border-bottom: 1px solid rgba(11, 11, 18, 0.5);
+  padding-bottom: 0.6rem;
+}
+.meta-item dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+.meta-item dd {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* ── Chips pill (canales, tags) ── */
+.chip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 0.45rem 0.9rem;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   ESCENARIO DEL HERO — panel de gradiente violeta con la palabra-sello
+   fantasma y el monitor con el Control Room de Dona (mockup 100% CSS).
+   ════════════════════════════════════════════════════════════════════════ */
+.hero-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: 2.25rem;
+  background:
+    radial-gradient(80% 90% at 20% 0%, rgba(255, 255, 255, 0.28), transparent 60%),
+    linear-gradient(165deg, #6d6df3 0%, #8f8ff7 48%, #c9c9fb 100%);
+}
+.stage-ghost {
+  position: absolute;
+  top: -0.08em;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: clamp(120px, 24vw, 320px);
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  color: rgba(255, 255, 255, 0.16);
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Monitor: bisel oscuro delgado + pantalla blanca */
+.mock-screen {
+  background: #fff;
+  border: clamp(7px, 0.9vw, 11px) solid #101016;
+  border-radius: clamp(14px, 1.8vw, 24px);
+  box-shadow:
+    0 2px 6px rgba(11, 11, 18, 0.25),
+    0 48px 90px -42px rgba(11, 11, 18, 0.55);
+}
+.mock-stand-neck {
+  width: clamp(72px, 9vw, 120px);
+  height: clamp(40px, 5vw, 72px);
+  margin: 0 auto;
+  background: linear-gradient(180deg, #ecece8 0%, #d8d8d2 100%);
+  clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%);
+}
+.mock-stand-base {
+  width: clamp(150px, 18vw, 240px);
+  height: 10px;
+  margin: 0 auto;
+  border-radius: 9999px;
+  background: #d3d3cd;
+  box-shadow: 0 6px 14px -6px rgba(11, 11, 18, 0.35);
+}
+
+/* Pill de navegación activa dentro del mockup */
+.mock-pill-active {
+  background: var(--ink);
+  color: #fff;
+  border-radius: 9999px;
+}
+/* Chips de datos del mockup (positivo en violeta de marca, negativo en rojo) */
+.mock-chip-pos {
+  background: var(--brand);
+  color: #fff;
+  border-radius: 9999px;
+}
+.mock-chip-neg {
+  background: var(--dato-neg);
+  color: #fff;
+  border-radius: 9999px;
+}
+/* Barra de progreso con gradiente de marca + resto rayado (patrón Merxo) */
+.bar-track {
+  position: relative;
+  height: 12px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(91, 91, 240, 0.16) 0 5px,
+      transparent 5px 10px
+    );
+}
+.bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #c9c9fb 0%, #5b5bf0 100%);
 }
 
 /* ── Reveal on-scroll (progressive enhancement) ──────────────────────────
@@ -218,6 +370,7 @@ body {
   .text-aurora { animation: none; }
   .btn-primary:hover,
   .btn-ghost:hover,
+  .btn-inverse:hover,
   .surface-card:hover { transform: none; }
   [data-reveal-root="ready"] [data-reveal] {
     opacity: 1 !important;
