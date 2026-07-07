@@ -30,10 +30,21 @@ def _proveedor_whatsapp():
     return obtener_proveedor()
 
 
-async def _reembolsar(telefono: str, creditos: int, motivo: str, scope: str = "gen_imagen") -> int | None:
+async def _reembolsar(
+    telefono: str,
+    creditos: int,
+    motivo: str,
+    scope: str = "gen_imagen",
+    idempotency_key: str = "",
+) -> int | None:
     """
     Devuelve los créditos cobrados cuando la generación falla.
     Retorna el saldo nuevo o None si no se pudo reembolsar.
+
+    `idempotency_key` (opcional): si se pasa, el reembolso es idempotente vía
+    `acreditar` — reintentar con la misma clave NO doble-acredita. Los handlers
+    reembolsan una sola vez por fallo y lo omiten; el reaper de arranque
+    (ARQ-01) sí lo usa porque puede correr más de una vez sobre el mismo job.
     """
     if creditos <= 0:
         return None
@@ -43,6 +54,7 @@ async def _reembolsar(telefono: str, creditos: int, motivo: str, scope: str = "g
             telefono,
             creditos,
             razon=f"Refund {scope}: {motivo}"[:120],
+            idempotency_key=idempotency_key,
         )
         logger.info(f"[HANDLER {scope}] refund {creditos} cr → {telefono} (saldo={saldo})")
         return saldo
