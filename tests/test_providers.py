@@ -439,6 +439,49 @@ class TestFallbackTexto:
         assert "Desc A" in p.ultimo_mensaje
 
 
+# ── Fase 0 · TEMA 2: Factory falla explícito con proveedor declarado sin módulo ──
+
+
+class TestFactoryProveedor:
+    """El factory obtener_proveedor() no debe delatar un proveedor declarado
+    pero sin implementar (Twilio) con un ModuleNotFoundError críptico en el
+    primer webhook: falla EXPLÍCITO y temprano con mensaje accionable.
+    """
+
+    def test_twilio_declarado_sin_modulo_falla_claro(self, monkeypatch):
+        """WHATSAPP_PROVIDER=twilio sin agent/providers/twilio.py → RuntimeError
+        con mensaje claro, NO ModuleNotFoundError críptico."""
+        from agent.providers import obtener_proveedor
+        monkeypatch.setenv("WHATSAPP_PROVIDER", "twilio")
+        with pytest.raises(RuntimeError, match="twilio.py"):
+            obtener_proveedor()
+
+    def test_proveedor_no_soportado_falla_con_valueerror(self, monkeypatch):
+        """Un valor sin entrada en el factory (telegram) → ValueError lista los
+        soportados."""
+        from agent.providers import obtener_proveedor
+        monkeypatch.setenv("WHATSAPP_PROVIDER", "telegram")
+        with pytest.raises(ValueError, match="no soportado"):
+            obtener_proveedor()
+
+    def test_whapi_default_instancia_ok(self, monkeypatch):
+        """Sin WHATSAPP_PROVIDER, el default whapi tiene módulo y se instancia."""
+        from agent.providers import obtener_proveedor
+        from agent.providers.whapi import ProveedorWhapi
+        monkeypatch.delenv("WHATSAPP_PROVIDER", raising=False)
+        monkeypatch.setenv("ENVIRONMENT", "development")  # no exige token
+        assert isinstance(obtener_proveedor(), ProveedorWhapi)
+
+    def test_modulo_de_proveedor_falta_solo_para_twilio(self):
+        """El helper reporta faltante SOLO para el proveedor sin módulo real."""
+        from agent.providers import modulo_de_proveedor_falta
+        assert modulo_de_proveedor_falta("twilio") is True
+        assert modulo_de_proveedor_falta("whapi") is False
+        assert modulo_de_proveedor_falta("meta") is False
+        # Un valor no soportado no es "módulo faltante" (es otro problema).
+        assert modulo_de_proveedor_falta("telegram") is False
+
+
 # ── T0.10: Validación de header personalizado en webhooks Whapi ─────────────
 
 

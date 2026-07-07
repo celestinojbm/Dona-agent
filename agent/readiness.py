@@ -20,6 +20,7 @@ cada llamada (no se cachea) para facilitar tests.
 import os
 
 from agent.entorno import entorno_actual, es_entorno_estricto
+from agent.providers import modulo_de_proveedor_falta
 
 
 class ReadinessError(RuntimeError):
@@ -75,6 +76,15 @@ def evaluar_readiness() -> list[str]:
     elif proveedor not in _SECRET_POR_PROVEEDOR:
         problemas.append(
             f"WHATSAPP_PROVIDER — valor no soportado: {proveedor} (usa whapi/meta/twilio)"
+        )
+    elif modulo_de_proveedor_falta(proveedor):
+        # Proveedor DECLARADO pero sin módulo (caso Twilio): antes esto pasaba
+        # el readiness en verde y reventaba con ModuleNotFoundError en el primer
+        # webhook. Ahora es una alarma temprana en el arranque (Fase 0 · TEMA 2).
+        problemas.append(
+            f"WHATSAPP_PROVIDER={proveedor} — proveedor declarado pero su módulo "
+            f"agent/providers/{proveedor}.py no existe (implementa el módulo o "
+            "usa whapi/meta)"
         )
     else:
         var, desc = _SECRET_POR_PROVEEDOR[proveedor]
