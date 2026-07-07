@@ -52,20 +52,15 @@ body {
   color: var(--ink);
 }
 
-/* Texto con el gradiente vivo (la palabra-sello del titular) — familia violeta.
-   El lavado de aurora de fondo salió por pedido del dueño (2026-07-07): el
-   gris cálido queda limpio y el violeta vive solo en la palabra-sello, el
+/* Texto con gradiente violeta ESTÁTICO (la palabra-sello del titular).
+   El lavado de aurora de fondo y la animación de barrido salieron por pedido
+   del dueño (2026-07-07): el violeta vive quieto en la palabra-sello, el
    escenario del hero y los acentos. */
 .text-aurora {
-  background: linear-gradient(100deg, #4a3fd6 0%, #6366f1 32%, #8b5cf6 58%, #a78bfa 78%, #4a3fd6 100%);
-  background-size: 220% 100%;
+  background: linear-gradient(100deg, #4a3fd6 0%, #6366f1 45%, #8b5cf6 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: aurora-sweep 8s linear infinite;
-}
-@keyframes aurora-sweep {
-  to { background-position: 220% 0; }
 }
 
 /* ── Botones ── */
@@ -143,10 +138,10 @@ body {
   background: var(--fill);
   border-radius: 1.25rem;
 }
-/* Tarjeta destacada en negro (una sola por franja — pedido del dueño,
-   como la tarjeta oscura #0B0C13 de la paleta Merxo) */
+/* Tarjeta destacada en negro PLANO (una sola por franja — pedido del dueño;
+   sin gradiente: el brillo claro de la esquina le molestaba) */
 .card-gradient {
-  background: linear-gradient(150deg, #0b0b12 0%, #1a1a22 60%, #26262e 100%);
+  background: var(--ink);
   border-radius: 1.25rem;
   color: #fff;
   box-shadow: 0 2px 4px rgba(11, 11, 18, 0.08), 0 24px 48px -24px rgba(11, 11, 18, 0.5);
@@ -162,16 +157,6 @@ body {
   color: var(--brand-ink);
 }
 
-/* Rejilla técnica muy tenue, desvanecida hacia los bordes */
-.grid-fade {
-  background-image:
-    linear-gradient(to right, rgba(11, 11, 18, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(11, 11, 18, 0.035) 1px, transparent 1px);
-  background-size: 44px 44px;
-  -webkit-mask-image: radial-gradient(70% 60% at 50% 30%, #000 40%, transparent 78%);
-  mask-image: radial-gradient(70% 60% at 50% 30%, #000 40%, transparent 78%);
-}
-
 /* Etiqueta de sección (eyebrow) — en la sans de la página, no mono
    (pedido del dueño: fuera la letra mono en labels) */
 .eyebrow {
@@ -183,15 +168,15 @@ body {
 }
 
 /* ── Párrafo editorial a dos tonos (patrón case-study) ──────────────────
-   Base en gris; las frases clave van en <strong> y suben a tinta con peso
-   medio. Jerarquía sin negritas gritonas. */
+   Base en gris; las frases clave van en <strong> y suben a tinta con más
+   peso. Pesos subidos un punto por pedido del dueño (letra más gruesa). */
 .lead {
   color: var(--muted);
-  font-weight: 400;
+  font-weight: 500;
 }
 .lead strong {
   color: var(--ink);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /* ── Ficha editorial (metadata con hairline, patrón case-study) ── */
@@ -330,7 +315,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .text-aurora { animation: none; }
   .btn-primary:hover,
   .btn-ghost:hover,
   .btn-inverse:hover,

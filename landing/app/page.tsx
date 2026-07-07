@@ -19,10 +19,6 @@ import {
   Zap,
   LayoutDashboard,
   MessageSquare,
-  Mic,
-  Paperclip,
-  Globe,
-  Smartphone,
   Eye,
   Coins,
   AlertTriangle,
@@ -225,7 +221,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
         aria-expanded={open}
         className="flex w-full cursor-pointer items-center justify-between gap-4 px-6 py-5 text-left"
       >
-        <span className="text-[15px] font-medium text-[color:var(--ink)]">{q}</span>
+        <span className="text-[15px] font-semibold text-[color:var(--ink)]">{q}</span>
         <ChevronDown
           className={`h-5 w-5 shrink-0 text-[color:var(--muted)] transition-transform duration-200 ${
             open ? "rotate-180" : ""
@@ -233,7 +229,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
         />
       </button>
       <div className={open ? "block" : "hidden"}>
-        <p className="px-6 pb-5 text-[15px] leading-relaxed text-[color:var(--ink-2)]">
+        <p className="px-6 pb-5 text-[15px] font-medium leading-relaxed text-[color:var(--ink-2)]">
           {a}
         </p>
       </div>
@@ -439,9 +435,6 @@ export default function Home() {
 
   return (
     <main ref={rootRef} className="relative overflow-x-clip bg-[color:var(--bg)]">
-      {/* rejilla técnica muy tenue, desvanecida hacia los bordes */}
-      <div className="grid-fade pointer-events-none absolute inset-x-0 top-0 z-0 h-[900px]" aria-hidden />
-
       {/* ── Nav ── */}
       <nav className="nav-blur sticky top-0 z-40 border-b border-[color:var(--line)]">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
@@ -547,18 +540,6 @@ export default function Home() {
             Ver Dona en acción
           </a>
         </div>
-
-        <p className="mt-8 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-[13px] font-medium uppercase tracking-[0.14em] text-[color:var(--muted)]">
-          <MessageSquare className="h-4 w-4" aria-hidden /> WhatsApp
-          <span aria-hidden>·</span>
-          <Globe className="h-4 w-4" aria-hidden /> web
-          <span aria-hidden>·</span>
-          <Smartphone className="h-4 w-4" aria-hidden /> app
-          <span aria-hidden>·</span>
-          <Mic className="h-4 w-4" aria-hidden /> voz
-          <span aria-hidden>·</span>
-          <Paperclip className="h-4 w-4" aria-hidden /> archivos
-        </p>
       </section>
 
       {/* ══════════════════ PRUEBA DE PRODUCTO: CONTROL ROOM EN ESCENARIO ══════════════════ */}
@@ -613,7 +594,7 @@ export default function Home() {
                   </span>
                   <Icon className="h-5 w-5 text-[color:var(--muted)]" />
                 </div>
-                <h3 className="mt-6 text-xl font-medium text-[color:var(--ink)]">{p.titulo}</h3>
+                <h3 className="mt-6 text-xl font-semibold text-[color:var(--ink)]">{p.titulo}</h3>
                 <p className="lead mt-2 text-[17px] leading-relaxed">{p.desc}</p>
               </li>
             );
@@ -651,14 +632,14 @@ export default function Home() {
                 >
                   <Icon className="h-5 w-5" />
                 </span>
-                <h3 className={`mt-5 text-xl font-medium ${destacado ? "text-white" : "text-[color:var(--ink)]"}`}>
+                <h3 className={`mt-5 text-xl font-semibold ${destacado ? "text-white" : "text-[color:var(--ink)]"}`}>
                   Dona {m.nombre}
                 </h3>
-                <p className={`mt-2 text-[17px] leading-relaxed ${destacado ? "text-white/85" : "text-[color:var(--muted)]"}`}>
+                <p className={`mt-2 text-[17px] font-medium leading-relaxed ${destacado ? "text-white/85" : "text-[color:var(--muted)]"}`}>
                   {m.linea}
                 </p>
                 <p
-                  className={`mt-4 border-t pt-3 text-[13px] ${
+                  className={`mt-4 border-t pt-3 text-[13px] font-medium ${
                     destacado ? "border-white/25 text-white/70" : "border-[color:var(--line)] text-[color:var(--muted)]"
                   }`}
                 >
@@ -707,7 +688,7 @@ export default function Home() {
                   </span>
                 </div>
                 <div className="p-6">
-                  <h3 className="text-[15px] font-medium text-[color:var(--ink)]">{o.titulo}</h3>
+                  <h3 className="text-[15px] font-semibold text-[color:var(--ink)]">{o.titulo}</h3>
                   <p className="lead mt-2 text-[16px] leading-relaxed">{o.desc}</p>
                 </div>
               </div>
@@ -741,7 +722,7 @@ export default function Home() {
                 <span className="icon-badge h-12 w-12">
                   <Icon className="h-5 w-5" />
                 </span>
-                <h3 className="mt-4 text-[15px] font-medium text-[color:var(--ink)]">{c.titulo}</h3>
+                <h3 className="mt-4 text-[15px] font-semibold text-[color:var(--ink)]">{c.titulo}</h3>
                 <p className="lead mt-2 text-[16px] leading-relaxed">{c.desc}</p>
               </div>
             );
@@ -774,7 +755,7 @@ export default function Home() {
                 <span className="icon-badge h-11 w-11">
                   <Icon className="h-[18px] w-[18px]" />
                 </span>
-                <h3 className="mt-4 text-[15px] font-medium text-[color:var(--ink)]">{c.segmento}</h3>
+                <h3 className="mt-4 text-[15px] font-semibold text-[color:var(--ink)]">{c.segmento}</h3>
                 <p className="lead mt-2 text-[16px] leading-relaxed">{c.resultado}</p>
               </div>
             );
@@ -818,7 +799,7 @@ export default function Home() {
                 {p.features.map((f) => (
                   <li
                     key={f}
-                    className={`flex items-start gap-2 text-[14px] ${p.destacado ? "text-white/90" : "text-[color:var(--ink-2)]"}`}
+                    className={`flex items-start gap-2 text-[14px] font-medium ${p.destacado ? "text-white/90" : "text-[color:var(--ink-2)]"}`}
                   >
                     <Check
                       className="mt-0.5 h-4 w-4 shrink-0"
@@ -852,7 +833,7 @@ export default function Home() {
             </div>
             <ul className="mt-6 flex-1 space-y-3">
               {["Todo lo de Pro", "Equipo y roles", "Límites y auditoría avanzada", "Integraciones a medida", "Onboarding dedicado"].map((f) => (
-                <li key={f} className="flex items-start gap-2 text-[14px] text-[color:var(--ink-2)]">
+                <li key={f} className="flex items-start gap-2 text-[14px] font-medium text-[color:var(--ink-2)]">
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--muted)]" />
                   {f}
                 </li>
