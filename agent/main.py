@@ -157,6 +157,13 @@ class _Metricas:
         self.latencia_count = 0
         self.requests_lentos = 0  # > 5s
         self.dedup_db_fallos = 0  # fallos de DB en el dedup (degradó a memoria)
+        # ARQ-01: cuántos jobs pagados cayeron al backend inproc (corren dentro
+        # del proceso web y mueren si Render redeploya). > 0 sostenido en prod
+        # con Redis configurado = alerta de que arq no está tomando los jobs.
+        self.jobs_inproc_fallback = 0
+        # Jobs huérfanos recuperados por el reaper de arranque (marcados error +
+        # reembolsados). > 0 = hubo un redeploy/crash con jobs en vuelo.
+        self.jobs_huerfanos_recuperados = 0
 
         # T1.6 — buckets por status (2xx / 4xx / 5xx) y por ruta crítica.
         # Aditivos: no rompen los contadores anteriores.
@@ -208,6 +215,20 @@ class _Metricas:
         with self._lock:
             self.dedup_db_fallos += 1
 
+    def registrar_job_inproc_fallback(self):
+        """Incrementa cuando un job pagado se despacha por el backend inproc
+        (ARQ-01 · observabilidad). Lo dispara el callback registrado en la
+        cola de jobs."""
+        with self._lock:
+            self.jobs_inproc_fallback += 1
+
+    def registrar_jobs_huerfanos(self, n: int):
+        """Suma los jobs huérfanos recuperados por el reaper de arranque."""
+        if n <= 0:
+            return
+        with self._lock:
+            self.jobs_huerfanos_recuperados += n
+
     def snapshot(self) -> dict:
         with self._lock:
             avg = (self.latencia_sum_ms / self.latencia_count) if self.latencia_count else 0
@@ -219,6 +240,8 @@ class _Metricas:
                 "latencia_promedio_ms": round(avg, 1),
                 "requests_lentos_5s": self.requests_lentos,
                 "dedup_db_fallos": self.dedup_db_fallos,
+                "jobs_inproc_fallback": self.jobs_inproc_fallback,
+                "jobs_huerfanos_recuperados": self.jobs_huerfanos_recuperados,
                 # T1.6: buckets nuevos sin sustituir los anteriores.
                 "por_status_class": dict(self.por_status_class),
                 "endpoints_criticos": {
@@ -315,6 +338,27 @@ async def lifespan(app: FastAPI):
     # Sembrar catálogo de sistemas si está vacío
     from enhanced.catalog import sembrar_catalogo
     await sembrar_catalogo()
+
+    # ARQ-01 · Observabilidad + reaper de jobs huérfanos.
+    #   1. Registrar el callback que hace visible en /admin/metrics cada vez que
+    #      un job pagado cae al backend inproc (riesgo latente: muere con el
+    #      proceso web si Render redeploya).
+    #   2. Reaper de arranque: los jobs que quedaron "running" de un proceso
+    #      ANTERIOR (redeploy/crash) nunca terminarían solos — se marcan error y
+    #      se reembolsan acá, apenas la DB está lista. El corte es el arranque de
+    #      ESTE proceso: no toca jobs legítimamente en curso (aún no existen).
+    try:
+        from agent.jobs.queue import (
+            reaper_jobs_huerfanos,
+            registrar_callback_inproc_fallback,
+        )
+        registrar_callback_inproc_fallback(metricas.registrar_job_inproc_fallback)
+        recuperados = await reaper_jobs_huerfanos()
+        metricas.registrar_jobs_huerfanos(len(recuperados))
+    except Exception:
+        # Nunca abortar el arranque por el reaper — es recuperación best-effort.
+        logger.exception("[JOBS] Reaper de arranque falló (se continúa)")
+
     iniciar_scheduler(proveedor)
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor Dona corriendo en puerto {PORT}")

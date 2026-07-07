@@ -49,6 +49,12 @@ async def _reembolsar(
     segundo fallo del provider dispararía un segundo reembolso de los mismos
     créditos. Si no hay `job_id` (llamada legacy/test), no hay dedup — mismo
     comportamiento que antes.
+
+    El reaper de arranque (ARQ-01, ver agent/jobs/queue.py) también pasa
+    `job_id`: comparte la MISMA clave `reembolso_job:{job_id}` que usaría el
+    handler, así que si el proceso murió justo después de que el handler
+    reembolsara pero antes de marcar 'error'/'done', el reembolso del reaper
+    dedupea como no-op y NO doble-acredita.
     """
     if creditos <= 0:
         return None
