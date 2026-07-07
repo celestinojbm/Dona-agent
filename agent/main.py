@@ -3827,6 +3827,27 @@ async def internal_reportes(request: Request):
 _CHAT_MAX_LONGITUD_MENSAJE = 8000
 
 
+def _extraer_sub_y_mensaje(payload: dict) -> tuple[str, str]:
+    """Valida y extrae (subscription_id, mensaje) del body del chat web.
+
+    Lanza HTTPException(400) si falta o es inválido cualquiera de los dos. Se
+    extrajo a función pura para poder testearlo DIRECTAMENTE (sin ruteo por la
+    app): la cobertura del handler ruteado no se acredita de forma fiable bajo
+    la suite completa por el reload de módulos. El mensaje se normaliza (strip)
+    y se trunca a _CHAT_MAX_LONGITUD_MENSAJE.
+    """
+    sub_id = (payload.get("subscription_id") or "").strip()
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="missing_subscription_id")
+    mensaje = payload.get("mensaje")
+    if not isinstance(mensaje, str) or not mensaje.strip():
+        raise HTTPException(status_code=400, detail="missing_mensaje")
+    mensaje = mensaje.strip()
+    if len(mensaje) > _CHAT_MAX_LONGITUD_MENSAJE:
+        mensaje = mensaje[:_CHAT_MAX_LONGITUD_MENSAJE]
+    return sub_id, mensaje
+
+
 @app.post("/internal/chat")
 async def internal_chat(request: Request):
     """Procesa un turno de chat web con paridad total con WhatsApp.
@@ -3853,16 +3874,7 @@ async def internal_chat(request: Request):
     import time as _time
 
     payload = await _verificar_y_parsear_internal(request)
-    sub_id = (payload.get("subscription_id") or "").strip()
-    if not sub_id:
-        raise HTTPException(status_code=400, detail="missing_subscription_id")
-
-    mensaje = payload.get("mensaje")
-    if not isinstance(mensaje, str) or not mensaje.strip():
-        raise HTTPException(status_code=400, detail="missing_mensaje")
-    mensaje = mensaje.strip()
-    if len(mensaje) > _CHAT_MAX_LONGITUD_MENSAJE:
-        mensaje = mensaje[:_CHAT_MAX_LONGITUD_MENSAJE]
+    sub_id, mensaje = _extraer_sub_y_mensaje(payload)
 
     # a. subscription_id → telefono (server-side). El cliente NUNCA manda
     #    telefono: si lo incluyera en el body, se ignora por completo.

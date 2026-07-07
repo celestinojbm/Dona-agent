@@ -181,6 +181,58 @@ class TestPayload:
 
 
 @_requiere_main
+class TestExtraerSubYMensaje:
+    """Validación del body probada DIRECTAMENTE sobre la función pura
+    _extraer_sub_y_mensaje (sin ruteo por la app), para que la cobertura de
+    esas ramas se acredite de forma robusta bajo la suite completa."""
+
+    @staticmethod
+    def _fn():
+        from agent.main import _extraer_sub_y_mensaje
+        return _extraer_sub_y_mensaje
+
+    def test_sin_sub_id_lanza_400(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as e:
+            self._fn()({"mensaje": "hola"})
+        assert e.value.status_code == 400
+        assert e.value.detail == "missing_subscription_id"
+
+    def test_sub_id_solo_espacios_lanza_400(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as e:
+            self._fn()({"subscription_id": "   ", "mensaje": "hola"})
+        assert e.value.detail == "missing_subscription_id"
+
+    def test_sin_mensaje_lanza_400(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as e:
+            self._fn()({"subscription_id": "sub_x"})
+        assert e.value.detail == "missing_mensaje"
+
+    def test_mensaje_no_string_lanza_400(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as e:
+            self._fn()({"subscription_id": "sub_x", "mensaje": 123})
+        assert e.value.detail == "missing_mensaje"
+
+    def test_mensaje_vacio_lanza_400(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as e:
+            self._fn()({"subscription_id": "sub_x", "mensaje": "   "})
+        assert e.value.detail == "missing_mensaje"
+
+    def test_feliz_devuelve_sub_y_mensaje_stripeado(self):
+        sub, msg = self._fn()({"subscription_id": "  sub_x ", "mensaje": "  hola  "})
+        assert sub == "sub_x"
+        assert msg == "hola"
+
+    def test_mensaje_largo_se_trunca(self):
+        _, msg = self._fn()({"subscription_id": "sub_x", "mensaje": "a" * 9000})
+        assert len(msg) == 8000
+
+
+@_requiere_main
 class TestSubInexistente:
     def test_sub_inexistente_404(self, setup):
         client, _, _ = setup
