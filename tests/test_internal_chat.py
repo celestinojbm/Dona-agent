@@ -88,10 +88,15 @@ async def setup(tmp_path, monkeypatch):
     importlib.reload(agent.memory)
     await agent.memory.inicializar_db()
 
+    # No recargar agent.main: reusar la app ya importada (mismo patrón que
+    # test_internal_assets/test_internal_reportes). Recargar main rompía la
+    # ATRIBUCIÓN de cobertura del handler bajo la suite completa (diff-cover
+    # no acreditaba 3856-3865 aunque los tests SÍ las ejecutan). El secreto del
+    # bridge se lee por-request, así que el monkeypatch aplica sin recargar.
     import agent.main as main
-    importlib.reload(main)
+    from agent.main import app
 
-    return TestClient(main.app), agent.memory, main
+    return TestClient(app), agent.memory, main
 
 
 async def _crear_sub(memory, subscription_id, telefono):
