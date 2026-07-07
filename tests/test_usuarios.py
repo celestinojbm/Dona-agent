@@ -326,3 +326,255 @@ class TestSembrarDesdeStripe:
         resumen = await db.sembrar_usuarios_desde_stripe()
         assert resumen["status"] == "sin_stripe"
         assert resumen["sembrados"] == 0
+
+    @pytest.mark.asyncio
+    async def test_error_de_stripe_por_customer_se_cuenta_sin_romper(self, db, monkeypatch):
+        """Si `retrieve` de un customer revienta, se cuenta como error y la
+        siembra sigue con el resto (el `except Exception` del bucle)."""
+        from sqlalchemy import func, select
+
+        await _crear_suscripcion(db, subscription_id="sub_ok", telefono="111", customer_id="cus_ok")
+        await _crear_suscripcion(db, subscription_id="sub_boom", telefono="222", customer_id="cus_boom")
+
+        class _StripeQueRevienta:
+            """`retrieve` de cus_boom lanza; cus_ok resuelve normal."""
+            class Customer:
+                @staticmethod
+                def retrieve(customer_id):
+                    if customer_id == "cus_boom":
+                        raise RuntimeError("Stripe API caída")
+                    return _FakeCustomer("ok@dona.app")
+
+        monkeypatch.setattr("agent.billing._stripe_client", lambda: _StripeQueRevienta())
+
+        resumen = await db.sembrar_usuarios_desde_stripe()
+        assert resumen["status"] == "ok"
+        assert resumen["customers"] == 2
+        assert resumen["sembrados"] == 1   # solo cus_ok
+        assert resumen["errores"] == 1     # cus_boom contado, no propagado
+
+        async with db.async_session() as session:
+            total = (await session.execute(
+                select(func.count()).select_from(db.Usuario)
+            )).scalar_one()
+            assert total == 1  # solo el customer sano llegó a la tabla
+
+
+# ── Buscar por teléfono: entrada vacía → None (sin tocar DB) ──────────────────
+
+
+class TestBuscarPorTelefonoVacio:
+    @pytest.mark.asyncio
+    async def test_telefono_vacio_o_espacios_retorna_none(self, db):
+        """`obtener_usuario_por_telefono('')` corta antes de consultar la DB."""
+        assert await db.obtener_usuario_por_telefono("") is None
+        assert await db.obtener_usuario_por_telefono("   ") is None
+
+
+# ── Upsert bajo concurrencia: IntegrityError (email y teléfono) ───────────────
+
+
+class TestUpsertConcurrencia:
+    @pytest.mark.asyncio
+    async def test_choque_de_telefono_reintenta_sin_telefono(self, db):
+        """Un teléfono ya vinculado a OTRA cuenta hace fallar el INSERT del email
+        nuevo (UNIQUE de telefono). El upsert atrapa el IntegrityError, ve que el
+        email sigue ausente y reintenta creando la cuenta SIN teléfono."""
+        from sqlalchemy import func, select
+
+        # E0 ya posee el teléfono T1.
+        await db.crear_o_vincular_usuario("dueño@dona.app", telefono="14076936023")
+
+        # E1 es nuevo pero pide el MISMO teléfono → choque de UNIQUE(telefono).
+        nuevo = await db.crear_o_vincular_usuario(
+            "recien@dona.app", telefono="14076936023", stripe_customer_id="cus_r"
+        )
+        # Se creó igual, pero sin teléfono (no se lo robó a la otra cuenta).
+        assert nuevo.email == "recien@dona.app"
+        assert nuevo.telefono is None
+        assert nuevo.stripe_customer_id == "cus_r"
+
+        async with db.async_session() as session:
+            # El dueño original conserva su teléfono intacto.
+            dueño = (await session.execute(
+                select(db.Usuario).where(db.Usuario.email == "dueño@dona.app")
+            )).scalar_one()
+            assert dueño.telefono == "14076936023"
+            # Dos cuentas distintas, ninguna duplicada.
+            total = (await session.execute(
+                select(func.count()).select_from(db.Usuario)
+            )).scalar_one()
+            assert total == 2
+
+    @pytest.mark.asyncio
+    async def test_carrera_de_email_relee_la_fila_ganadora(self, db, monkeypatch):
+        """Simula la carrera en que otra entrega insertó el MISMO email entre el
+        SELECT previo y el INSERT: el pre-check no ve la fila (miss forzado), el
+        INSERT choca con UNIQUE(email), y el upsert relee y devuelve la ganadora."""
+        from sqlalchemy import func, select
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        # La fila 'ganadora' ya existe en la DB (la insertó la otra entrega).
+        ganadora = await db.crear_o_vincular_usuario("carrera@dona.app", telefono="900")
+        ganadora_id = ganadora.id
+
+        # Forzamos que el PRIMER execute dentro de crear_o_vincular_usuario (el
+        # pre-check por email) devuelva "no existe", para caer al camino de INSERT
+        # y provocar el IntegrityError de email. El resto de execute son reales.
+        real_execute = AsyncSession.execute
+        estado = {"primero": True}
+
+        class _ResultadoVacio:
+            def scalar_one_or_none(self):
+                return None
+
+        async def execute_con_primer_miss(self, *args, **kwargs):
+            if estado["primero"]:
+                estado["primero"] = False
+                return _ResultadoVacio()
+            return await real_execute(self, *args, **kwargs)
+
+        monkeypatch.setattr(AsyncSession, "execute", execute_con_primer_miss)
+
+        # Mismo email (nueva 'entrega'): pre-check miss → INSERT → IntegrityError
+        # de email → relee → devuelve la ganadora ya existente.
+        resultado = await db.crear_o_vincular_usuario("carrera@dona.app", telefono="900")
+        assert resultado.id == ganadora_id
+
+        # Restauramos execute para la verificación final.
+        monkeypatch.undo()
+        async with db.async_session() as session:
+            total = (await session.execute(
+                select(func.count()).select_from(db.Usuario)
+                .where(db.Usuario.email == "carrera@dona.app")
+            )).scalar_one()
+            assert total == 1  # no se duplicó
+
+
+# ── billing._stripe_client + crear_checkout sin Stripe ───────────────────────
+
+
+class TestStripeClientBilling:
+    def test_sin_key_retorna_none(self, monkeypatch):
+        """Sin STRIPE_SECRET_KEY, el cliente compartido es None."""
+        import agent.billing as billing
+
+        monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+        assert billing._stripe_client() is None
+
+    def test_con_key_configura_api_key_y_retorna_modulo(self, monkeypatch):
+        """Con la key presente, retorna el módulo stripe con api_key seteada."""
+        import agent.billing as billing
+
+        monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_abc123")
+        cliente = billing._stripe_client()
+        assert cliente is not None
+        assert cliente.api_key == "sk_test_abc123"
+
+    def test_sin_sdk_instalado_retorna_none(self, monkeypatch):
+        """Si el import de stripe falla (SDK ausente), retorna None sin romper."""
+        import builtins
+
+        import agent.billing as billing
+
+        monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_abc123")
+        real_import = builtins.__import__
+
+        def import_sin_stripe(name, *args, **kwargs):
+            if name == "stripe":
+                raise ImportError("simulado: SDK de Stripe no instalado")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", import_sin_stripe)
+        assert billing._stripe_client() is None
+
+    @pytest.mark.asyncio
+    async def test_crear_checkout_sin_stripe_retorna_none(self, monkeypatch):
+        """crear_checkout con paquete válido pero sin Stripe configurado → None
+        (ejercita el chequeo `_stripe_client() is None` del checkout)."""
+        import agent.billing as billing
+
+        # Paquete "100" válido (price_id presente) para pasar el primer guard...
+        monkeypatch.setenv("STRIPE_PRICE_PAQUETE_100", "price_test_100")
+        # ...pero sin secret key → el segundo guard corta con None.
+        monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+
+        url = await billing.crear_checkout("15551234567", "100")
+        assert url is None
+
+
+# ── Endpoint admin POST /admin/sembrar-usuarios ──────────────────────────────
+
+
+_ADMIN_TOKEN = "test-admin-token-sembrar"
+
+_main_disponible = True
+try:
+    from agent.main import app as _app_import_check  # noqa: F401
+except Exception:
+    _main_disponible = False
+
+_requiere_main = pytest.mark.skipif(
+    not _main_disponible,
+    reason="agent.main requiere dependencias (apscheduler, etc.)",
+)
+
+
+@pytest.fixture
+async def app_db(tmp_path, monkeypatch):
+    """App FastAPI fresca con SQLite aislada y ADMIN_TOKEN de test (mismo patrón
+    que tests/test_admin_auth_bearer_only.py: reload de memory + main)."""
+    db_path = tmp_path / "sembrar_usuarios.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    monkeypatch.setenv("ADMIN_TOKEN", _ADMIN_TOKEN)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-fake")
+    import agent.memory
+    importlib.reload(agent.memory)
+    import agent.main as _main
+    importlib.reload(_main)
+    await agent.memory.inicializar_db()
+    return _main.app
+
+
+@_requiere_main
+class TestEndpointSembrarUsuarios:
+    @pytest.mark.asyncio
+    async def test_bearer_correcto_dispara_siembra(self, app_db, monkeypatch):
+        """Con Bearer válido, el endpoint corre la siembra y devuelve su resumen."""
+        from httpx import ASGITransport, AsyncClient
+
+        # Stripe no configurado → la siembra retorna 'sin_stripe' (200), sin red.
+        monkeypatch.setattr("agent.billing._stripe_client", lambda: None)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_db), base_url="http://test"
+        ) as c:
+            r = await c.post(
+                "/admin/sembrar-usuarios",
+                headers={"Authorization": f"Bearer {_ADMIN_TOKEN}"},
+            )
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "sin_stripe"
+
+    @pytest.mark.asyncio
+    async def test_sin_token_devuelve_403(self, app_db):
+        from httpx import ASGITransport, AsyncClient
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_db), base_url="http://test"
+        ) as c:
+            r = await c.post("/admin/sembrar-usuarios")
+        assert r.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_bearer_invalido_devuelve_403(self, app_db):
+        from httpx import ASGITransport, AsyncClient
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_db), base_url="http://test"
+        ) as c:
+            r = await c.post(
+                "/admin/sembrar-usuarios",
+                headers={"Authorization": "Bearer token-equivocado"},
+            )
+        assert r.status_code == 403
