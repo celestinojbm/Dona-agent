@@ -25,6 +25,7 @@ import TourDashboard from "./tour";
 import SeccionActionCenter from "./seccion-action-center";
 import SeccionControlRoom from "./seccion-control-room";
 import SeccionOportunidades from "./seccion-oportunidades";
+import SeccionGaleria from "./seccion-galeria";
 
 interface DashboardProps {
   session: { user?: { email?: string | null } };
@@ -308,6 +309,11 @@ export default function DashboardClient({ session }: DashboardProps) {
             {load.data.suscripcion.estado !== "canceled" && (
               <SeccionActionCenter />
             )}
+            {/* Galería de Activos (Fase 1) · lo que Dona ya generó para el
+                usuario (imágenes, videos, docs), visible en web. Solo
+                lectura. Se muestra siempre, incluso con sub cancelada: los
+                activos ya generados siguen siendo del usuario. */}
+            <SeccionGaleria />
             {/* Control Room interno · progreso del proyecto y orquestacion
                 de agentes. Datos estaticos curados en este MVP; no llama
                 APIs externas ni reemplaza el Action Center operativo. */}
