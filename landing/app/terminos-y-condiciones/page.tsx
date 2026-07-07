@@ -15,20 +15,20 @@ export default function TerminosYCondicionesPage() {
       <div className="max-w-3xl mx-auto">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-sm text-white/40 hover:text-white/70 transition-colors mb-12 font-light"
+          className="inline-flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors mb-12 font-normal"
         >
           <ArrowLeft className="w-4 h-4" />
           Volver al inicio
         </Link>
 
-        <h1 className="text-4xl md:text-5xl font-normal text-white mb-3 tracking-tighter">
+        <h1 className="text-4xl md:text-5xl font-normal text-[color:var(--ink)] mb-3 tracking-tighter">
           Términos y condiciones
         </h1>
-        <p className="text-xs uppercase tracking-widest text-white/35 mb-10 font-light">
+        <p className="text-xs uppercase tracking-widest text-[color:var(--muted)] mb-10 font-normal">
           Última actualización: {ULTIMA_ACTUALIZACION}
         </p>
 
-        <div className="space-y-8 text-white/55 font-light leading-relaxed text-[15px]">
+        <div className="space-y-8 text-[color:var(--ink-2)] font-normal leading-relaxed text-[15px]">
           <p>
             Estos términos describen las condiciones de uso del servicio
             Dona. Al crear una cuenta, suscribirte a un plan o usar el
@@ -36,7 +36,7 @@ export default function TerminosYCondicionesPage() {
           </p>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Qué es Dona
             </h2>
             <p>
@@ -49,7 +49,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Uso permitido
             </h2>
             <p className="mb-3">Al usar Dona te comprometes a no:</p>
@@ -77,13 +77,13 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Suscripciones y pagos
             </h2>
             <ul className="space-y-2 ml-4">
               <li>
                 · Los pagos son procesados por{" "}
-                <span className="text-white/80">Stripe</span>. Al suscribirte
+                <span className="text-[color:var(--ink)]">Stripe</span>. Al suscribirte
                 aceptas también las condiciones de uso de ese proveedor para
                 el procesamiento de tu pago.
               </li>
@@ -105,7 +105,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Créditos
             </h2>
             <p>
@@ -118,7 +118,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Disponibilidad del servicio
             </h2>
             <p>
@@ -131,12 +131,12 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Responsabilidad del usuario
             </h2>
             <p>
               Dona ayuda con tareas, sugerencias y automatizaciones, pero
-              <span className="text-white/80">
+              <span className="text-[color:var(--ink)]">
                 {" "}
                 el usuario es responsable de revisar las decisiones
                 importantes
@@ -149,7 +149,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Propiedad
             </h2>
             <p>
@@ -162,7 +162,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Limitación de responsabilidad
             </h2>
             <p>
@@ -176,7 +176,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Cambios a estos términos
             </h2>
             <p>
@@ -189,19 +189,19 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Contacto
             </h2>
             <p>
               Para cualquier duda sobre estos términos puedes escribirnos a{" "}
               <a
                 href="mailto:hola@usadona.com"
-                className="nav-link text-white/80"
+                className="nav-link text-[color:var(--ink)]"
               >
                 hola@usadona.com
               </a>{" "}
               o visitar nuestra{" "}
-              <Link href="/soporte" className="nav-link text-white/80">
+              <Link href="/soporte" className="nav-link text-[color:var(--ink)]">
                 página de soporte
               </Link>
               .

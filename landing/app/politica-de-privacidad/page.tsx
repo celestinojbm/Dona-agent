@@ -15,20 +15,20 @@ export default function PoliticaDePrivacidadPage() {
       <div className="max-w-3xl mx-auto">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-sm text-white/40 hover:text-white/70 transition-colors mb-12 font-light"
+          className="inline-flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors mb-12 font-normal"
         >
           <ArrowLeft className="w-4 h-4" />
           Volver al inicio
         </Link>
 
-        <h1 className="text-4xl md:text-5xl font-normal text-white mb-3 tracking-tighter">
+        <h1 className="text-4xl md:text-5xl font-normal text-[color:var(--ink)] mb-3 tracking-tighter">
           Política de privacidad
         </h1>
-        <p className="text-xs uppercase tracking-widest text-white/35 mb-10 font-light">
+        <p className="text-xs uppercase tracking-widest text-[color:var(--muted)] mb-10 font-normal">
           Última actualización: {ULTIMA_ACTUALIZACION}
         </p>
 
-        <div className="space-y-8 text-white/55 font-light leading-relaxed text-[15px]">
+        <div className="space-y-8 text-[color:var(--ink-2)] font-normal leading-relaxed text-[15px]">
           <p>
             En Dona valoramos la privacidad de quienes usan nuestro servicio.
             Este documento describe, en lenguaje simple, qué información
@@ -37,7 +37,7 @@ export default function PoliticaDePrivacidadPage() {
           </p>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Qué datos recolectamos
             </h2>
             <p className="mb-3">
@@ -68,7 +68,7 @@ export default function PoliticaDePrivacidadPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Para qué usamos tus datos
             </h2>
             <ul className="space-y-2 ml-4">
@@ -87,7 +87,7 @@ export default function PoliticaDePrivacidadPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Proveedores con los que trabajamos
             </h2>
             <p className="mb-3">
@@ -97,7 +97,7 @@ export default function PoliticaDePrivacidadPage() {
             </p>
             <ul className="space-y-2 ml-4">
               <li>
-                · <span className="text-white/80">Stripe</span> para procesar
+                · <span className="text-[color:var(--ink)]">Stripe</span> para procesar
                 pagos y administrar suscripciones.
               </li>
               <li>
@@ -121,12 +121,12 @@ export default function PoliticaDePrivacidadPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Lo que no hacemos
             </h2>
             <ul className="space-y-2 ml-4">
               <li>
-                · <span className="text-white/80">No vendemos</span> tu
+                · <span className="text-[color:var(--ink)]">No vendemos</span> tu
                 información personal a terceros.
               </li>
               <li>
@@ -140,7 +140,7 @@ export default function PoliticaDePrivacidadPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Seguridad
             </h2>
             <p>
@@ -154,7 +154,7 @@ export default function PoliticaDePrivacidadPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Tus derechos
             </h2>
             <p>
@@ -166,7 +166,7 @@ export default function PoliticaDePrivacidadPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Contacto
             </h2>
             <p>
@@ -174,12 +174,12 @@ export default function PoliticaDePrivacidadPage() {
               puedes escribirnos a{" "}
               <a
                 href="mailto:hola@usadona.com"
-                className="nav-link text-white/80"
+                className="nav-link text-[color:var(--ink)]"
               >
                 hola@usadona.com
               </a>
               . También encontrarás más información de contacto en nuestra{" "}
-              <Link href="/soporte" className="nav-link text-white/80">
+              <Link href="/soporte" className="nav-link text-[color:var(--ink)]">
                 página de soporte
               </Link>
               .
@@ -187,7 +187,7 @@ export default function PoliticaDePrivacidadPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-white font-normal mb-3 tracking-tight">
+            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Cambios a esta política
             </h2>
             <p>

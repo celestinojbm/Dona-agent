@@ -219,7 +219,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full cursor-pointer items-center justify-between gap-4 px-6 py-5 text-left"
+        className="flex w-full cursor-pointer items-center justify-between gap-4 px-7 py-6 text-left"
       >
         <span className="text-lg font-semibold text-[color:var(--ink)]">{q}</span>
         <ChevronDown
@@ -229,7 +229,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
         />
       </button>
       <div className={open ? "block" : "hidden"}>
-        <p className="px-6 pb-5 text-[15px] font-medium leading-relaxed text-[color:var(--ink-2)]">
+        <p className="px-7 pb-6 text-[16px] font-medium leading-relaxed text-[color:var(--ink-2)]">
           {a}
         </p>
       </div>
@@ -779,7 +779,7 @@ export default function Home() {
           {PRICING.map((p) => (
             <div
               key={p.plan}
-              className={`${p.destacado ? "card-gradient" : "surface-card"} flex flex-col p-7`}
+              className={`${p.destacado ? "card-brand" : "surface-card"} flex flex-col p-7`}
             >
               {p.destacado && (
                 <span className="mb-3 inline-flex w-fit items-center rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white">
@@ -878,11 +878,27 @@ export default function Home() {
 
       {/* ══════════════════ FAQ ══════════════════ */}
       <section id="faq" className="relative z-10 mx-auto max-w-7xl px-6 py-20 md:py-28">
-        <SectionHead eyebrow="FAQ" titulo="Preguntas frecuentes" />
-        <div className="mx-auto mt-12 max-w-3xl space-y-3">
-          {FAQ.map((f) => (
-            <FaqItem key={f.q} q={f.q} a={f.a} />
-          ))}
+        <div className="grid gap-12 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] md:gap-20">
+          <div>
+            <p className="eyebrow">FAQ</p>
+            <h2 className="mt-5 text-[2.7rem] font-medium leading-[1.04] tracking-tight text-[color:var(--ink)] sm:text-6xl md:text-[4.25rem]">
+              Preguntas frecuentes
+            </h2>
+            <p className="lead mt-8 max-w-sm text-lg leading-relaxed">
+              ¿No encuentras tu respuesta? Escríbenos a{" "}
+              <strong>
+                <a href="mailto:hola@usadona.com" className="cursor-pointer hover:underline">
+                  hola@usadona.com
+                </a>
+              </strong>{" "}
+              y te contestamos.
+            </p>
+          </div>
+          <div className="space-y-4 md:pt-3">
+            {FAQ.map((f) => (
+              <FaqItem key={f.q} q={f.q} a={f.a} />
+            ))}
+          </div>
         </div>
       </section>
 

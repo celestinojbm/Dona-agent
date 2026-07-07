@@ -137,18 +137,13 @@ body {
   background: var(--fill);
   border-radius: 1.25rem;
 }
-/* Tarjeta destacada en negro PLANO (plan Pro — pedido del dueño;
-   sin gradiente: el brillo claro de la esquina le molestaba) */
-.card-gradient {
-  background: var(--ink);
-  border-radius: 1.25rem;
-  color: #fff;
-  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.08), 0 24px 48px -24px rgba(11, 11, 18, 0.5);
-}
-/* Tarjeta destacada VIOLETA→NARANJA (módulo Control Room — el dueño pidió
-   devolverla a violeta e incorporar la combinación con naranja del logo) */
+/* Tarjeta destacada VIOLETA con resplandor naranja contenido en la esquina
+   (módulo Control Room y plan Pro — el dueño pidió violeta+naranja del logo,
+   cuidando que el naranja no domine) */
 .card-brand {
-  background: linear-gradient(150deg, #5b5bf0 0%, #7c5cf6 58%, #f97316 135%);
+  background:
+    radial-gradient(52% 52% at 97% 103%, rgba(249, 115, 22, 0.42), transparent 62%),
+    linear-gradient(150deg, #5b5bf0 0%, #7c5cf6 100%);
   border-radius: 1.25rem;
   color: #fff;
   box-shadow: 0 2px 4px rgba(11, 11, 18, 0.06), 0 24px 48px -24px rgba(91, 91, 240, 0.55);
