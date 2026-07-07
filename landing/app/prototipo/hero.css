@@ -1,0 +1,126 @@
+/* Prototipo Hero v2 — base clara Linear/Stripe + vitalidad de gradiente LumaLabs.
+   Scoped al prototipo (/prototipo). No toca la landing actual. */
+
+.hero-v2 {
+  /* Tokens */
+  --bg: #ffffff;
+  --bg-soft: #fafafb;
+  --ink: #0b0b12;          /* texto principal — contraste ~19:1 */
+  --ink-2: #3f3f4b;        /* texto secundario — ~9:1 */
+  --muted: #6b6b78;        /* muted — ~5.4:1, pasa AA */
+  --line: #ececf1;         /* hairlines */
+  --brand: #5b5bf0;        /* acento de marca (un solo acento) */
+  --brand-ink: #4a3fd6;    /* brand para texto sobre claro (más contraste) */
+
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-hero-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+  position: relative;
+  overflow-x: clip;
+}
+
+.hero-mono {
+  font-family: var(--font-hero-mono), ui-monospace, monospace;
+}
+
+/* ── Aurora viva (sello LumaLabs, CONTENIDA) ──────────────────────────────
+   Malla de color suave sobre el blanco, detrás del titular y de la prueba de
+   producto. Vibrante pero de buen gusto: baja opacidad, blur alto, deriva
+   lenta. Nada de fondo oscuro. Respeta prefers-reduced-motion. */
+.aurora {
+  position: absolute;
+  pointer-events: none;
+  filter: blur(56px);
+  opacity: 0.55;
+  z-index: 0;
+  will-change: transform;
+}
+.aurora--hero {
+  top: -8%;
+  left: 50%;
+  width: min(1100px, 120vw);
+  height: 620px;
+  transform: translateX(-50%);
+  background:
+    radial-gradient(38% 55% at 30% 40%, rgba(99, 102, 241, 0.55), transparent 70%),
+    radial-gradient(34% 50% at 68% 32%, rgba(139, 92, 246, 0.42), transparent 70%),
+    radial-gradient(40% 60% at 78% 66%, rgba(251, 146, 108, 0.35), transparent 72%),
+    radial-gradient(36% 52% at 22% 72%, rgba(56, 189, 248, 0.34), transparent 72%);
+  animation: aurora-drift 22s ease-in-out infinite alternate;
+}
+@keyframes aurora-drift {
+  0%   { transform: translateX(-50%) translateY(0) scale(1); }
+  50%  { transform: translateX(-48%) translateY(14px) scale(1.06); }
+  100% { transform: translateX(-52%) translateY(-8px) scale(1.02); }
+}
+
+/* Texto con el gradiente vivo (la palabra-sello del titular) */
+.text-aurora {
+  background: linear-gradient(100deg, #6366f1 0%, #8b5cf6 38%, #ec4899 66%, #fb923c 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: aurora-sweep 8s linear infinite;
+}
+@keyframes aurora-sweep {
+  to { background-position: 220% 0; }
+}
+
+/* ── Botones ── */
+.btn-primary {
+  background: var(--brand);
+  color: #fff;
+  border: 1px solid transparent;
+  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.08), 0 8px 24px -12px rgba(91, 91, 240, 0.5);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+.btn-primary:hover {
+  background: #4f4fe6;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.08), 0 14px 30px -12px rgba(91, 91, 240, 0.55);
+}
+.btn-ghost {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+.btn-ghost:hover {
+  border-color: #d7d7e0;
+  background: var(--bg-soft);
+  transform: translateY(-1px);
+}
+
+/* ── Tarjeta de prueba de producto (el loop) ── */
+.proof-card {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--line);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 24px 60px -30px rgba(11, 11, 18, 0.28),
+    0 8px 24px -18px rgba(11, 11, 18, 0.2);
+}
+.loop-chip {
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.loop-arrow { color: #c3c3ce; }
+
+.grid-fade {
+  background-image:
+    linear-gradient(to right, rgba(11, 11, 18, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(11, 11, 18, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(70% 60% at 50% 30%, #000 40%, transparent 78%);
+  mask-image: radial-gradient(70% 60% at 50% 30%, #000 40%, transparent 78%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora--hero { animation: none; }
+  .text-aurora { animation: none; }
+  .btn-primary:hover, .btn-ghost:hover { transform: none; }
+}
