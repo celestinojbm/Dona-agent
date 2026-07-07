@@ -199,6 +199,29 @@ def creditos_de_plan(plan_codigo: str) -> int | None:
     return creditos
 
 
+# ── Cliente Stripe compartido ───────────────────────────────────────────────
+
+def _stripe_client():
+    """Retorna el módulo `stripe` con la API key ya configurada, o None si no
+    hay STRIPE_SECRET_KEY.
+
+    Punto único donde se lee la key y se configura el SDK — cualquier consumidor
+    (checkout, siembra de usuarios, portal) lo reutiliza en vez de duplicar el
+    `import stripe; stripe.api_key = ...`. La key se lee en cada llamada (no se
+    cachea) para respetar `monkeypatch.setenv` en tests.
+    """
+    stripe_key = os.getenv("STRIPE_SECRET_KEY", "").strip()
+    if not stripe_key:
+        return None
+    try:
+        import stripe  # type: ignore
+    except ImportError:
+        logger.error("[BILLING] SDK de Stripe no instalado.")
+        return None
+    stripe.api_key = stripe_key
+    return stripe
+
+
 # ── Errores ─────────────────────────────────────────────────────────────────
 
 class SaldoInsuficienteError(Exception):
@@ -506,15 +529,12 @@ async def crear_checkout(telefono: str, codigo_paquete: str, success_url: str = 
         logger.warning(f"[BILLING] Paquete inválido o sin price_id: {codigo_paquete}")
         return None
 
-    stripe_key = os.getenv("STRIPE_SECRET_KEY", "")
-    if not stripe_key:
+    stripe = _stripe_client()
+    if stripe is None:
         logger.warning("[BILLING] STRIPE_SECRET_KEY no configurada — checkout no disponible")
         return None
 
     try:
-        import stripe  # type: ignore
-        stripe.api_key = stripe_key
-
         base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
         default_success = f"{base}/billing/success" if base else "https://dona.app/billing/success"
         default_cancel = f"{base}/billing/cancel" if base else "https://dona.app/billing/cancel"

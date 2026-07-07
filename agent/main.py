@@ -799,6 +799,20 @@ async def admin_seed_creditos(request: Request, telefono: str, creditos: int = 1
     }
 
 
+@app.post("/admin/sembrar-usuarios")
+async def admin_sembrar_usuarios(request: Request):
+    """
+    Siembra la tabla `usuarios` (identidad web) desde las suscripciones Stripe
+    existentes: resuelve el email de cada customer y hace upsert email↔teléfono.
+    Idempotente — re-correr no duplica. Fundación para el auth web (Fase 1).
+    Uso: POST /admin/sembrar-usuarios + Header Authorization: Bearer <token>
+    """
+    if not _verificar_admin(request):
+        raise HTTPException(status_code=403, detail="Token inválido")
+    from agent.memory import sembrar_usuarios_desde_stripe
+    return await sembrar_usuarios_desde_stripe()
+
+
 @app.get("/admin/recordatorios")
 async def admin_recordatorios(request: Request, telefono: str):
     """
