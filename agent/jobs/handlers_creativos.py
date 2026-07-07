@@ -30,19 +30,36 @@ def _proveedor_whatsapp():
     return obtener_proveedor()
 
 
-async def _reembolsar(telefono: str, creditos: int, motivo: str, scope: str = "gen_imagen") -> int | None:
+async def _reembolsar(
+    telefono: str,
+    creditos: int,
+    motivo: str,
+    scope: str = "gen_imagen",
+    job_id: int | None = None,
+) -> int | None:
     """
     Devuelve los créditos cobrados cuando la generación falla.
     Retorna el saldo nuevo o None si no se pudo reembolsar.
+
+    Idempotente por job (Fase 0 · BILL-01): si `job_id` está disponible, se
+    pasa `idempotency_key=f"reembolso_job:{job_id}"` a `acreditar()`, que la
+    usa como cerrojo atómico (tabla `idempotencia_credito`). Sin esto, un job
+    cancelado por shutdown del worker DESPUÉS de reembolsar pero antes de
+    marcar 'error'/'done' quedaría elegible para reintento de arq — y un
+    segundo fallo del provider dispararía un segundo reembolso de los mismos
+    créditos. Si no hay `job_id` (llamada legacy/test), no hay dedup — mismo
+    comportamiento que antes.
     """
     if creditos <= 0:
         return None
     from agent.billing import acreditar
+    idempotency_key = f"reembolso_job:{job_id}" if job_id is not None else ""
     try:
         saldo = await acreditar(
             telefono,
             creditos,
             razon=f"Refund {scope}: {motivo}"[:120],
+            idempotency_key=idempotency_key,
         )
         logger.info(f"[HANDLER {scope}] refund {creditos} cr → {telefono} (saldo={saldo})")
         return saldo
@@ -70,6 +87,7 @@ async def _handler_gen_imagen(telefono: str, params: dict[str, Any]) -> int | No
     calidad = params.get("calidad", "standard")
     aspect_ratio = params.get("aspect_ratio", "1:1")
     costo_creditos = int(params.get("costo_creditos", 0))
+    job_id = params.get("_job_id")
 
     if not prompt:
         raise ValueError("gen_imagen: prompt vacío")
@@ -81,7 +99,7 @@ async def _handler_gen_imagen(telefono: str, params: dict[str, Any]) -> int | No
         img_bytes, meta = await generar_imagen(prompt, calidad=calidad, aspect_ratio=aspect_ratio)
     except GeminiError as e:
         logger.error(f"[HANDLER gen_imagen] Gemini error: {e}")
-        await _reembolsar(telefono, costo_creditos, "provider falló")
+        await _reembolsar(telefono, costo_creditos, "provider falló", job_id=job_id)
         try:
             nota = (
                 f"Te devolví los *{costo_creditos}* créditos. "
@@ -107,7 +125,7 @@ async def _handler_gen_imagen(telefono: str, params: dict[str, Any]) -> int | No
         )
     except Exception as e:
         logger.exception(f"[HANDLER gen_imagen] Error subiendo imagen: {e}")
-        await _reembolsar(telefono, costo_creditos, "fallo al guardar")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", job_id=job_id)
         try:
             nota = (
                 f"Te devolví los *{costo_creditos}* créditos. "
@@ -200,6 +218,7 @@ async def _handler_bg_remove(telefono: str, params: dict[str, Any]) -> int | Non
     source_url = (params.get("source_url") or "").strip()
     source_mime = params.get("source_mime") or "image/jpeg"
     costo_creditos = int(params.get("costo_creditos", 0))
+    job_id = params.get("_job_id")
 
     if not source_url:
         raise ValueError("bg_remove: source_url vacío")
@@ -211,7 +230,7 @@ async def _handler_bg_remove(telefono: str, params: dict[str, Any]) -> int | Non
         src_bytes, src_mime_real = await _descargar_url(source_url)
     except Exception as e:
         logger.exception(f"[HANDLER bg_remove] Error descargando source: {e}")
-        await _reembolsar(telefono, costo_creditos, "no pude descargar tu imagen", scope="bg_remove")
+        await _reembolsar(telefono, costo_creditos, "no pude descargar tu imagen", scope="bg_remove", job_id=job_id)
         try:
             nota = f"Te devolví el *{costo_creditos}* crédito. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
@@ -230,7 +249,7 @@ async def _handler_bg_remove(telefono: str, params: dict[str, Any]) -> int | Non
         out_bytes, meta = await remove_background(src_bytes, mime_type=mime_efectivo)
     except PhotoroomError as e:
         logger.error(f"[HANDLER bg_remove] Photoroom error: {e}")
-        await _reembolsar(telefono, costo_creditos, "provider falló", scope="bg_remove")
+        await _reembolsar(telefono, costo_creditos, "provider falló", scope="bg_remove", job_id=job_id)
         try:
             nota = f"Te devolví el *{costo_creditos}* crédito. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
@@ -253,7 +272,7 @@ async def _handler_bg_remove(telefono: str, params: dict[str, Any]) -> int | Non
         )
     except Exception as e:
         logger.exception(f"[HANDLER bg_remove] Error subiendo resultado: {e}")
-        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="bg_remove")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="bg_remove", job_id=job_id)
         try:
             nota = f"Te devolví el *{costo_creditos}* crédito. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
@@ -325,6 +344,7 @@ async def _handler_gen_voz(telefono: str, params: dict[str, Any]) -> int | None:
     texto = (params.get("texto") or "").strip()
     voice_id = params.get("voice_id")
     costo_creditos = int(params.get("costo_creditos", 0))
+    job_id = params.get("_job_id")
 
     if not texto:
         raise ValueError("gen_voz: texto vacío")
@@ -336,7 +356,7 @@ async def _handler_gen_voz(telefono: str, params: dict[str, Any]) -> int | None:
         audio_bytes, meta = await text_to_speech(texto, voice_id=voice_id)
     except ElevenLabsError as e:
         logger.error(f"[HANDLER gen_voz] ElevenLabs error: {e}")
-        await _reembolsar(telefono, costo_creditos, "provider falló", scope="gen_voz")
+        await _reembolsar(telefono, costo_creditos, "provider falló", scope="gen_voz", job_id=job_id)
         try:
             nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
@@ -359,7 +379,7 @@ async def _handler_gen_voz(telefono: str, params: dict[str, Any]) -> int | None:
         )
     except Exception as e:
         logger.exception(f"[HANDLER gen_voz] Error subiendo audio: {e}")
-        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_voz")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_voz", job_id=job_id)
         try:
             nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
@@ -428,6 +448,7 @@ async def _handler_gen_documento(telefono: str, params: dict[str, Any]) -> int |
     datos = params.get("datos") or {}
     emisor = params.get("emisor") or {}
     costo_creditos = int(params.get("costo_creditos", 0))
+    job_id = params.get("_job_id")
 
     proveedor = _proveedor_whatsapp()
 
@@ -436,7 +457,7 @@ async def _handler_gen_documento(telefono: str, params: dict[str, Any]) -> int |
         pdf_bytes, meta = await generar_pdf(tipo, datos, emisor=emisor)
     except PDFError as e:
         logger.error(f"[HANDLER gen_documento] PDF error: {e}")
-        await _reembolsar(telefono, costo_creditos, str(e)[:80], scope="gen_documento")
+        await _reembolsar(telefono, costo_creditos, str(e)[:80], scope="gen_documento", job_id=job_id)
         try:
             nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
@@ -462,7 +483,7 @@ async def _handler_gen_documento(telefono: str, params: dict[str, Any]) -> int |
         )
     except Exception as e:
         logger.exception(f"[HANDLER gen_documento] Error subiendo PDF: {e}")
-        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_documento")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_documento", job_id=job_id)
         try:
             nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
@@ -542,6 +563,7 @@ async def _handler_gen_video(telefono: str, params: dict[str, Any]) -> int | Non
     duration_s = int(params.get("duration_s") or 0)
     aspect_ratio = (params.get("aspect_ratio") or "").strip()
     costo_creditos = int(params.get("costo_creditos", 0))
+    job_id = params.get("_job_id")
 
     if not prompt:
         raise ValueError("gen_video: prompt vacío")
@@ -556,7 +578,7 @@ async def _handler_gen_video(telefono: str, params: dict[str, Any]) -> int | Non
         )
     except ReplicateError as e:
         logger.error(f"[HANDLER gen_video] Replicate error: {e}")
-        await _reembolsar(telefono, costo_creditos, str(e)[:80], scope="gen_video")
+        await _reembolsar(telefono, costo_creditos, str(e)[:80], scope="gen_video", job_id=job_id)
         try:
             nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
@@ -579,7 +601,7 @@ async def _handler_gen_video(telefono: str, params: dict[str, Any]) -> int | Non
         )
     except Exception as e:
         logger.exception(f"[HANDLER gen_video] Error subiendo video: {e}")
-        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_video")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_video", job_id=job_id)
         try:
             nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
@@ -660,6 +682,7 @@ async def _handler_gen_video_avatar(telefono: str, params: dict[str, Any]) -> in
     avatar_id = params.get("avatar_id") or ""
     voice_id = params.get("voice_id") or ""
     costo_creditos = int(params.get("costo_creditos", 0))
+    job_id = params.get("_job_id")
 
     if not texto:
         raise ValueError("gen_video_avatar: texto vacío")
@@ -673,7 +696,7 @@ async def _handler_gen_video_avatar(telefono: str, params: dict[str, Any]) -> in
         )
     except HeyGenError as e:
         logger.error(f"[HANDLER gen_video_avatar] HeyGen error: {e}")
-        await _reembolsar(telefono, costo_creditos, str(e)[:80], scope="gen_video_avatar")
+        await _reembolsar(telefono, costo_creditos, str(e)[:80], scope="gen_video_avatar", job_id=job_id)
         try:
             nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
@@ -696,7 +719,7 @@ async def _handler_gen_video_avatar(telefono: str, params: dict[str, Any]) -> in
         )
     except Exception as e:
         logger.exception(f"[HANDLER gen_video_avatar] Error subiendo video: {e}")
-        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_video_avatar")
+        await _reembolsar(telefono, costo_creditos, "fallo al guardar", scope="gen_video_avatar", job_id=job_id)
         try:
             nota = f"Te devolví los *{costo_creditos}* créditos. " if costo_creditos > 0 else ""
             await proveedor.enviar_mensaje(
