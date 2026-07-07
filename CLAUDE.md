@@ -121,7 +121,11 @@ el ejemplo canónico.
 - **Storage**: Cloudflare R2 (S3 compatible vía `aioboto3`) · fallback local
 - **Pagos**: Stripe Checkout + webhook (ver `agent/billing.py`)
 - **Imagen**: Google Gemini 2.5 Flash Image / Pro (ver `agent/creativos/imagen.py`)
-- **WhatsApp**: Whapi.cloud (default), Meta Cloud API, Twilio
+- **WhatsApp**: Whapi.cloud (default), Meta Cloud API. Twilio está declarado
+  (env vars + manejo de su formato de teléfono) pero su módulo
+  `agent/providers/twilio.py` NO está implementado; configurar
+  `WHATSAPP_PROVIDER=twilio` hace que readiness aborte el arranque con mensaje
+  claro (Fase 0 · TEMA 2), no un `ModuleNotFoundError` en el primer webhook.
 - **Deploy**: Render (web service + opcional background worker)
 
 Ver `README.md` para el mapa completo de módulos.

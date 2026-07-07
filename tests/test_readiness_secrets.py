@@ -134,6 +134,18 @@ class TestReadinessProveedorActivo:
         problemas = evaluar_readiness()
         assert any("no soportado" in p for p in problemas)
 
+    def test_provider_declarado_sin_modulo_es_problema(self, monkeypatch):
+        """Fase 0 · TEMA 2: WHATSAPP_PROVIDER=twilio está declarado y su token
+        existe, pero agent/providers/twilio.py NO existe. Antes readiness pasaba
+        en verde y el web service reventaba en el primer webhook con
+        ModuleNotFoundError. Ahora debe ser una alarma temprana en el arranque."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        _setear_todos(monkeypatch, "twilio")  # incluye TWILIO_AUTH_TOKEN
+        problemas = evaluar_readiness()
+        assert any("agent/providers/twilio.py" in p for p in problemas)
+        with pytest.raises(ReadinessError, match="twilio.py"):
+            verificar_readiness()
+
 
 class TestReadinessPermisivo:
     @pytest.mark.parametrize("entorno", ["development", "test"])
