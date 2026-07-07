@@ -22,18 +22,39 @@ Clasificación del envío (de menos a más restrictivo):
 
   AUTOMATICO  Contenido programado o configurado por el propio usuario
               (recordatorios, eventos de Google Calendar, seguimientos CRM,
-              webhook inbound de Zapier/Make), alertas operativas al admin,
-              y el ejecutor HIGH de automation (donde el teléfono evaluado es
-              el del TERCERO destinatario). Respeta opt-out fail-closed —
-              el copy de STOP promete "no te enviaré recordatorios ni
-              resúmenes automáticos" — pero sin quiet hours ni límite diario:
-              la hora la eligió el usuario al programar el contenido.
+              webhook inbound de Zapier/Make), alertas operativas al admin.
+              Respeta opt-out fail-closed — el copy de STOP promete "no te
+              enviaré recordatorios ni resúmenes automáticos" — pero sin
+              quiet hours ni límite diario: la hora la eligió el propio
+              destinatario al programar el contenido (es dueño de su
+              timing). Por default (`es_tercero=False`) asume justamente
+              eso: el destinatario es quien controla cuándo le llega el
+              mensaje.
+
+              El ejecutor HIGH de automation (Action Center) envía a un
+              TERCERO que no eligió nada — a diferencia del owner (que sí
+              controla cuándo aprueba la acción), el tercero nunca configuró
+              una hora de envío. Por eso ese ejecutor pasa
+              `contexto_envio_automatico(es_tercero=True)`: el gate SÍ
+              aplica quiet hours (misma ventana que PROACTIVO, ver abajo)
+              sobre la timezone del tercero si se conoce, o si no, sobre la
+              del owner como aproximación conservadora. Sigue sin límite
+              diario: ese volumen ya lo gobiernan los límites propios de la
+              política de terceros (consent_terceros.py).
 
   PROACTIVO   (default) Todo lo no etiquetado: motor de proactividad,
               onboarding push, resumen semanal, y cualquier path futuro que
               olvide declararse. Opt-out fail-closed + quiet hours (solo con
               timezone conocida) + límite diario compartido
               (MAX_MENSAJES_DIARIOS), contado AQUÍ en el gate.
+
+Quiet hours — ventana horaria: [HORA_INICIO_ENVIOS_PROACTIVOS,
+HORA_FIN_ENVIOS_PROACTIVOS) = [8, 21) hora local. Se alinea al estándar
+FCC/TCPA de 8am–9pm (antes solo existía un límite inferior fijado en 7am, sin
+tope de noche: un proactivo con timezone conocida podía salir hasta las
+23:59 local). Se sube el inicio a 8am y se agrega el límite superior de 9pm
+— Fase 0 · TEMA 2. Aplica a PROACTIVO siempre, y a AUTOMATICO solo cuando
+`es_tercero=True`.
 
 Fail-closed: si la lectura del opt-out / timezone / contador FALLA, el envío
 se BLOQUEA y se loguea CRITICAL. Un error de DB nunca puede convertirse en
@@ -60,13 +81,18 @@ TIPO_DIRECTO = "directo"
 TIPO_AUTOMATICO = "automatico"
 TIPO_PROACTIVO = "proactivo"
 
-# Hora local (0-23) antes de la cual NO se envían mensajes PROACTIVOS.
-# Mismo umbral que la guardia nocturna del motor de proactividad.
-HORA_INICIO_ENVIOS_PROACTIVOS = 7
+# Ventana horaria local [INICIO, FIN) dentro de la cual se permiten envíos
+# PROACTIVOS (y AUTOMATICO con es_tercero=True). Alineada al estándar
+# FCC/TCPA de 8am-9pm — ver docstring del módulo.
+HORA_INICIO_ENVIOS_PROACTIVOS = 8
+HORA_FIN_ENVIOS_PROACTIVOS = 21
 
-# Contexto del envío en curso: (tipo, telefono | None).
+# Contexto del envío en curso: (tipo, telefono | None, es_tercero, telefono_owner | None).
 # DIRECTO va atado a un teléfono; AUTOMATICO aplica a cualquier destino.
-_ctx_envio: ContextVar[tuple[str, str | None] | None] = ContextVar(
+# es_tercero / telefono_owner solo son relevantes para AUTOMATICO (ver
+# docstring del módulo): telefono_owner es el fallback de timezone para
+# quiet hours cuando no se conoce la del tercero destinatario.
+_ctx_envio: ContextVar[tuple[str, str | None, bool, str | None] | None] = ContextVar(
     "ctx_envio", default=None
 )
 
@@ -99,7 +125,7 @@ def clave_canonica(telefono: str) -> str:
 @contextmanager
 def contexto_envio_directo(telefono: str):
     """Marca los envíos a `telefono` dentro del bloque como DIRECTO."""
-    token = _ctx_envio.set((TIPO_DIRECTO, telefono))
+    token = _ctx_envio.set((TIPO_DIRECTO, telefono, False, None))
     try:
         yield
     finally:
@@ -107,9 +133,23 @@ def contexto_envio_directo(telefono: str):
 
 
 @contextmanager
-def contexto_envio_automatico():
-    """Marca los envíos dentro del bloque como AUTOMATICO."""
-    token = _ctx_envio.set((TIPO_AUTOMATICO, None))
+def contexto_envio_automatico(es_tercero: bool = False, telefono_owner: str | None = None):
+    """Marca los envíos dentro del bloque como AUTOMATICO.
+
+    Args:
+        es_tercero: True cuando el destinatario NO es el usuario que
+            configuró/aprobó el envío (p. ej. el ejecutor HIGH de Action
+            Center enviando a un contacto del negocio). En ese caso el gate
+            SÍ aplica quiet hours (TCPA-04): un tercero no eligió la hora en
+            que el owner decide aprobar. Default False preserva el
+            comportamiento histórico para recordatorios/GCal/CRM, donde el
+            destinatario es dueño de su propio timing.
+        telefono_owner: solo relevante con es_tercero=True. Fallback de
+            timezone para quiet hours cuando el tercero no tiene timezone
+            registrada — mejor aproximar con la hora del negocio/owner que
+            no aplicar quiet hours en absoluto.
+    """
+    token = _ctx_envio.set((TIPO_AUTOMATICO, None, es_tercero, telefono_owner))
     try:
         yield
     finally:
@@ -124,7 +164,7 @@ def contexto_envio_proactivo():
     procesamiento de un mensaje inbound (p. ej. el aviso de sobrecarga,
     lanzado con create_task desde el webhook): sin esto heredarían DIRECTO
     y evadirían opt-out, quiet hours y límite diario."""
-    token = _ctx_envio.set((TIPO_PROACTIVO, None))
+    token = _ctx_envio.set((TIPO_PROACTIVO, None, False, None))
     try:
         yield
     finally:
@@ -135,7 +175,7 @@ def activar_contexto_directo(telefono: str):
     """Variante imperativa de `contexto_envio_directo` para bloques donde un
     `with` obligaría a re-indentar cientos de líneas (loop del webhook).
     Devuelve el token; restaurar con `restaurar_contexto(token)`."""
-    return _ctx_envio.set((TIPO_DIRECTO, telefono))
+    return _ctx_envio.set((TIPO_DIRECTO, telefono, False, None))
 
 
 def restaurar_contexto(token) -> None:
@@ -149,10 +189,30 @@ def _tipo_efectivo(telefono_destino: str) -> str:
     ctx = _ctx_envio.get()
     if ctx is None:
         return TIPO_PROACTIVO
-    tipo, telefono_ctx = ctx
+    tipo, telefono_ctx, _es_tercero, _owner = ctx
     if tipo == TIPO_DIRECTO:
         return TIPO_DIRECTO if telefono_ctx == telefono_destino else TIPO_PROACTIVO
     return tipo
+
+
+def _es_tercero_efectivo() -> bool:
+    """True si el contexto AUTOMATICO en curso marcó es_tercero=True.
+    Sin contexto, o contexto no-AUTOMATICO, retorna False (irrelevante)."""
+    ctx = _ctx_envio.get()
+    if ctx is None:
+        return False
+    _tipo, _telefono_ctx, es_tercero, _owner = ctx
+    return es_tercero
+
+
+def _telefono_owner_efectivo() -> str | None:
+    """Teléfono del owner asociado al contexto AUTOMATICO en curso (fallback
+    de timezone). None si no hay contexto o no se pasó telefono_owner."""
+    ctx = _ctx_envio.get()
+    if ctx is None:
+        return None
+    _tipo, _telefono_ctx, _es_tercero, owner = ctx
+    return owner
 
 
 # ── Supresión de emergencia ──────────────────────────────────────────────
@@ -234,35 +294,26 @@ async def puede_enviar(telefono: str) -> bool:
         )
         return False
 
-    if tipo == TIPO_AUTOMATICO:
+    if tipo == TIPO_AUTOMATICO and not _es_tercero_efectivo():
         return True
 
-    # ── Solo PROACTIVO: quiet hours + límite diario ──────────────────────
-
-    # Quiet hours: solo con timezone conocida. Aplicar la hora UTC a un
-    # usuario de EEUU (UTC-5..-8) bloquearía las tardes, no las madrugadas.
-    from agent.memory import obtener_timezone
-
-    try:
-        offset_min = await obtener_timezone(telefono)
-    except Exception as e:
-        logger.critical(
-            f"[GATE] FAIL-CLOSED: error leyendo timezone de {telefono} "
-            f"({type(e).__name__}: {e}) — envío proactivo BLOQUEADO"
-        )
+    # ── PROACTIVO, y AUTOMATICO a un TERCERO (TCPA-04): quiet hours ──────
+    # El tercero de un ejecutor HIGH no controla cuándo el owner aprueba la
+    # acción — a diferencia de un recordatorio/GCal, donde el destinatario
+    # SÍ eligió la hora al programar el contenido. Por eso este caso pasa
+    # por la misma ventana horaria que PROACTIVO. Si no se conoce la tz del
+    # tercero, se aproxima con la del owner (más conservador que no aplicar
+    # quiet hours en absoluto).
+    telefono_fallback = _telefono_owner_efectivo() if tipo == TIPO_AUTOMATICO else None
+    if await _bloqueado_por_quiet_hours(telefono, telefono_fallback):
         return False
 
-    if offset_min is not None:
-        from datetime import timedelta
+    if tipo == TIPO_AUTOMATICO:
+        # es_tercero=True ya pasó quiet hours arriba; sin límite diario —
+        # ese volumen lo gobierna consent_terceros.py.
+        return True
 
-        hora_local = (datetime.utcnow() + timedelta(minutes=offset_min)).hour
-        if hora_local < HORA_INICIO_ENVIOS_PROACTIVOS:
-            logger.info(
-                f"[GATE] Envío bloqueado tipo=proactivo motivo=quiet_hours "
-                f"hora_local={hora_local} tel={telefono}"
-            )
-            return False
-
+    # ── Solo PROACTIVO: límite diario ────────────────────────────────────
     # Límite diario compartido (reset por fecha UTC, igual que
     # incrementar_mensajes_proactivos).
     from agent.proactivity import MAX_MENSAJES_DIARIOS
@@ -280,6 +331,47 @@ async def puede_enviar(telefono: str) -> bool:
         return False
 
     return True
+
+
+async def _bloqueado_por_quiet_hours(
+    telefono: str, telefono_fallback: str | None = None,
+) -> bool:
+    """True si `telefono` está fuera de la ventana [HORA_INICIO, HORA_FIN)
+    en su hora local. Solo se evalúa con timezone conocida: aplicar la hora
+    UTC a un usuario de EEUU (UTC-5..-8) bloquearía las tardes, no las
+    madrugadas — peor que no bloquear nada. Si `telefono` no tiene timezone
+    y se pasó `telefono_fallback` (el owner, para el caso TCPA-04), se
+    intenta con la de éste antes de renunciar al chequeo. Fail-closed ante
+    error de lectura (retorna True → el caller bloquea el envío)."""
+    from agent.memory import obtener_timezone
+
+    try:
+        offset_min = await obtener_timezone(telefono)
+        if offset_min is None and telefono_fallback:
+            offset_min = await obtener_timezone(telefono_fallback)
+    except Exception as e:
+        logger.critical(
+            f"[GATE] FAIL-CLOSED: error leyendo timezone de {telefono} "
+            f"({type(e).__name__}: {e}) — envío BLOQUEADO"
+        )
+        return True
+
+    if offset_min is None:
+        return False
+
+    from datetime import timedelta
+
+    hora_local = (datetime.utcnow() + timedelta(minutes=offset_min)).hour
+    fuera_de_ventana = (
+        hora_local < HORA_INICIO_ENVIOS_PROACTIVOS
+        or hora_local >= HORA_FIN_ENVIOS_PROACTIVOS
+    )
+    if fuera_de_ventana:
+        logger.info(
+            f"[GATE] Envío bloqueado motivo=quiet_hours hora_local={hora_local} "
+            f"tel={telefono}"
+        )
+    return fuera_de_ventana
 
 
 async def registrar_envio_realizado(telefono: str) -> None:

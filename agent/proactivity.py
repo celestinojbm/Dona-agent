@@ -372,8 +372,14 @@ async def _evaluar_disparadores(usuario: dict, ahora_local: datetime, offset_min
     nombre = usuario["nombre"] or ""
     contexto = usuario.get("contexto_onboarding") or ""
 
-    # ── Guardia nocturna: NO enviar mensajes proactivos antes de las 7am ─────
-    if ahora_local.hour < 7:
+    # ── Guardia horaria: solo entre HORA_INICIO y HORA_FIN (8am-9pm local) ───
+    # Espejo de la ventana que aplica el gate en envio_gate.puede_enviar —
+    # misma constante, no un límite propio, para no divergir (Fase 0 · TEMA 2:
+    # antes este chequeo solo tenía piso de 7am y el gate podía dejar pasar
+    # hasta las 23:59; ahora ambos comparten [8, 21)).
+    from agent.envio_gate import HORA_FIN_ENVIOS_PROACTIVOS, HORA_INICIO_ENVIOS_PROACTIVOS
+
+    if not (HORA_INICIO_ENVIOS_PROACTIVOS <= ahora_local.hour < HORA_FIN_ENVIOS_PROACTIVOS):
         return None
 
     # ── 1. Morning Brief ──────────────────────────────────────────────────────
