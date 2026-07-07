@@ -327,6 +327,7 @@ class TestVerificacionHMACProduction:
         """Con secret configurado, el __init__ en production no aborta."""
         monkeypatch.setenv("ENVIRONMENT", "production")
         monkeypatch.setenv("META_APP_SECRET", "test_app_secret_dummy")
+        monkeypatch.setenv("META_WEBHOOK_VERIFY_TOKEN", "verify_token_dummy")
         proveedor = ProveedorMeta()  # No debe levantar.
         assert proveedor.app_secret == "test_app_secret_dummy"
 
@@ -345,6 +346,7 @@ class TestVerificacionHMACProduction:
         monkeypatch.setenv("ENVIRONMENT", "production")
         secret = "production_secret_dummy"
         monkeypatch.setenv("META_APP_SECRET", secret)
+        monkeypatch.setenv("META_WEBHOOK_VERIFY_TOKEN", "verify_token_dummy")
         proveedor = ProveedorMeta()
         body = b'{"test": true}'
         sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
@@ -380,6 +382,108 @@ class TestValidarWebhook:
         request.query_params = {
             "hub.mode": "subscribe",
             "hub.verify_token": "wrong",
+            "hub.challenge": "12345",
+        }
+        result = await proveedor.validar_webhook(request)
+        assert result is None
+
+
+# ── SEC-AUTH-04: sin default hardcodeado, fail-closed en entorno estricto ───
+
+class TestMetaVerifyTokenSecAuth04:
+    """El default público "dona_webhook_secret" se eliminó. Sin
+    META_WEBHOOK_VERIFY_TOKEN configurado, el comportamiento depende del
+    entorno (mismo patrón que META_APP_SECRET y WHAPI_WEBHOOK_TOKEN):
+    fail-closed en producción/estricto, permisivo con warning en dev/test.
+    """
+
+    def test_produccion_sin_verify_token_levanta_runtime_error_en_init(self, monkeypatch):
+        """Al instanciar el provider: si production sin verify_token, aborta."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("META_APP_SECRET", "secreto_dummy")
+        monkeypatch.delenv("META_WEBHOOK_VERIFY_TOKEN", raising=False)
+        with pytest.raises(RuntimeError, match="META_WEBHOOK_VERIFY_TOKEN"):
+            ProveedorMeta()
+
+    def test_produccion_verify_token_whitespace_levanta_runtime_error(self, monkeypatch):
+        """Strings con solo whitespace cuentan como vacío (.strip() en __init__)."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("META_APP_SECRET", "secreto_dummy")
+        monkeypatch.setenv("META_WEBHOOK_VERIFY_TOKEN", "   ")
+        with pytest.raises(RuntimeError, match="META_WEBHOOK_VERIFY_TOKEN"):
+            ProveedorMeta()
+
+    def test_produccion_con_verify_token_no_levanta_en_init(self, monkeypatch):
+        """Con verify_token configurado, el __init__ en production no aborta."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("META_APP_SECRET", "secreto_dummy")
+        monkeypatch.setenv("META_WEBHOOK_VERIFY_TOKEN", "verify_prod_dummy")
+        proveedor = ProveedorMeta()  # No debe levantar.
+        assert proveedor.verify_token == "verify_prod_dummy"
+
+    @pytest.mark.asyncio
+    async def test_produccion_runtime_sin_verify_token_rechaza_handshake(self, monkeypatch):
+        """Defensa en profundidad: aunque el __init__ se haya saltado (construido
+        en dev/test y luego 'movido' a production), el runtime rechaza el
+        handshake GET en vez de aceptar un valor por defecto conocido."""
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        proveedor = ProveedorMeta()
+        proveedor.verify_token = ""  # Forzar override, simula falta de config.
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        request = MagicMock()
+        request.query_params = {
+            "hub.mode": "subscribe",
+            "hub.verify_token": "dona_webhook_secret",  # antiguo default público
+            "hub.challenge": "12345",
+        }
+        result = await proveedor.validar_webhook(request)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_dev_sin_verify_token_acepta_con_warning(self, monkeypatch):
+        """En dev/test sin verify_token configurado, el handshake se acepta
+        (path permisivo explícito), igual que _verificar_firma y WhapiWebhook."""
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        proveedor = ProveedorMeta()
+        proveedor.verify_token = ""
+        request = MagicMock()
+        request.query_params = {
+            "hub.mode": "subscribe",
+            "hub.verify_token": "cualquier-cosa",
+            "hub.challenge": "999",
+        }
+        result = await proveedor.validar_webhook(request)
+        assert result == 999
+
+    @pytest.mark.asyncio
+    async def test_produccion_con_verify_token_usa_compare_digest(self, monkeypatch):
+        """Con verify_token configurado, la comparación es timing-safe
+        (hmac.compare_digest) y sigue aceptando el valor correcto."""
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("META_APP_SECRET", "secreto_dummy")
+        monkeypatch.setenv("META_WEBHOOK_VERIFY_TOKEN", "verify_prod_dummy")
+        proveedor = ProveedorMeta()
+        with patch("agent.providers.meta.hmac.compare_digest", wraps=hmac.compare_digest) as spy:
+            request = MagicMock()
+            request.query_params = {
+                "hub.mode": "subscribe",
+                "hub.verify_token": "verify_prod_dummy",
+                "hub.challenge": "555",
+            }
+            result = await proveedor.validar_webhook(request)
+        assert result == 555
+        spy.assert_called_once_with("verify_prod_dummy", "verify_prod_dummy")
+
+    @pytest.mark.asyncio
+    async def test_produccion_con_verify_token_rechaza_valor_incorrecto(self, monkeypatch):
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("META_APP_SECRET", "secreto_dummy")
+        monkeypatch.setenv("META_WEBHOOK_VERIFY_TOKEN", "verify_prod_dummy")
+        proveedor = ProveedorMeta()
+        request = MagicMock()
+        request.query_params = {
+            "hub.mode": "subscribe",
+            "hub.verify_token": "dona_webhook_secret",  # antiguo default público
             "hub.challenge": "12345",
         }
         result = await proveedor.validar_webhook(request)
@@ -437,6 +541,49 @@ class TestFallbackTexto:
         assert result is True
         assert "Item A" in p.ultimo_mensaje
         assert "Desc A" in p.ultimo_mensaje
+
+
+# ── Fase 0 · TEMA 2: Factory falla explícito con proveedor declarado sin módulo ──
+
+
+class TestFactoryProveedor:
+    """El factory obtener_proveedor() no debe delatar un proveedor declarado
+    pero sin implementar (Twilio) con un ModuleNotFoundError críptico en el
+    primer webhook: falla EXPLÍCITO y temprano con mensaje accionable.
+    """
+
+    def test_twilio_declarado_sin_modulo_falla_claro(self, monkeypatch):
+        """WHATSAPP_PROVIDER=twilio sin agent/providers/twilio.py → RuntimeError
+        con mensaje claro, NO ModuleNotFoundError críptico."""
+        from agent.providers import obtener_proveedor
+        monkeypatch.setenv("WHATSAPP_PROVIDER", "twilio")
+        with pytest.raises(RuntimeError, match="twilio.py"):
+            obtener_proveedor()
+
+    def test_proveedor_no_soportado_falla_con_valueerror(self, monkeypatch):
+        """Un valor sin entrada en el factory (telegram) → ValueError lista los
+        soportados."""
+        from agent.providers import obtener_proveedor
+        monkeypatch.setenv("WHATSAPP_PROVIDER", "telegram")
+        with pytest.raises(ValueError, match="no soportado"):
+            obtener_proveedor()
+
+    def test_whapi_default_instancia_ok(self, monkeypatch):
+        """Sin WHATSAPP_PROVIDER, el default whapi tiene módulo y se instancia."""
+        from agent.providers import obtener_proveedor
+        from agent.providers.whapi import ProveedorWhapi
+        monkeypatch.delenv("WHATSAPP_PROVIDER", raising=False)
+        monkeypatch.setenv("ENVIRONMENT", "development")  # no exige token
+        assert isinstance(obtener_proveedor(), ProveedorWhapi)
+
+    def test_modulo_de_proveedor_falta_solo_para_twilio(self):
+        """El helper reporta faltante SOLO para el proveedor sin módulo real."""
+        from agent.providers import modulo_de_proveedor_falta
+        assert modulo_de_proveedor_falta("twilio") is True
+        assert modulo_de_proveedor_falta("whapi") is False
+        assert modulo_de_proveedor_falta("meta") is False
+        # Un valor no soportado no es "módulo faltante" (es otro problema).
+        assert modulo_de_proveedor_falta("telegram") is False
 
 
 # ── T0.10: Validación de header personalizado en webhooks Whapi ─────────────

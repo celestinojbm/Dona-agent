@@ -86,7 +86,7 @@ diagnóstico → oportunidad → activo → acción propuesta → permiso humano
 
 ```
 Canales de entrada
-  ├── WhatsApp (Whapi / Meta Cloud API / Twilio)
+  ├── WhatsApp (Whapi / Meta Cloud API; Twilio declarado, sin implementar)
   │         │  POST /webhook
   │         ▼
   │   agent/providers/   (normaliza payload → MensajeEntrante)
@@ -120,7 +120,7 @@ agent/entorno.py    Helper único de entorno (fail-closed por defecto)
 | Runtime | Python 3.11+ · FastAPI + Uvicorn/Gunicorn |
 | LLM primario | Anthropic Claude Sonnet 4.6 |
 | LLM fallback | OpenAI GPT-4o, Claude Haiku |
-| WhatsApp | Whapi.cloud / Meta Cloud API / Twilio (seleccionable por env) |
+| WhatsApp | Whapi.cloud / Meta Cloud API (seleccionable por env). Twilio declarado pero sin implementar: seleccionarlo aborta el arranque con mensaje claro |
 | Base de datos | PostgreSQL (prod) / SQLite (dev) · SQLAlchemy 2 async · Alembic |
 | Cache/queue | Redis + **arq** — opcional, fallback inproc |
 | Storage | Cloudflare R2 (S3 compatible) — opcional, fallback local |
@@ -147,7 +147,7 @@ Keys mínimas para arrancar:
 - `ENVIRONMENT=development` — **obligatorio en local**: sin entorno explícito
   el arranque es fail-closed y exige secrets de producción.
 - `ANTHROPIC_API_KEY`
-- `WHATSAPP_PROVIDER=whapi` + `WHAPI_TOKEN` (o equivalentes Meta/Twilio)
+- `WHATSAPP_PROVIDER=whapi` + `WHAPI_TOKEN` (o equivalentes de Meta; Twilio aún no implementado)
 - `DATABASE_URL` (SQLite por default está OK)
 
 ```bash
@@ -199,7 +199,7 @@ agent/
 ├── brain.py                LLM + fallbacks + tool use
 ├── entorno.py              Helper único de entorno (fail-closed por defecto)
 ├── memory.py               Historial, dedupe, DB
-├── providers/              Adaptadores WhatsApp (whapi, meta, twilio)
+├── providers/              Adaptadores WhatsApp (whapi, meta; twilio declarado, sin módulo)
 ├── automation/             Action Center: oportunidades, acciones, permisos,
 │                           créditos/reservas, ejecutores, audit, scheduler
 ├── business/               CRM, finanzas, pedidos, cotizaciones, contenido, reportes

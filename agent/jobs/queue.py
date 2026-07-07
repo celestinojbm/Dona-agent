@@ -309,9 +309,9 @@ async def reaper_jobs_huerfanos(
     parametriza para poder testearlo con un corte explícito.
 
     Retorna la lista de `job_id` reanimados (marcados error + reembolsados).
-    Es idempotente: reembolsa vía `_reembolsar` con una `idempotency_key`
-    derivada del job, así que correrlo dos veces (dos instancias web al
-    arrancar, o un restart a media faena) NO doble-acredita.
+    Es idempotente: reembolsa vía `_reembolsar(job_id=...)`, que ancla el
+    crédito a la clave `reembolso_job:{job_id}`, así que correrlo dos veces (dos
+    instancias web al arrancar, o un restart a media faena) NO doble-acredita.
     """
     from datetime import timedelta
 
@@ -351,11 +351,14 @@ async def reaper_jobs_huerfanos(
     reanimados: list[int] = []
     for job_id, tipo, telefono, costo in pendientes:
         # Reembolsar ANTES de marcar error. Orden deliberado: el reembolso es
-        # idempotente por `idempotency_key` (la clave ancla el crédito a ESTE
-        # job), así que si `marcar_error` fallara justo después, la próxima
-        # corrida del reaper —el job sigue 'running'— re-reembolsa como no-op y
-        # re-intenta el error. Al revés (error primero) sacaríamos el job del
-        # conjunto de candidatos y podríamos perder el reembolso para siempre.
+        # idempotente por `job_id` (la clave `reembolso_job:{job_id}` ancla el
+        # crédito a ESTE job), así que si `marcar_error` fallara justo después,
+        # la próxima corrida del reaper —el job sigue 'running'— re-reembolsa
+        # como no-op y re-intenta el error. Al revés (error primero) sacaríamos
+        # el job del conjunto de candidatos y podríamos perder el reembolso para
+        # siempre. Comparte la MISMA clave que el handler (BILL-01): si el
+        # proceso murió tras reembolsar el handler pero antes de marcar estado,
+        # el reaper no doble-acredita.
         if costo > 0:
             try:
                 await _reembolsar(
@@ -363,7 +366,7 @@ async def reaper_jobs_huerfanos(
                     costo,
                     "job huérfano (proceso reiniciado)",
                     scope=tipo or "job",
-                    idempotency_key=f"reaper:job:{job_id}",
+                    job_id=job_id,
                 )
             except Exception:
                 logger.exception(f"[JOBS] Reaper: no pude reembolsar job {job_id}")

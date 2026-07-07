@@ -349,3 +349,183 @@ class TestObservabilidadInproc:
             assert job_id > 0
         finally:
             q.registrar_callback_inproc_fallback(None)
+
+
+class TestReaperRamasDeError:
+    """Resiliencia del reaper (ARQ-01): un fallo del reembolso o del marcado de
+    error no puede perder crédito ni tumbar el arranque. El orden (reembolsar
+    ANTES de marcar error) hace que cada rama sea segura de reintentar en el
+    próximo arranque."""
+
+    @pytest.mark.asyncio
+    async def test_reembolso_falla_no_marca_error_ni_cuenta(self, db, monkeypatch):
+        """Si `_reembolsar` revienta, el reaper NO marca error y NO cuenta el job:
+        lo deja 'running' para reintentar el reembolso en el próximo arranque en
+        vez de perder el crédito."""
+        from datetime import datetime, timedelta
+
+        import agent.jobs.queue as q
+        from agent.jobs.queue import obtener_estado, reaper_jobs_huerfanos
+
+        async def _reembolsar_boom(*a, **k):
+            raise RuntimeError("acreditar caído")
+
+        # El reaper importa _reembolsar de handlers_creativos con `from ... import`
+        # DENTRO de la función, así que hay que parchear el símbolo en el módulo
+        # de origen para que el import diferido tome el mock.
+        import agent.jobs.handlers_creativos as hc
+        monkeypatch.setattr(hc, "_reembolsar", _reembolsar_boom)
+
+        viejo = datetime.utcnow() - timedelta(hours=1)
+        job_id = await _insertar_job("running", actualizado=viejo, costo_creditos=3)
+
+        recuperados = await reaper_jobs_huerfanos(corte=datetime.utcnow())
+
+        # No se cuenta como recuperado y el job sigue 'running' (reintentable).
+        assert recuperados == []
+        estado = await obtener_estado(job_id)
+        assert estado["estado"] == "running"
+        # Nada acreditado: el reembolso reventó antes de tocar el saldo.
+        saldo, txs = await _saldo_y_txs("5551")
+        assert saldo == 0
+        assert txs == []
+        # sanity: el símbolo del módulo de queue no se ensució entre corridas.
+        assert q.reaper_jobs_huerfanos is reaper_jobs_huerfanos
+
+    @pytest.mark.asyncio
+    async def test_marcar_error_falla_igual_cuenta_y_reembolsa(self, db, monkeypatch):
+        """Si el reembolso ok pero `marcar_error` revienta, el crédito YA se
+        aplicó (idempotente) y el job igual se cuenta como recuperado: el estado
+        se corrige en el próximo arranque, el dinero no se pierde."""
+        from datetime import datetime, timedelta
+
+        import agent.jobs.queue as q
+        from agent.jobs.queue import reaper_jobs_huerfanos
+
+        async def _marcar_error_boom(*a, **k):
+            raise RuntimeError("DB caída al marcar error")
+
+        # marcar_error se llama sin cualificar dentro del reaper → se resuelve en
+        # los globals del módulo queue en tiempo de ejecución.
+        monkeypatch.setattr(q, "marcar_error", _marcar_error_boom)
+
+        viejo = datetime.utcnow() - timedelta(hours=1)
+        job_id = await _insertar_job("running", actualizado=viejo, costo_creditos=4)
+
+        recuperados = await reaper_jobs_huerfanos(corte=datetime.utcnow())
+
+        # Se cuenta como recuperado pese al fallo de marcar_error.
+        assert recuperados == [job_id]
+        # El reembolso SÍ se aplicó (va antes de marcar error).
+        saldo, txs = await _saldo_y_txs("5551")
+        assert saldo == 4
+        assert any(t.delta == 4 and "Refund" in t.razon for t in txs)
+
+
+class TestReaperArranqueMainWiring:
+    """Wiring del reaper en el arranque de FastAPI (agent/main.py · lifespan):
+    al levantar el proceso se registra el callback de observabilidad inproc y se
+    corre el reaper, cuyo resultado se refleja en las métricas in-memory
+    expuestas en /admin/metrics. Se ejerce el `lifespan` real neutralizando los
+    colaboradores pesados (tablas enhanced, catálogo, scheduler) que no hacen al
+    caso ARQ-01."""
+
+    @pytest.mark.asyncio
+    async def test_lifespan_corre_reaper_y_actualiza_metricas(self, db, monkeypatch):
+        from datetime import datetime, timedelta
+
+        import agent.main as main_mod
+
+        # Neutralizar lo que no toca ARQ-01: la DB ya la inicializó el fixture
+        # `db` (memoria recargada apunta al SQLite temporal), y no queremos
+        # levantar tablas enhanced, catálogo ni el scheduler real.
+        async def _noop_async(*a, **k):
+            return None
+
+        def _noop(*a, **k):
+            return None
+
+        monkeypatch.setattr(main_mod, "inicializar_db", _noop_async)
+        monkeypatch.setattr(main_mod, "iniciar_scheduler", _noop)
+        monkeypatch.setattr(main_mod, "detener_scheduler", _noop)
+        import enhanced.catalog as _cat
+        import enhanced.models as _mdl
+        monkeypatch.setattr(_mdl, "inicializar_tablas_enhanced", _noop_async)
+        monkeypatch.setattr(_cat, "sembrar_catalogo", _noop_async)
+
+        # Partir de métricas limpias para aislar el conteo de este test.
+        base_huerfanos = main_mod.metricas.jobs_huerfanos_recuperados
+        base_inproc = main_mod.metricas.jobs_inproc_fallback
+
+        # Sembrar un huérfano viejo: 'running' de un proceso muerto, con costo.
+        viejo = datetime.utcnow() - timedelta(hours=1)
+        job_id = await _insertar_job("running", actualizado=viejo, costo_creditos=5)
+
+        # Ejercer el lifespan real (entrar = arranque, salir = shutdown).
+        async with main_mod.lifespan(main_mod.app):
+            # Dentro del contexto ya corrió el bloque ARQ-01.
+            # 1) El reaper recuperó el huérfano y lo contabilizó en métricas.
+            assert main_mod.metricas.jobs_huerfanos_recuperados == base_huerfanos + 1
+            estado = await db.obtener_estado(job_id)
+            assert estado["estado"] == "error"
+            saldo, _ = await _saldo_y_txs("5551")
+            assert saldo == 5  # reembolsado
+
+            # 2) El callback de observabilidad inproc quedó registrado y apunta a
+            #    la métrica: dispararlo desde la cola incrementa el contador.
+            import agent.jobs.queue as q
+            q._on_inproc_fallback()  # simula una activación del fallback inproc
+            assert main_mod.metricas.jobs_inproc_fallback == base_inproc + 1
+
+            # 3) Ambos contadores se exponen en el snapshot de /admin/metrics.
+            snap = main_mod.metricas.snapshot()
+            assert snap["jobs_huerfanos_recuperados"] == base_huerfanos + 1
+            assert snap["jobs_inproc_fallback"] == base_inproc + 1
+
+    @pytest.mark.asyncio
+    async def test_registrar_jobs_huerfanos_ignora_cero_y_negativos(self, db):
+        """`registrar_jobs_huerfanos` es un no-op si el reaper no recuperó nada
+        (arranque limpio: n=0). Blinda la métrica de sumas espurias."""
+        import agent.main as main_mod
+
+        base = main_mod.metricas.jobs_huerfanos_recuperados
+        main_mod.metricas.registrar_jobs_huerfanos(0)
+        main_mod.metricas.registrar_jobs_huerfanos(-3)
+        assert main_mod.metricas.jobs_huerfanos_recuperados == base
+        main_mod.metricas.registrar_jobs_huerfanos(2)
+        assert main_mod.metricas.jobs_huerfanos_recuperados == base + 2
+
+    @pytest.mark.asyncio
+    async def test_lifespan_no_aborta_si_el_reaper_revienta(self, db, monkeypatch):
+        """El reaper es recuperación best-effort: si revienta al arrancar (DB no
+        lista, etc.) NO debe tumbar el arranque de FastAPI. El bloque ARQ-01 lo
+        traga y loguea, y el resto del lifespan sigue."""
+        import agent.jobs.queue as q
+        import agent.main as main_mod
+
+        async def _noop_async(*a, **k):
+            return None
+
+        def _noop(*a, **k):
+            return None
+
+        monkeypatch.setattr(main_mod, "inicializar_db", _noop_async)
+        monkeypatch.setattr(main_mod, "iniciar_scheduler", _noop)
+        monkeypatch.setattr(main_mod, "detener_scheduler", _noop)
+        import enhanced.catalog as _cat
+        import enhanced.models as _mdl
+        monkeypatch.setattr(_mdl, "inicializar_tablas_enhanced", _noop_async)
+        monkeypatch.setattr(_cat, "sembrar_catalogo", _noop_async)
+
+        async def _reaper_boom(*a, **k):
+            raise RuntimeError("DB no lista al arrancar")
+
+        # El lifespan importa reaper_jobs_huerfanos de queue con `from ... import`
+        # dentro del try → parchear el símbolo en el módulo de origen.
+        monkeypatch.setattr(q, "reaper_jobs_huerfanos", _reaper_boom)
+
+        entro = False
+        async with main_mod.lifespan(main_mod.app):
+            # Si llegamos acá, el arranque NO abortó pese al reaper reventado.
+            entro = True
+        assert entro is True
