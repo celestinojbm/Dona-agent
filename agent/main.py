@@ -3736,6 +3736,58 @@ async def internal_assets(request: Request):
     }
 
 
+# ── /internal/reportes · Reportes/Medición web (HMAC bridge, Fase 1) ────────
+#
+# El usuario ve en la web sus números de negocio (ventas, gastos, utilidad,
+# pedidos, top categorías) que hoy sólo obtiene por WhatsApp.
+# reporting.resumen_mes_datos / resumen_semana_datos ya devuelven el dict
+# crudo (reusan la misma agregación que el string de WhatsApp).
+#
+# Auth: mismo HMAC bridge que /internal/assets. El landing manda
+# subscription_id desde la sesión NextAuth; el backend lo resuelve a telefono
+# (anti-IDOR: sólo agrega datos del telefono resuelto, nunca acepta un
+# telefono del cliente).
+#
+# Read-only: sólo SELECTs vía reporting.*. La respuesta ya viene sanitizada
+# desde reporting (no incluye telefono ni filas crudas de transacciones).
+
+
+@app.post("/internal/reportes")
+async def internal_reportes(request: Request):
+    """Devuelve los números de negocio del usuario a partir de subscription_id.
+
+    Body: {"subscription_id": "sub_xxx", "periodo"?: "mes"|"semana"}
+
+    - `periodo` opcional (default "mes"). Un valor desconocido cae a "mes".
+
+    Códigos:
+        401 → firma faltante o inválida.
+        400 → JSON malformado / no objeto / sin subscription_id.
+        404 → subscription_id no existe en suscripcion_stripe.
+        200 → {"reporte": {...datos...}} (ver reporting.resumen_*_datos).
+    """
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="missing_subscription_id")
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+
+    # periodo: sólo "mes" o "semana"; cualquier otro valor cae a "mes" para no
+    # convertir un input arbitrario del cliente en un branch inesperado.
+    periodo = (payload.get("periodo") or "").strip().lower()
+    if periodo not in ("mes", "semana"):
+        periodo = "mes"
+
+    from agent import reporting
+    if periodo == "semana":
+        reporte = await reporting.resumen_semana_datos(telefono)
+    else:
+        reporte = await reporting.resumen_mes_datos(telefono)
+    return {"reporte": reporte}
+
+
 # ── /internal/auth/* (HMAC bridge · lockout de login del dashboard, rank 4) ──
 #
 # Llamados por landing/lib/auth-lockout-bridge.ts (server-side) desde el

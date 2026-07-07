@@ -5,8 +5,14 @@ Genera resúmenes y exportes de los datos del usuario sin salir de WhatsApp.
 
 Funciones principales:
   - resumen_mes(telefono, año, mes) → texto con totales del mes (ventas, gastos, pedidos)
+  - resumen_semana(telefono, desde) → texto con totales de la semana
+  - resumen_mes_datos(telefono, año, mes) → dict con los mismos números (para la web)
+  - resumen_semana_datos(telefono, desde) → dict con los mismos números (para la web)
   - exportar_transacciones_csv(telefono, año, mes=None) → bytes CSV
   - exportar_pedidos_csv(telefono, año, mes=None) → bytes CSV
+
+Los `*_datos` reusan la MISMA agregación que los strings de WhatsApp (helpers
+`_agregar_mes` / `_agregar_semana`), para que la web y el chat nunca diverjan.
 
 Todas las funciones filtran estrictamente por `telefono` (tenant isolation) —
 nunca mezclan datos entre usuarios.
@@ -15,6 +21,7 @@ nunca mezclan datos entre usuarios.
 import csv
 import io
 import logging
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, select
@@ -23,6 +30,12 @@ from agent.business.models import Pedido, Transaccion
 from agent.memory import async_session
 
 logger = logging.getLogger("dona")
+
+_MESES_ES = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
+    7: "julio", 8: "agosto", 9: "septiembre", 10: "octubre", 11: "noviembre",
+    12: "diciembre",
+}
 
 
 def _rango_mes_utc(año: int, mes: int) -> tuple[datetime, datetime]:
@@ -35,16 +48,22 @@ def _rango_mes_utc(año: int, mes: int) -> tuple[datetime, datetime]:
     return inicio, fin
 
 
-async def resumen_mes(telefono: str, año: int | None = None, mes: int | None = None) -> str:
-    """
-    Genera un resumen en texto del mes indicado (default: mes actual UTC).
+def _top_categorias_gasto(txs, limite: int = 3) -> list[tuple[str, float]]:
+    """Top N categorías por monto de gasto (más alto primero)."""
+    cats_gasto: Counter[str] = Counter()
+    for t in txs:
+        if t.tipo == "gasto":
+            cats_gasto[t.categoria or "general"] += t.monto
+    return cats_gasto.most_common(limite)
 
-    Incluye: total de ventas, total de gastos, utilidad bruta, conteo de pedidos
-    y top 3 categorías de gasto.
+
+async def _agregar_mes(telefono: str, año: int, mes: int) -> dict:
+    """Núcleo de agregación mensual · comparte lógica entre el string de
+    WhatsApp (`resumen_mes`) y el JSON de la web (`resumen_mes_datos`).
+
+    Devuelve un dict con los campos crudos ya calculados. NO formatea: quien
+    llama decide si arma un string con emojis o lo serializa a JSON.
     """
-    ahora = datetime.utcnow()
-    año = año or ahora.year
-    mes = mes or ahora.month
     inicio, fin = _rango_mes_utc(año, mes)
 
     async with async_session() as session:
@@ -70,36 +89,117 @@ async def resumen_mes(telefono: str, año: int | None = None, mes: int | None = 
 
     ventas = sum(t.monto for t in txs if t.tipo == "venta")
     gastos = sum(t.monto for t in txs if t.tipo == "gasto")
-    utilidad = ventas - gastos
 
-    # Top 3 categorías de gasto
-    from collections import Counter
-    cats_gasto: Counter[str] = Counter()
-    for t in txs:
-        if t.tipo == "gasto":
-            cats_gasto[t.categoria or "general"] += t.monto
-    top_cats = cats_gasto.most_common(3)
-
-    meses_es = {
-        1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
-        7: "julio", 8: "agosto", 9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+    return {
+        "año": año,
+        "mes": mes,
+        "inicio": inicio,
+        "fin": fin,
+        "ventas": ventas,
+        "gastos": gastos,
+        "utilidad": ventas - gastos,
+        "num_pedidos": pedidos_count,
+        "num_transacciones": len(txs),
+        "top_categorias": _top_categorias_gasto(txs),
     }
+
+
+async def _agregar_semana(telefono: str, inicio: datetime, fin: datetime) -> dict:
+    """Núcleo de agregación semanal · comparte lógica entre `resumen_semana`
+    (string WhatsApp) y `resumen_semana_datos` (JSON web).
+
+    Incluye la comparación de ventas contra la semana previa (mismo largo de
+    ventana, inmediatamente anterior a `inicio`). `delta_ventas_pct` es None
+    cuando no hay ventas previas contra las que comparar.
+    """
+    async with async_session() as session:
+        q_tx = select(Transaccion).where(
+            and_(
+                Transaccion.telefono == telefono,
+                Transaccion.fecha >= inicio,
+                Transaccion.fecha <= fin,
+            )
+        )
+        txs = (await session.execute(q_tx)).scalars().all()
+
+        q_ped = select(Pedido).where(
+            and_(
+                Pedido.telefono == telefono,
+                Pedido.creado >= inicio,
+                Pedido.creado <= fin,
+            )
+        )
+        pedidos = (await session.execute(q_ped)).scalars().all()
+
+        # Semana previa (misma duración, justo antes de `inicio`).
+        inicio_prev = inicio - (fin - inicio)
+        q_tx_prev = select(Transaccion).where(
+            and_(
+                Transaccion.telefono == telefono,
+                Transaccion.fecha >= inicio_prev,
+                Transaccion.fecha < inicio,
+            )
+        )
+        txs_prev = (await session.execute(q_tx_prev)).scalars().all()
+
+    ventas = sum(t.monto for t in txs if t.tipo == "venta")
+    gastos = sum(t.monto for t in txs if t.tipo == "gasto")
+
+    pedidos_entregados = sum(1 for p in pedidos if p.estado == "entregado")
+    pedidos_pendientes = sum(
+        1 for p in pedidos if p.estado in ("pendiente", "en_preparacion", "listo")
+    )
+
+    delta_ventas_pct: float | None = None
+    if txs_prev:
+        ventas_prev = sum(t.monto for t in txs_prev if t.tipo == "venta")
+        if ventas_prev > 0:
+            delta_ventas_pct = ((ventas - ventas_prev) / ventas_prev) * 100
+
+    return {
+        "inicio": inicio,
+        "fin": fin,
+        "ventas": ventas,
+        "gastos": gastos,
+        "utilidad": ventas - gastos,
+        "num_pedidos": len(pedidos),
+        "num_transacciones": len(txs),
+        "pedidos_entregados": pedidos_entregados,
+        "pedidos_pendientes": pedidos_pendientes,
+        "top_categorias": _top_categorias_gasto(txs),
+        "delta_ventas_pct": delta_ventas_pct,
+    }
+
+
+async def resumen_mes(telefono: str, año: int | None = None, mes: int | None = None) -> str:
+    """
+    Genera un resumen en texto del mes indicado (default: mes actual UTC).
+
+    Incluye: total de ventas, total de gastos, utilidad bruta, conteo de pedidos
+    y top 3 categorías de gasto.
+    """
+    ahora = datetime.utcnow()
+    año = año or ahora.year
+    mes = mes or ahora.month
+
+    d = await _agregar_mes(telefono, año, mes)
+
     lineas = [
-        f"📊 Resumen de {meses_es[mes]} {año}",
+        f"📊 Resumen de {_MESES_ES[mes]} {año}",
         "",
-        f"💰 Ventas:   ${ventas:,.2f}",
-        f"💸 Gastos:   ${gastos:,.2f}",
-        f"📈 Utilidad: ${utilidad:,.2f}",
-        f"📦 Pedidos:  {pedidos_count}",
-        f"🧾 Transacciones registradas: {len(txs)}",
+        f"💰 Ventas:   ${d['ventas']:,.2f}",
+        f"💸 Gastos:   ${d['gastos']:,.2f}",
+        f"📈 Utilidad: ${d['utilidad']:,.2f}",
+        f"📦 Pedidos:  {d['num_pedidos']}",
+        f"🧾 Transacciones registradas: {d['num_transacciones']}",
     ]
-    if top_cats:
+    if d["top_categorias"]:
         lineas.append("")
         lineas.append("Top gastos por categoría:")
-        for cat, monto in top_cats:
+        for cat, monto in d["top_categorias"]:
             lineas.append(f"  • {cat}: ${monto:,.2f}")
 
-    if not txs and pedidos_count == 0:
+    if d["num_transacciones"] == 0 and d["num_pedidos"] == 0:
         lineas.append("")
         lineas.append("No hay movimientos registrados en este período.")
 
@@ -117,69 +217,140 @@ async def resumen_semana(telefono: str, desde: datetime | None = None) -> str:
     ahora = datetime.utcnow()
     inicio = desde or (ahora - timedelta(days=7))
 
-    async with async_session() as session:
-        q_tx = select(Transaccion).where(
-            and_(
-                Transaccion.telefono == telefono,
-                Transaccion.fecha >= inicio,
-                Transaccion.fecha <= ahora,
-            )
-        )
-        txs = (await session.execute(q_tx)).scalars().all()
-
-        q_ped = select(Pedido).where(
-            and_(
-                Pedido.telefono == telefono,
-                Pedido.creado >= inicio,
-                Pedido.creado <= ahora,
-            )
-        )
-        pedidos = (await session.execute(q_ped)).scalars().all()
+    d = await _agregar_semana(telefono, inicio, ahora)
 
     # Si no hay movimientos en la semana, el caller puede saltarse el aviso
-    if not txs and not pedidos:
+    if d["num_transacciones"] == 0 and d["num_pedidos"] == 0:
         return ""
-
-    ventas = sum(t.monto for t in txs if t.tipo == "venta")
-    gastos = sum(t.monto for t in txs if t.tipo == "gasto")
-    utilidad = ventas - gastos
-
-    pedidos_entregados = sum(1 for p in pedidos if p.estado == "entregado")
-    pedidos_pendientes = sum(1 for p in pedidos if p.estado in ("pendiente", "en_preparacion", "listo"))
 
     lineas = [
         f"📅 Resumen de tu semana ({inicio.strftime('%d/%m')} → {ahora.strftime('%d/%m')})",
         "",
-        f"💰 Ventas:   ${ventas:,.2f}",
-        f"💸 Gastos:   ${gastos:,.2f}",
-        f"📈 Utilidad: ${utilidad:,.2f}",
+        f"💰 Ventas:   ${d['ventas']:,.2f}",
+        f"💸 Gastos:   ${d['gastos']:,.2f}",
+        f"📈 Utilidad: ${d['utilidad']:,.2f}",
     ]
-    if pedidos:
-        lineas.append(f"📦 Pedidos:  {len(pedidos)} ({pedidos_entregados} entregados, {pedidos_pendientes} en curso)")
-    if txs:
-        lineas.append(f"🧾 Transacciones: {len(txs)}")
-
-    # Comparación con semana anterior (si hay datos)
-    inicio_prev = inicio - timedelta(days=7)
-    async with async_session() as session:
-        q_tx_prev = select(Transaccion).where(
-            and_(
-                Transaccion.telefono == telefono,
-                Transaccion.fecha >= inicio_prev,
-                Transaccion.fecha < inicio,
-            )
+    if d["num_pedidos"]:
+        lineas.append(
+            f"📦 Pedidos:  {d['num_pedidos']} "
+            f"({d['pedidos_entregados']} entregados, {d['pedidos_pendientes']} en curso)"
         )
-        txs_prev = (await session.execute(q_tx_prev)).scalars().all()
+    if d["num_transacciones"]:
+        lineas.append(f"🧾 Transacciones: {d['num_transacciones']}")
 
-    if txs_prev:
-        ventas_prev = sum(t.monto for t in txs_prev if t.tipo == "venta")
-        if ventas_prev > 0:
-            delta = ((ventas - ventas_prev) / ventas_prev) * 100
-            flecha = "↗️" if delta >= 0 else "↘️"
-            lineas.append("")
-            lineas.append(f"{flecha} vs. semana pasada: {delta:+.1f}% en ventas")
+    if d["delta_ventas_pct"] is not None:
+        flecha = "↗️" if d["delta_ventas_pct"] >= 0 else "↘️"
+        lineas.append("")
+        lineas.append(f"{flecha} vs. semana pasada: {d['delta_ventas_pct']:+.1f}% en ventas")
 
     return "\n".join(lineas)
+
+
+# ── Datos estructurados (JSON) para la web ─────────────────────────────────
+#
+# Fase 1 (plataforma web): el dashboard muestra los mismos números que el
+# usuario obtiene por WhatsApp, pero como dict/JSON en vez de string con
+# emojis. La agregación es EXACTAMENTE la misma (helpers `_agregar_*`); aquí
+# sólo cambiamos el empaquetado a un contrato estable para el frontend.
+
+
+def _categorias_a_lista(top_cats: list[tuple[str, float]]) -> list[dict]:
+    """Convierte [(cat, monto), ...] → [{"categoria": cat, "total": monto}]."""
+    return [{"categoria": cat, "total": round(monto, 2)} for cat, monto in top_cats]
+
+
+async def resumen_mes_datos(
+    telefono: str, año: int | None = None, mes: int | None = None
+) -> dict:
+    """
+    Datos estructurados del resumen mensual (para el dashboard web).
+
+    Devuelve el mismo cálculo que `resumen_mes` pero como dict serializable a
+    JSON (montos redondeados a 2 decimales). `hay_datos` es False cuando no
+    hubo transacciones ni pedidos en el período → el frontend muestra su
+    empty state.
+
+    Forma:
+        {
+          "periodo": "mes",
+          "etiqueta": "octubre 2026",
+          "año": 2026, "mes": 10,
+          "inicio": "2026-10-01T00:00:00", "fin": "2026-11-01T00:00:00",
+          "ventas": 0.0, "gastos": 0.0, "utilidad": 0.0,
+          "num_pedidos": 0, "num_transacciones": 0,
+          "top_categorias": [{"categoria": "insumos", "total": 120.0}, ...],
+          "hay_datos": false
+        }
+    """
+    ahora = datetime.utcnow()
+    año = año or ahora.year
+    mes = mes or ahora.month
+
+    d = await _agregar_mes(telefono, año, mes)
+    return {
+        "periodo": "mes",
+        "etiqueta": f"{_MESES_ES[mes]} {año}",
+        "año": año,
+        "mes": mes,
+        "inicio": d["inicio"].isoformat(),
+        "fin": d["fin"].isoformat(),
+        "ventas": round(d["ventas"], 2),
+        "gastos": round(d["gastos"], 2),
+        "utilidad": round(d["utilidad"], 2),
+        "num_pedidos": d["num_pedidos"],
+        "num_transacciones": d["num_transacciones"],
+        "top_categorias": _categorias_a_lista(d["top_categorias"]),
+        "hay_datos": bool(d["num_transacciones"] or d["num_pedidos"]),
+    }
+
+
+async def resumen_semana_datos(telefono: str, desde: datetime | None = None) -> dict:
+    """
+    Datos estructurados del resumen semanal (para el dashboard web).
+
+    Mismo cálculo que `resumen_semana` (incluida la comparación vs. semana
+    previa), pero como dict serializable a JSON. A diferencia del string de
+    WhatsApp, NO se abstiene si no hay datos: siempre devuelve el dict con
+    `hay_datos=False` para que el frontend decida el empty state.
+
+    Forma:
+        {
+          "periodo": "semana",
+          "etiqueta": "30/06 → 07/07",
+          "inicio": "...", "fin": "...",
+          "ventas": 0.0, "gastos": 0.0, "utilidad": 0.0,
+          "num_pedidos": 0, "num_transacciones": 0,
+          "pedidos_entregados": 0, "pedidos_pendientes": 0,
+          "top_categorias": [...],
+          "comparacion_semana_previa": {"delta_ventas_pct": 12.5} | null,
+          "hay_datos": false
+        }
+    """
+    ahora = datetime.utcnow()
+    inicio = desde or (ahora - timedelta(days=7))
+
+    d = await _agregar_semana(telefono, inicio, ahora)
+
+    comparacion = None
+    if d["delta_ventas_pct"] is not None:
+        comparacion = {"delta_ventas_pct": round(d["delta_ventas_pct"], 1)}
+
+    return {
+        "periodo": "semana",
+        "etiqueta": f"{inicio.strftime('%d/%m')} → {ahora.strftime('%d/%m')}",
+        "inicio": d["inicio"].isoformat(),
+        "fin": d["fin"].isoformat(),
+        "ventas": round(d["ventas"], 2),
+        "gastos": round(d["gastos"], 2),
+        "utilidad": round(d["utilidad"], 2),
+        "num_pedidos": d["num_pedidos"],
+        "num_transacciones": d["num_transacciones"],
+        "pedidos_entregados": d["pedidos_entregados"],
+        "pedidos_pendientes": d["pedidos_pendientes"],
+        "top_categorias": _categorias_a_lista(d["top_categorias"]),
+        "comparacion_semana_previa": comparacion,
+        "hay_datos": bool(d["num_transacciones"] or d["num_pedidos"]),
+    }
 
 
 async def exportar_transacciones_csv(

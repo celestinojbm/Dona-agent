@@ -25,6 +25,7 @@ import TourDashboard from "./tour";
 import SeccionActionCenter from "./seccion-action-center";
 import SeccionControlRoom from "./seccion-control-room";
 import SeccionOportunidades from "./seccion-oportunidades";
+import SeccionReportes from "./seccion-reportes";
 import SeccionGaleria from "./seccion-galeria";
 
 interface DashboardProps {
@@ -309,6 +310,12 @@ export default function DashboardClient({ session }: DashboardProps) {
             {load.data.suscripcion.estado !== "canceled" && (
               <SeccionActionCenter />
             )}
+            {/* Reportes / Medición (Fase 1) · los números de negocio del
+                usuario (ventas, gastos, utilidad, pedidos, top categorías)
+                que hoy sólo obtiene por WhatsApp. Solo lectura. Se muestra
+                siempre, incluso con sub cancelada: son sus datos históricos.
+                Empty state con gracia si aún no capturó nada por WhatsApp. */}
+            <SeccionReportes />
             {/* Galería de Activos (Fase 1) · lo que Dona ya generó para el
                 usuario (imágenes, videos, docs), visible en web. Solo
                 lectura. Se muestra siempre, incluso con sub cancelada: los
