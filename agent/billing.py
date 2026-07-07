@@ -634,12 +634,53 @@ async def procesar_evento_stripe(evento: dict) -> dict:
         logger.warning(f"[BILLING] Evento sin telefono/creditos: id={session_id}")
         return {"handled": False, "reason": "metadata faltante"}
 
-    saldo = await acreditar(
-        telefono=telefono,
-        creditos=creditos,
-        razon=f"Compra paquete ({creditos} créditos)",
-        stripe_session_id=session_id,
-    )
+    # ── Gate atómico EventoStripeProcesado (Fase 1 · TEMA 3.1) ──────────────
+    # El path de suscripción ya gatea por event.id; este path directo (top-ups
+    # one-time) solo tenía idempotencia de DINERO vía acreditar(session_id),
+    # pero NADA impedía re-DISPARAR la notificación "gracias por tu compra" en
+    # cada reentrega de Stripe (at-least-once). Insertamos el mismo cerrojo por
+    # PK ANTES de acreditar: una reentrega concurrente choca con el PK y sale
+    # con handled=False → el webhook no reenvía la notificación ni re-ejecuta el
+    # handler. Solo cuando hay event_id (Stripe real siempre lo trae); sin él
+    # caemos al comportamiento legacy (acreditar sigue protegiendo el dinero).
+    # Lo tomamos DESPUÉS de las validaciones fail-closed: solo los eventos que
+    # de verdad van a acreditar consumen el gate, y ninguno de los rechazos
+    # (mode/pago/metadata) puede envenenar un event_id que otro path deba usar.
+    event_id = (evento.get("id") or "").strip()
+    if event_id:
+        from sqlalchemy.exc import IntegrityError
+
+        from agent.memory import EventoStripeProcesado, async_session
+
+        async with async_session() as session:
+            session.add(EventoStripeProcesado(event_id=event_id, tipo=tipo))
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                logger.info(
+                    f"[BILLING] Top-up ya procesado, skip (gate): {event_id}"
+                )
+                return {
+                    "handled": False,
+                    "reason": "duplicate_event",
+                    "event_id": event_id,
+                }
+
+    try:
+        saldo = await acreditar(
+            telefono=telefono,
+            creditos=creditos,
+            razon=f"Compra paquete ({creditos} créditos)",
+            stripe_session_id=session_id,
+        )
+    except Exception:
+        # El acreditar reventó: liberar el gate para que Stripe pueda reintentar
+        # (sin esto, una excepción transitoria envenenaría el event_id de forma
+        # permanente). El dinero sigue protegido por la idempotencia de acreditar.
+        if event_id:
+            await _liberar_gate_evento(event_id)
+        raise
     logger.info(f"[BILLING] Acreditado {creditos} cr → {telefono} (saldo={saldo})")
     return {"handled": True, "telefono": telefono, "creditos": creditos, "saldo": saldo}
 
