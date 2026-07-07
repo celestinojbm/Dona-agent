@@ -97,7 +97,7 @@ class ProveedorMeta(ProveedorWhatsApp):
     def __init__(self):
         self.access_token = os.getenv("META_ACCESS_TOKEN", "")
         self.phone_number_id = os.getenv("META_PHONE_NUMBER_ID", "")
-        self.verify_token = os.getenv("META_WEBHOOK_VERIFY_TOKEN", "dona_webhook_secret")
+        self.verify_token = os.getenv("META_WEBHOOK_VERIFY_TOKEN", "").strip()
         self.app_secret = os.getenv("META_APP_SECRET", "").strip()
         self.api_version = os.getenv("META_API_VERSION", "v21.0")
         self.url_envio = (
@@ -122,22 +122,66 @@ class ProveedorMeta(ProveedorWhatsApp):
                 "el deploy."
             )
 
+        # SEC-AUTH-04: sin META_WEBHOOK_VERIFY_TOKEN, el handshake GET de
+        # verificación del webhook quedaba abierto con un default público
+        # ("dona_webhook_secret") conocido por cualquiera que lea el repo.
+        # En entorno estricto exigimos la variable configurada (mismo patrón
+        # fail-closed que META_APP_SECRET arriba); la comparación en sí se
+        # hace en validar_webhook con hmac.compare_digest.
+        if es_entorno_estricto() and not self.verify_token:
+            raise RuntimeError(
+                "[META] META_WEBHOOK_VERIFY_TOKEN no configurado en entorno "
+                "estricto — el handshake GET de verificación del webhook "
+                "quedaría abierto a cualquiera que conozca un valor por "
+                "defecto. Configura la variable antes de reintentar el "
+                "deploy."
+            )
+
     async def validar_webhook(self, request: Request):
         """
         Verificación GET del webhook requerida por Meta.
         Meta envía: hub.mode, hub.verify_token, hub.challenge
         Si el verify_token coincide, responde con hub.challenge.
+
+        Comportamiento (SEC-AUTH-04):
+          - Producción sin ``verify_token`` configurado: rechaza (defensa en
+            profundidad; el check de ``__init__`` ya debería haber abortado
+            el deploy).
+          - Dev/test sin ``verify_token``: acepta sin verificar (con warning)
+            para permitir pruebas locales sin configurar Meta.
+          - Con ``verify_token``: compara con ``hmac.compare_digest``
+            (timing-safe) — ya no hay default público hardcodeado.
         """
+        from agent.entorno import es_entorno_estricto
+
         params = dict(request.query_params)
         mode = params.get("hub.mode")
-        token = params.get("hub.verify_token")
+        token = params.get("hub.verify_token") or ""
         challenge = params.get("hub.challenge")
 
-        if mode == "subscribe" and token == self.verify_token:
+        if not self.verify_token:
+            if es_entorno_estricto():
+                logger.error(
+                    "[META] META_WEBHOOK_VERIFY_TOKEN no configurado en "
+                    "entorno estricto — rechazando verificación de webhook "
+                    "(defensa en profundidad)."
+                )
+                token_valido = False
+            else:
+                logger.warning(
+                    "[META] META_WEBHOOK_VERIFY_TOKEN no configurado — "
+                    "aceptando verificación sin validar (INSEGURO, solo "
+                    "dev/test)."
+                )
+                token_valido = True
+        else:
+            token_valido = hmac.compare_digest(token, self.verify_token)
+
+        if mode == "subscribe" and token_valido:
             logger.info("[META] Webhook verificado correctamente")
             return int(challenge) if challenge and challenge.isdigit() else challenge
         else:
-            logger.warning(f"[META] Verificación de webhook fallida: mode={mode} token={token}")
+            logger.warning(f"[META] Verificación de webhook fallida: mode={mode}")
             return None
 
     def _verificar_firma(self, body_bytes: bytes, signature_header: str) -> bool:
