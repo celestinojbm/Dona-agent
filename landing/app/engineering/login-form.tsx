@@ -37,7 +37,7 @@ export default function LoginForm() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-6">
+    <main className="legacy-shell flex items-center justify-center px-6">
       <form
         onSubmit={entrar}
         className="glass-card rounded-2xl p-10 w-full max-w-sm"

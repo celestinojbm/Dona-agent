@@ -1,28 +1,32 @@
 import type { Metadata } from "next";
-import { Outfit, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const outfit = Outfit({
-  variable: "--font-geist-sans",
+// Base clara premium: Inter para lectura, JetBrains Mono para labels técnicos
+// (métricas, estados de agentes, créditos). Ambas autoalojadas vía next/font
+// (se sirven desde 'self', sin fetch a Google Fonts — la CSP no abre
+// fonts.gstatic.com). Las CSS variables coinciden con las del hero aprobado.
+const sans = Inter({
   subsets: ["latin"],
+  variable: "--font-hero-sans",
   display: "swap",
 });
 
 const mono = JetBrains_Mono({
-  variable: "--font-geist-mono",
   subsets: ["latin"],
+  variable: "--font-hero-mono",
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Dona — Plataforma-agente de negocio y ejecucion",
+  title: "Dona — Plataforma-agente de negocio y ejecución",
   description:
-    "Dona convierte tu intencion en activos, workflows, documentos, campañas y acciones reales — con creditos, permisos, trazabilidad y medicion. Plataforma-agente de negocio para emprendedores hispanos.",
+    "Dona convierte intención en ejecución real: activos, workflows, documentos, campañas y acciones reales — con permisos, créditos, trazabilidad y medición. Empieza desde WhatsApp, web o voz.",
   metadataBase: new URL("https://usadona.com"),
   openGraph: {
-    title: "Dona — Plataforma-agente de negocio y ejecucion",
+    title: "Dona — Plataforma-agente de negocio y ejecución",
     description:
-      "Convierte intencion en ejecucion controlada: activos, workflows, campañas y acciones reales, con permiso y medicion.",
+      "Convierte intención en ejecución controlada: activos, workflows, campañas y acciones reales, con permiso y medición.",
     url: "https://usadona.com",
     siteName: "Dona",
     locale: "es_MX",
@@ -30,9 +34,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Dona — Plataforma-agente de negocio y ejecucion",
+    title: "Dona — Plataforma-agente de negocio y ejecución",
     description:
-      "Convierte intencion en ejecucion controlada: activos, workflows, campañas y acciones reales, con permiso y medicion.",
+      "Convierte intención en ejecución controlada: activos, workflows, campañas y acciones reales, con permiso y medición.",
   },
 };
 
@@ -44,9 +48,12 @@ export default function RootLayout({
   return (
     <html
       lang="es"
-      className={`${outfit.variable} ${mono.variable} h-full antialiased`}
+      className={`${sans.variable} ${mono.variable} h-full antialiased`}
     >
       <head>
+        {/* Facebook Pixel — único script de terceros. El snippet inline se
+            permite por 'unsafe-inline' en script-src (ver next.config.ts).
+            NO tocar la CSP: el pixel sigue funcionando tal cual. */}
         <script
           dangerouslySetInnerHTML={{
             __html: `!function(f,b,e,v,n,t,s)
@@ -67,38 +74,11 @@ fbq('track', 'PageView');`,
             width="1"
             style={{ display: "none" }}
             src="https://www.facebook.com/tr?id=26253527804332195&ev=PageView&noscript=1"
+            alt=""
           />
         </noscript>
       </head>
-      <body className="noise-overlay min-h-full flex flex-col relative bg-black">
-        {/* Global video background */}
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="fixed inset-0 w-full h-full object-cover z-0"
-          aria-hidden="true"
-        >
-          <source src="/hero.mp4" type="video/mp4" />
-        </video>
-        <div
-          className="fixed inset-0 bg-black/[0.72] z-[1] pointer-events-none"
-          aria-hidden="true"
-        />
-        {/* Campo de luz ambiental (LTX iter 11): pozos de luz de color que
-            derivan a distinta profundidad con el scroll (useCinematicMotion).
-            Capa fija entre el overlay y el contenido — pointer-events-none, sin
-            afectar layout. Sin JS / reduced-motion quedan estaticos. */}
-        <div className="ambient-field z-[2]" aria-hidden="true">
-          <span className="ambient-blob ambient-blob--violet" />
-          <span className="ambient-blob ambient-blob--blue" />
-          <span className="ambient-blob ambient-blob--amber" />
-        </div>
-        <div className="relative z-10 flex flex-col min-h-full">
-          {children}
-        </div>
-      </body>
+      <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
 }

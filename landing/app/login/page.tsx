@@ -34,7 +34,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 relative z-[2]">
+    <div className="legacy-shell flex items-center justify-center px-6 relative z-[2]">
       <div className="glass-card rounded-2xl p-12 max-w-sm w-full">
         <Link
           href="/"

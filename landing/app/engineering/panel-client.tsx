@@ -885,7 +885,7 @@ export default function PanelClient({ roadmap }: { roadmap: Roadmap }) {
       : null;
 
   return (
-    <div className="min-h-screen flex">
+    <div className="legacy-shell flex">
       <Sidebar data={data} onSalir={salir} />
 
       <main className="flex-1 min-w-0 px-4 sm:px-8 py-8 max-w-[1480px] mx-auto">

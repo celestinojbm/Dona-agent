@@ -254,7 +254,7 @@ export default function DashboardClient({ session }: DashboardProps) {
   ];
 
   return (
-    <div className="min-h-screen relative z-[2]">
+    <div className="legacy-shell relative z-[2]">
       {/* Header */}
       <header className="border-b border-white/[0.06] backdrop-blur-xl">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">

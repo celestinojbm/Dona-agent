@@ -5,7 +5,7 @@ import Link from "next/link";
 
 export default function SuccessPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 relative z-[2]">
+    <div className="legacy-shell flex items-center justify-center px-6 relative z-[2]">
       <div className="glass-card rounded-2xl p-12 max-w-md w-full text-center">
         <CheckCircle2 className="w-16 h-16 text-white/60 mx-auto mb-6" />
         <h1 className="text-3xl font-normal text-white mb-4 tracking-tight">

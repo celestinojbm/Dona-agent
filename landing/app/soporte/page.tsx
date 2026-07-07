@@ -9,7 +9,7 @@ export const metadata = {
 
 export default function SoportePage() {
   return (
-    <div className="min-h-screen px-6 py-24 md:py-32 relative z-[2]">
+    <div className="legacy-shell px-6 py-24 md:py-32 relative z-[2]">
       <div className="max-w-2xl mx-auto">
         <Link
           href="/"

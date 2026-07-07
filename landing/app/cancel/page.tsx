@@ -5,7 +5,7 @@ import Link from "next/link";
 
 export default function CancelPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 relative z-[2]">
+    <div className="legacy-shell flex items-center justify-center px-6 relative z-[2]">
       <div className="glass-card rounded-2xl p-12 max-w-md w-full text-center">
         <div className="w-16 h-16 rounded-full bg-white/[0.06] flex items-center justify-center mx-auto mb-6">
           <X className="w-8 h-8 text-white/40" />

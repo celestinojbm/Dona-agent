@@ -1,27 +1,29 @@
 @import "tailwindcss";
 
 /*
-  DONA — Design System v5
-  Dark premium with fixed video background
-  Accent: #7C3AED violet (subtle)
-  Buttons: ghost/outline only — no solid fills
-  Hover: blue-electric (#2563EB) + orange (#F97316) gradient
-  Typography: Outfit thin/light + JetBrains Mono
+  DONA — Design System v6 (landing clara premium)
+  Base clara Linear/Stripe + vitalidad de gradiente Luma CONTENIDA.
+  Un solo acento de marca (violeta-índigo). Tokens y clases derivados
+  del hero aprobado (app/prototipo/hero.css) — todo es UN solo sistema.
 */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --font-sans: var(--font-hero-sans);
+  --font-mono: var(--font-hero-mono);
 }
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #f5f5f5;
-  --accent: #7C3AED;
-  --card-bg: rgba(255, 255, 255, 0.03);
-  --card-border: rgba(255, 255, 255, 0.07);
+  /* Tokens del hero aprobado */
+  --bg: #ffffff;
+  --bg-soft: #fafafb;
+  --ink: #0b0b12;        /* texto principal — contraste ~19:1 */
+  --ink-2: #3f3f4b;      /* texto secundario — ~9:1 */
+  --muted: #6b6b78;      /* muted — ~5.4:1, pasa AA */
+  --line: #ececf1;       /* hairlines */
+  --brand: #5b5bf0;      /* acento de marca (un solo acento) */
+  --brand-ink: #4a3fd6;  /* brand para texto sobre claro (más contraste) */
 }
 
 html {
@@ -29,455 +31,260 @@ html {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), system-ui, sans-serif;
-  font-weight: 300;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-hero-sans), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-::selection {
-  background: rgba(124, 58, 237, 0.25);
-  color: white;
+.hero-mono {
+  font-family: var(--font-hero-mono), ui-monospace, monospace;
 }
 
-/* -- Gradient text -- */
-.text-gradient {
+::selection {
+  background: rgba(91, 91, 240, 0.16);
+  color: var(--ink);
+}
+
+/* ── Aurora viva (sello LumaLabs, CONTENIDA) ────────────────────────────── */
+.aurora {
+  position: absolute;
+  pointer-events: none;
+  filter: blur(56px);
+  opacity: 0.55;
+  z-index: 0;
+  will-change: transform;
+}
+.aurora--hero {
+  top: -8%;
+  left: 50%;
+  width: min(1100px, 120vw);
+  height: 620px;
+  transform: translateX(-50%);
+  background:
+    radial-gradient(38% 55% at 30% 40%, rgba(99, 102, 241, 0.55), transparent 70%),
+    radial-gradient(34% 50% at 68% 32%, rgba(139, 92, 246, 0.42), transparent 70%),
+    radial-gradient(40% 60% at 78% 66%, rgba(251, 146, 108, 0.35), transparent 72%),
+    radial-gradient(36% 52% at 22% 72%, rgba(56, 189, 248, 0.34), transparent 72%);
+  animation: aurora-drift 22s ease-in-out infinite alternate;
+}
+/* Variante contenida para franjas/CTA (más tenue, sin dominar la sección) */
+.aurora--cta {
+  top: -30%;
+  left: 50%;
+  width: min(900px, 110vw);
+  height: 460px;
+  transform: translateX(-50%);
+  opacity: 0.4;
+  background:
+    radial-gradient(40% 55% at 32% 42%, rgba(99, 102, 241, 0.5), transparent 70%),
+    radial-gradient(38% 52% at 70% 40%, rgba(139, 92, 246, 0.38), transparent 72%),
+    radial-gradient(42% 58% at 74% 70%, rgba(251, 146, 108, 0.3), transparent 74%);
+  animation: aurora-drift 26s ease-in-out infinite alternate;
+}
+@keyframes aurora-drift {
+  0%   { transform: translateX(-50%) translateY(0) scale(1); }
+  50%  { transform: translateX(-48%) translateY(14px) scale(1.06); }
+  100% { transform: translateX(-52%) translateY(-8px) scale(1.02); }
+}
+
+/* Texto con el gradiente vivo (la palabra-sello del titular) */
+.text-aurora {
+  background: linear-gradient(100deg, #6366f1 0%, #8b5cf6 38%, #ec4899 66%, #fb923c 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: aurora-sweep 8s linear infinite;
+}
+@keyframes aurora-sweep {
+  to { background-position: 220% 0; }
+}
+
+/* ── Botones ── */
+.btn-primary {
+  background: var(--brand);
+  color: #fff;
+  border: 1px solid transparent;
+  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.08), 0 8px 24px -12px rgba(91, 91, 240, 0.5);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+.btn-primary:hover {
+  background: #4f4fe6;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.08), 0 14px 30px -12px rgba(91, 91, 240, 0.55);
+}
+.btn-primary:disabled {
+  opacity: 0.55;
+  transform: none;
+  cursor: not-allowed;
+}
+.btn-ghost {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+.btn-ghost:hover {
+  border-color: #d7d7e0;
+  background: var(--bg-soft);
+  transform: translateY(-1px);
+}
+
+/* ── Superficies / tarjetas ── */
+.proof-card {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--line);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 24px 60px -30px rgba(11, 11, 18, 0.28),
+    0 8px 24px -18px rgba(11, 11, 18, 0.2);
+}
+.loop-chip {
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.loop-arrow { color: #c3c3ce; }
+
+/* Tarjeta base para módulos, outputs, casos, pricing */
+.surface-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.04), 0 12px 32px -24px rgba(11, 11, 18, 0.18);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.surface-card:hover {
+  transform: translateY(-2px);
+  border-color: #dcdce6;
+  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.05), 0 22px 46px -26px rgba(11, 11, 18, 0.22);
+}
+.surface-soft {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+}
+
+/* Icono de módulo/capacidad */
+.icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.7rem;
+  background: rgba(91, 91, 240, 0.09);
+  color: var(--brand-ink);
+  border: 1px solid rgba(91, 91, 240, 0.14);
+}
+
+/* Rejilla técnica muy tenue, desvanecida hacia los bordes */
+.grid-fade {
+  background-image:
+    linear-gradient(to right, rgba(11, 11, 18, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(11, 11, 18, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(70% 60% at 50% 30%, #000 40%, transparent 78%);
+  mask-image: radial-gradient(70% 60% at 50% 30%, #000 40%, transparent 78%);
+}
+
+/* Etiqueta de sección (eyebrow) */
+.eyebrow {
+  font-family: var(--font-hero-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── Reveal on-scroll (progressive enhancement) ──────────────────────────
+   Contenido VISIBLE por defecto (sin JS / SSR / reduced-motion). Solo se
+   oculta si JS marca el contenedor [data-reveal-root="ready"], y se revela
+   al entrar en vista. Nunca deja contenido crítico invisible. */
+[data-reveal-root="ready"] [data-reveal] {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  transition-delay: var(--reveal-delay, 0s);
+}
+[data-reveal-root="ready"] [data-reveal="in"] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora--hero,
+  .aurora--cta { animation: none; }
+  .text-aurora { animation: none; }
+  .btn-primary:hover,
+  .btn-ghost:hover,
+  .surface-card:hover { transform: none; }
+  [data-reveal-root="ready"] [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   LEGACY — superficie oscura para las páginas internas que NO son la landing
+   pública (login, success, cancel, soporte, dashboard, engineering). Estas
+   pantallas siguen usando el sistema oscuro anterior. Se scopean bajo
+   .legacy-shell para NO filtrar estilos oscuros a la landing clara. El botón
+   principal (.btn-primary, violeta sólido) se reutiliza tal cual: se ve bien
+   sobre las superficies oscuras.
+   ════════════════════════════════════════════════════════════════════════ */
+.legacy-shell {
+  min-height: 100vh;
+  background: #0a0a0a;
+  color: #f5f5f5;
+  font-weight: 300;
+}
+
+.legacy-shell .text-gradient {
   background: linear-gradient(135deg, #ffffff, rgba(255, 255, 255, 0.6));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
-
-.text-gradient-stat {
+.legacy-shell .text-gradient-stat {
   background: linear-gradient(180deg, #ffffff, rgba(255, 255, 255, 0.4));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* -- Nav link hover: blue-to-orange gradient text -- */
-.nav-link {
+.legacy-shell .nav-link {
   transition: all 0.3s ease;
 }
-.nav-link:hover {
-  background: linear-gradient(135deg, #2563EB, #F97316);
+.legacy-shell .nav-link:hover {
+  background: linear-gradient(135deg, #2563eb, #f97316);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* -- Nav cinematica (LTX iter 7) -- */
-/* La barra arranca transparente sobre el hero y se "despega" al hacer scroll:
-   fondo traslucido + blur + hairline inferior. Solo transiciones de opacidad/
-   color, seguras bajo prefers-reduced-motion. */
-.nav-bar {
-  border-bottom: 1px solid transparent;
-  transition: background 0.4s ease, border-color 0.4s ease, backdrop-filter 0.4s ease;
-}
-.nav-bar-scrolled {
-  background: rgba(10, 10, 10, 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom-color: rgba(255, 255, 255, 0.06);
-}
-
-/* Seccion activa (scroll-spy): el link adopta el gradiente azul→naranja. */
-.nav-link-active {
-  background: linear-gradient(135deg, #2563EB, #F97316);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* Indicador deslizante bajo el item activo. framer-motion (layoutId) lo desliza
-   de una seccion a otra; con reduced-motion se renderiza estatico. */
-.nav-indicator {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -7px;
-  height: 2px;
-  border-radius: 9999px;
-  background: linear-gradient(135deg, #2563EB, #F97316);
-  pointer-events: none;
-}
-
-/* -- Primary CTA button — ghost/outline -- */
-.btn-primary {
-  background: transparent;
-  color: white;
-  font-weight: 400;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.btn-primary:hover {
-  border-color: transparent;
-  background: linear-gradient(135deg, #2563EB, #F97316);
-  color: white;
-  box-shadow: 0 4px 32px rgba(37, 99, 235, 0.25), 0 4px 32px rgba(249, 115, 22, 0.15);
-  transform: translateY(-2px);
-}
-.btn-primary:active {
-  transform: translateY(0) scale(0.98);
-}
-
-/* -- Secondary / ghost button -- */
-.btn-secondary {
-  background: transparent;
-  color: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  font-weight: 300;
-  transition: all 0.3s ease;
-}
-.btn-secondary:hover {
-  border-color: transparent;
-  background: linear-gradient(135deg, #2563EB, #F97316);
-  color: white;
-  box-shadow: 0 4px 32px rgba(37, 99, 235, 0.2), 0 4px 32px rgba(249, 115, 22, 0.1);
-}
-
-/* -- Pulse glow -- */
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 16px rgba(37, 99, 235, 0.08); }
-  50% { box-shadow: 0 0 32px rgba(37, 99, 235, 0.15), 0 0 32px rgba(249, 115, 22, 0.08); }
-}
-.pulse-glow {
-  animation: pulse-glow 3s ease-in-out infinite;
-}
-
-/* -- Divider -- */
-.divider-gradient {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
-}
-
-/* -- Glass card -- */
-.glass-card {
+.legacy-shell .glass-card {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.07);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.glass-card:hover {
+.legacy-shell .glass-card:hover {
   border-color: rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.05);
   box-shadow: 0 0 40px rgba(124, 58, 237, 0.04);
 }
 
-/* -- Spotlight card (LTX iter 2): resplandor radial que sigue al mouse.
-   La posicion --mx/--my la setea useCinematicMotion en mousemove. -- */
-.glass-card[data-spotlight] {
-  position: relative;
+.legacy-shell .btn-secondary {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.3s ease;
 }
-.glass-card[data-spotlight]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(
-    420px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(124, 58, 237, 0.16),
-    transparent 60%
-  );
-  opacity: 0;
-  transition: opacity 0.45s ease;
-  pointer-events: none;
-}
-.glass-card[data-spotlight]:hover::before {
-  opacity: 1;
-}
-.glass-card[data-spotlight] > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* -- Kinetic headline (LTX iter 4): reveal palabra-por-palabra del titular.
-   El estado lo controla useCinematicMotion en el contenedor [data-kinetic]:
-   "pending" (oculto) pre-paint y "visible" al frame siguiente, solo con JS y sin
-   reduced-motion. Sin JS, con reduced-motion o sin el atributo, las palabras se
-   ven completas — nunca dejamos el titular invisible. El stagger sale de --ki
-   (indice de palabra), seteado inline en cada span. -- */
-.kinetic-word {
-  display: inline-block;
-  will-change: transform, opacity, filter;
-}
-[data-kinetic="pending"] .kinetic-word {
-  opacity: 0;
-  transform: translateY(0.5em);
-  filter: blur(8px);
-}
-[data-kinetic="visible"] .kinetic-word {
-  opacity: 1;
-  transform: none;
-  filter: blur(0);
-  transition:
-    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.08s),
-    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.08s),
-    filter 0.7s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--ki, 0) * 0.08s);
-}
-
-/* -- Scroll progress beam (LTX iter 6): haz fino arriba con el degradado de
-   marca que se llena segun el avance del scroll. useCinematicMotion escala su
-   scaleX 0→1 (scrubbed). Arranca en scaleX(0): sin JS o con reduced-motion (el
-   efecto entero se salta) queda invisible — nunca una barra estatica colgada. -- */
-.scroll-beam {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  z-index: 60;
-  transform: scaleX(0);
-  transform-origin: left center;
-  background: linear-gradient(90deg, #2563EB, #7C3AED, #F97316);
-  box-shadow: 0 0 12px rgba(37, 99, 235, 0.35);
-  pointer-events: none;
-  will-change: transform;
-}
-
-/* -- Ambient light field (LTX iter 11): pozos de luz de color (violeta/azul/
-   ambar) que derivan a distinta profundidad con el scroll, dando a toda la
-   pagina una atmosfera cinematografica viva tipo LTX/Higgsfield. El movimiento
-   lo aplica useCinematicMotion via transform (GPU, scrub de ScrollTrigger).
-   Capa fija detras de todo el contenido — pointer-events-none, sin afectar
-   layout. Sin JS o con reduced-motion los blobs quedan en su posicion inicial
-   (atmosfera estatica, igual premium). -- */
-.ambient-field {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-.ambient-blob {
-  position: absolute;
-  width: 60vw;
-  height: 60vw;
-  max-width: 900px;
-  max-height: 900px;
-  border-radius: 9999px;
-  will-change: transform;
-}
-.ambient-blob--violet {
-  top: -10vh;
-  left: -6vw;
-  background: radial-gradient(circle, rgba(124, 58, 237, 0.12), transparent 68%);
-}
-.ambient-blob--blue {
-  top: 28vh;
-  right: -12vw;
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.10), transparent 68%);
-}
-.ambient-blob--amber {
-  bottom: -16vh;
-  left: 22vw;
-  background: radial-gradient(circle, rgba(249, 115, 22, 0.07), transparent 70%);
-}
-@media (prefers-reduced-motion: reduce) {
-  .ambient-blob {
-    will-change: auto;
-  }
-}
-
-/* -- Parallax de profundidad (LTX iter 5): los numerales gigantes hacen drift
-   en scroll. useCinematicMotion setea el transform (yPercent) via GSAP; aqui
-   solo damos el hint de compositing. Sin JS o con reduced-motion no se aplica
-   ningun transform → el numeral queda en su posicion natural. -- */
-[data-parallax] {
-  will-change: transform;
-}
-
-/* -- Timeline beam de "Como funciona" (LTX iter 20): una linea vertical de
-   progreso a la izquierda de los pasos que se "dibuja" (scaleY 0→1) a medida que
-   recorres la seccion, dando la sensacion cinematografica de avanzar por el
-   proceso (firma timeline tipo Linear/LTX). El track tenue es estatico; el
-   relleno con el degradado de marca lo escala useCinematicMotion (scrub al
-   scroll). Arranca en scaleY(0): sin JS o con reduced-motion (el efecto se
-   salta) queda solo el track tenue — nunca una barra colgada. Overlay absoluto:
-   no desplaza ningun contenido. Solo se muestra en >=md (en mobile los pasos van
-   apilados a ancho completo y la columna izquierda desaparece). -- */
-.how-timeline {
-  position: absolute;
-  left: 0;
-  top: 0.5rem;
-  bottom: 0.5rem;
-  width: 2px;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.06);
-  overflow: hidden;
-  pointer-events: none;
-}
-.how-timeline-fill {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  transform: scaleY(0);
-  transform-origin: top center;
-  background: linear-gradient(180deg, #2563EB, #7C3AED, #F97316);
-  box-shadow: 0 0 12px rgba(124, 58, 237, 0.35);
-  will-change: transform;
-}
-@media (prefers-reduced-motion: reduce) {
-  .how-timeline-fill {
-    will-change: auto;
-  }
-}
-
-/* -- Hero scroll-away (LTX iter 13): el bloque del hero deriva hacia arriba y se
-   desvanece al salir del primer viewport. useCinematicMotion setea transform +
-   opacity via GSAP/ScrollTrigger; aqui solo damos la pista de compositing. Sin JS
-   o con reduced-motion el bloque queda intacto en su posicion natural. -- */
-[data-hero-scroll] {
-  will-change: transform, opacity;
-}
-
-/* -- Reveal escalonado de cards (LTX iter 9): cascada al entrar en vista.
-   useCinematicMotion marca el contenedor [data-reveal-group] como "ready" solo
-   con JS y sin reduced-motion (pre-paint) para ocultar los hijos [data-reveal];
-   luego GSAP los revela en cascada (translate + scale + blur escalonado). Sin JS,
-   con reduced-motion o sin el atributo, las cards se ven completas — nunca quedan
-   invisibles (mismo patron de progressive enhancement que [data-fade]/kinetic). -- */
-[data-reveal-group="ready"] [data-reveal] {
-  opacity: 0;
-  transform: translateY(40px) scale(0.96);
-  filter: blur(6px);
-  will-change: transform, opacity, filter;
-}
-
-/* -- Noise overlay (LTX iter 15): grano de cine "hirviendo" --
-   El grano ya no es estatico: la capa esta sobredimensionada (200% con offset
-   -50%) y salta entre posiciones discretas via `grain-flicker` con steps(1),
-   imitando el boil del grano de pelicula (firma LTX/Higgsfield). Como solo
-   anima `transform`, queda compuesto en GPU (sin repaints por frame) y la capa
-   oversize garantiza que el desplazamiento nunca descubra un borde. Respeta
-   `prefers-reduced-motion`: ahi el grano se congela (animation: none). */
-.noise-overlay::after {
-  content: '';
-  position: fixed;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  z-index: 1;
-  pointer-events: none;
-  opacity: 0.03;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
-  background-size: 256px;
-  will-change: transform;
-  animation: grain-flicker 0.7s steps(1) infinite;
-}
-@keyframes grain-flicker {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  10%      { transform: translate3d(-8%, 4%, 0); }
-  20%      { transform: translate3d(6%, -10%, 0); }
-  30%      { transform: translate3d(-4%, 8%, 0); }
-  40%      { transform: translate3d(10%, 2%, 0); }
-  50%      { transform: translate3d(-9%, -6%, 0); }
-  60%      { transform: translate3d(5%, 10%, 0); }
-  70%      { transform: translate3d(-10%, -3%, 0); }
-  80%      { transform: translate3d(7%, 7%, 0); }
-  90%      { transform: translate3d(-6%, -9%, 0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .noise-overlay::after {
-    animation: none;
-    will-change: auto;
-  }
-}
-
-/* -- Section spacing -- */
-.section-space {
-  padding-top: 10rem;
-  padding-bottom: 10rem;
-}
-@media (max-width: 768px) {
-  .section-space {
-    padding-top: 5rem;
-    padding-bottom: 5rem;
-  }
-}
-
-/* -- Step number -- */
-.step-number {
-  font-family: var(--font-geist-mono), monospace;
-  font-weight: 200;
-  color: rgba(255, 255, 255, 0.06);
-  font-size: 5rem;
-  line-height: 1;
-  letter-spacing: -0.05em;
-}
-@media (min-width: 768px) {
-  .step-number { font-size: 8rem; }
-}
-
-/* -- Fade-in reveal (CSS-driven, bfcache-safe) -- */
-[data-fade="pending"] {
-  /* Progressive enhancement: content remains visible even if JS, IntersectionObserver,
-     or browser automation does not complete the reveal cycle. */
-  opacity: 1;
-}
-[data-fade="pending"][style*="--fade-dir:up"]    { transform: translateY(40px); }
-[data-fade="pending"][style*="--fade-dir:down"]  { transform: translateY(-40px); }
-[data-fade="pending"][style*="--fade-dir:left"]  { transform: translateX(40px); }
-[data-fade="pending"][style*="--fade-dir:right"] { transform: translateX(-40px); }
-[data-fade="visible"] {
-  opacity: 1 !important;
-  transform: none !important;
-  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--fade-delay, 0s),
-              transform 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--fade-delay, 0s);
-}
-
-/* -- Plan destacado (LTX iter 10): realce animado del plan recomendado (Pro).
-   La barra de acento fluye continuamente (gradiente animado) y la card respira
-   con un aura suave, tratamiento premium de "plan recomendado" estilo
-   Linear/Vercel. Se desactiva con prefers-reduced-motion (queda el acento fijo
-   y sin aura) — el realce es enhancement, nunca afecta legibilidad ni layout. -- */
-@keyframes accent-flow {
-  0% { background-position: 0% 50%; }
-  100% { background-position: 200% 50%; }
-}
-@keyframes plan-aura {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18), 0 0 30px rgba(37, 99, 235, 0.06); }
-  50% { box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.10), 0 0 48px rgba(37, 99, 235, 0.14), 0 0 48px rgba(249, 115, 22, 0.04); }
-}
-.accent-flow {
-  background-image: linear-gradient(90deg, #2563EB, #F97316, #2563EB);
-  background-size: 200% 100%;
-  animation: accent-flow 4s linear infinite;
-}
-.plan-destacado {
-  animation: plan-aura 5s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .accent-flow { animation: none; }
-  .plan-destacado { animation: none; }
-}
-
-/* -- Testimonial carousel (marquee infinito, LTX iter 16) --
-   - Mascaras de desvanecido en los bordes (`carousel-mask`): las cards se
-     disuelven hacia los lados en vez de cortarse en seco, dando profundidad
-     cinematografica estilo LTX/Linear.
-   - Pausa al hover: el marquee se detiene para poder leer un testimonio.
-   - Respeta prefers-reduced-motion: la animacion se detiene (los testimonios
-     quedan legibles y estaticos). -- */
-@keyframes scroll-left {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-.carousel-mask {
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 11%, #000 89%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 11%, #000 89%, transparent);
-}
-.carousel-track {
-  animation: scroll-left 35s linear infinite;
-}
-.carousel-track:hover {
-  animation-play-state: paused;
-}
-@media (prefers-reduced-motion: reduce) {
-  .carousel-track {
-    animation: none;
-  }
+.legacy-shell .btn-secondary:hover {
+  border-color: transparent;
+  background: linear-gradient(135deg, #2563eb, #f97316);
+  color: white;
 }
