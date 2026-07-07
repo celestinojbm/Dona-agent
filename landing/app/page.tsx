@@ -221,7 +221,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
         aria-expanded={open}
         className="flex w-full cursor-pointer items-center justify-between gap-4 px-6 py-5 text-left"
       >
-        <span className="text-[15px] font-semibold text-[color:var(--ink)]">{q}</span>
+        <span className="text-lg font-semibold text-[color:var(--ink)]">{q}</span>
         <ChevronDown
           className={`h-5 w-5 shrink-0 text-[color:var(--muted)] transition-transform duration-200 ${
             open ? "rotate-180" : ""
@@ -438,7 +438,7 @@ export default function Home() {
       {/* ── Nav ── */}
       <nav className="nav-blur sticky top-0 z-40 border-b border-[color:var(--line)]">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-          <a href="#" className="text-[22px] font-semibold tracking-tight text-[color:var(--ink)]">
+          <a href="#" className="text-[27px] font-semibold tracking-tight text-[color:var(--ink)]">
             Dona
           </a>
           <div className="hidden items-center gap-1 text-sm md:flex">
@@ -578,7 +578,7 @@ export default function Home() {
             </>
           }
         />
-        <ol className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <ol className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {LOOP_PASOS.map((p, i) => {
             const Icon = p.icon;
             return (
@@ -586,16 +586,16 @@ export default function Home() {
                 key={p.titulo}
                 data-reveal
                 style={{ "--reveal-delay": `${i * 60}ms` } as React.CSSProperties}
-                className="surface-card p-8"
+                className="surface-card p-10"
               >
                 <div className="flex items-center justify-between">
-                  <span className="surface-fill grid h-12 w-12 place-items-center rounded-2xl text-lg font-medium text-[color:var(--brand-ink)]">
+                  <span className="surface-fill grid h-14 w-14 place-items-center rounded-2xl text-xl font-medium text-[color:var(--brand-ink)]">
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  <Icon className="h-5 w-5 text-[color:var(--muted)]" />
+                  <Icon className="h-6 w-6 text-[color:var(--muted)]" />
                 </div>
-                <h3 className="mt-6 text-xl font-semibold text-[color:var(--ink)]">{p.titulo}</h3>
-                <p className="lead mt-2 text-[17px] leading-relaxed">{p.desc}</p>
+                <h3 className="mt-7 text-2xl font-semibold text-[color:var(--ink)]">{p.titulo}</h3>
+                <p className="lead mt-3 text-[17px] font-medium leading-relaxed">{p.desc}</p>
               </li>
             );
           })}
@@ -614,7 +614,7 @@ export default function Home() {
             </>
           }
         />
-        <div className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {MODULOS.map((m, i) => {
             const Icon = m.icon;
             const destacado = m.nombre === "Control Room";
@@ -623,16 +623,16 @@ export default function Home() {
                 key={m.nombre}
                 data-reveal
                 style={{ "--reveal-delay": `${i * 60}ms` } as React.CSSProperties}
-                className={`${destacado ? "card-gradient" : "surface-card"} flex flex-col p-8`}
+                className={`${destacado ? "card-brand" : "surface-card"} flex flex-col p-10`}
               >
                 <span
-                  className={`grid h-12 w-12 place-items-center rounded-2xl ${
+                  className={`grid h-14 w-14 place-items-center rounded-2xl ${
                     destacado ? "bg-white/20 text-white" : "icon-badge"
                   }`}
                 >
-                  <Icon className="h-5 w-5" />
+                  <Icon className="h-6 w-6" />
                 </span>
-                <h3 className={`mt-5 text-xl font-semibold ${destacado ? "text-white" : "text-[color:var(--ink)]"}`}>
+                <h3 className={`mt-6 text-2xl font-semibold ${destacado ? "text-white" : "text-[color:var(--ink)]"}`}>
                   Dona {m.nombre}
                 </h3>
                 <p className={`mt-2 text-[17px] font-medium leading-relaxed ${destacado ? "text-white/85" : "text-[color:var(--muted)]"}`}>
@@ -688,8 +688,8 @@ export default function Home() {
                   </span>
                 </div>
                 <div className="p-6">
-                  <h3 className="text-[15px] font-semibold text-[color:var(--ink)]">{o.titulo}</h3>
-                  <p className="lead mt-2 text-[16px] leading-relaxed">{o.desc}</p>
+                  <h3 className="text-lg font-semibold text-[color:var(--ink)]">{o.titulo}</h3>
+                  <p className="lead mt-2 text-[16px] font-medium leading-relaxed">{o.desc}</p>
                 </div>
               </div>
             );
@@ -722,8 +722,8 @@ export default function Home() {
                 <span className="icon-badge h-12 w-12">
                   <Icon className="h-5 w-5" />
                 </span>
-                <h3 className="mt-4 text-[15px] font-semibold text-[color:var(--ink)]">{c.titulo}</h3>
-                <p className="lead mt-2 text-[16px] leading-relaxed">{c.desc}</p>
+                <h3 className="mt-4 text-lg font-semibold text-[color:var(--ink)]">{c.titulo}</h3>
+                <p className="lead mt-2 text-[16px] font-medium leading-relaxed">{c.desc}</p>
               </div>
             );
           })}
@@ -755,8 +755,8 @@ export default function Home() {
                 <span className="icon-badge h-11 w-11">
                   <Icon className="h-[18px] w-[18px]" />
                 </span>
-                <h3 className="mt-4 text-[15px] font-semibold text-[color:var(--ink)]">{c.segmento}</h3>
-                <p className="lead mt-2 text-[16px] leading-relaxed">{c.resultado}</p>
+                <h3 className="mt-4 text-lg font-semibold text-[color:var(--ink)]">{c.segmento}</h3>
+                <p className="lead mt-2 text-[16px] font-medium leading-relaxed">{c.resultado}</p>
               </div>
             );
           })}

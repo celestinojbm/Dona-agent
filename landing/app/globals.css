@@ -52,12 +52,11 @@ body {
   color: var(--ink);
 }
 
-/* Texto con gradiente violeta ESTÁTICO (la palabra-sello del titular).
-   El lavado de aurora de fondo y la animación de barrido salieron por pedido
-   del dueño (2026-07-07): el violeta vive quieto en la palabra-sello, el
-   escenario del hero y los acentos. */
+/* Texto con gradiente ESTÁTICO violeta→naranja (la palabra-sello del
+   titular). La combinación violeta+naranja viene del logo original que al
+   dueño le gusta; se aplica en los puntos donde vive el violeta. */
 .text-aurora {
-  background: linear-gradient(100deg, #4a3fd6 0%, #6366f1 45%, #8b5cf6 100%);
+  background: linear-gradient(100deg, #4a3fd6 0%, #7c5cf6 42%, #f97316 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -138,13 +137,21 @@ body {
   background: var(--fill);
   border-radius: 1.25rem;
 }
-/* Tarjeta destacada en negro PLANO (una sola por franja — pedido del dueño;
+/* Tarjeta destacada en negro PLANO (plan Pro — pedido del dueño;
    sin gradiente: el brillo claro de la esquina le molestaba) */
 .card-gradient {
   background: var(--ink);
   border-radius: 1.25rem;
   color: #fff;
   box-shadow: 0 2px 4px rgba(11, 11, 18, 0.08), 0 24px 48px -24px rgba(11, 11, 18, 0.5);
+}
+/* Tarjeta destacada VIOLETA→NARANJA (módulo Control Room — el dueño pidió
+   devolverla a violeta e incorporar la combinación con naranja del logo) */
+.card-brand {
+  background: linear-gradient(150deg, #5b5bf0 0%, #7c5cf6 58%, #f97316 135%);
+  border-radius: 1.25rem;
+  color: #fff;
+  box-shadow: 0 2px 4px rgba(11, 11, 18, 0.06), 0 24px 48px -24px rgba(91, 91, 240, 0.55);
 }
 
 /* Icono de módulo/capacidad */
@@ -168,11 +175,11 @@ body {
 }
 
 /* ── Párrafo editorial a dos tonos (patrón case-study) ──────────────────
-   Base en gris; las frases clave van en <strong> y suben a tinta con más
-   peso. Pesos subidos un punto por pedido del dueño (letra más gruesa). */
+   Base en gris DELGADA (los subtítulos van finos, como la nav — pedido del
+   dueño); las frases clave van en <strong> y suben a tinta con peso. Las
+   descripciones dentro de tarjetas añaden font-medium como utilidad. */
 .lead {
   color: var(--muted);
-  font-weight: 500;
 }
 .lead strong {
   color: var(--ink);
@@ -221,6 +228,7 @@ body {
   border-radius: 2.25rem;
   background:
     radial-gradient(80% 90% at 20% 0%, rgba(255, 255, 255, 0.28), transparent 60%),
+    radial-gradient(70% 80% at 88% 105%, rgba(249, 115, 22, 0.5), transparent 62%),
     linear-gradient(165deg, #6d6df3 0%, #8f8ff7 48%, #c9c9fb 100%);
 }
 .stage-ghost {
@@ -296,7 +304,7 @@ body {
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: 9999px;
-  background: linear-gradient(90deg, #c9c9fb 0%, #5b5bf0 100%);
+  background: linear-gradient(90deg, #8f8ff7 0%, #5b5bf0 55%, #f97316 100%);
 }
 
 /* ── Reveal on-scroll (progressive enhancement) ──────────────────────────
