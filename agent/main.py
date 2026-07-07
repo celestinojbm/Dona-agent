@@ -3638,6 +3638,90 @@ async def internal_automation_high_confirmar(request: Request):
     }
 
 
+# ── /internal/assets · Galería de Activos web (HMAC bridge, Fase 1) ─────────
+#
+# El usuario ve en la web los activos que Dona le generó (imágenes, videos,
+# docs). storage.listar_assets_usuario(telefono) ya existe y hoy sólo lo usan
+# los comandos de WhatsApp; este endpoint lo expone al landing.
+#
+# Auth: mismo HMAC bridge que /internal/automation/* y /internal/usuario-
+# resumen (firma X-Internal-Signature sobre el body). El landing manda
+# subscription_id desde la sesión NextAuth; el backend lo resuelve a telefono
+# (anti-IDOR: sólo devuelve activos del telefono resuelto, nunca acepta un
+# telefono del cliente).
+#
+# Read-only: sólo SELECTs vía storage.listar_assets_usuario. La respuesta va
+# sanitizada · no expone telefono, key_storage, backend ni costo interno.
+
+
+def _filtrar_asset_para_galeria(asset: dict) -> dict:
+    """Sanitiza un asset para la Galería del dashboard.
+
+    NO incluye telefono (PII), NO incluye key_storage/backend (detalle
+    interno de almacenamiento), NO incluye costo_usd/costo_creditos ni meta
+    cruda (puede traer dimensiones u otros extras internos). El usuario ya
+    pagó por el activo; en la galería sólo necesita verlo, entender qué es y
+    poder descargarlo.
+    """
+    return {
+        "id": asset["id"],
+        "tipo": asset["tipo"],
+        "url_publica": asset.get("url") or "",
+        "prompt": asset.get("prompt") or "",
+        "modelo": asset.get("modelo") or "",
+        "creado": asset.get("creado"),
+    }
+
+
+# Tope defensivo · el dashboard nunca necesita paginar cientos de activos de
+# una sola vez y un límite abierto invitaría a un scan pesado.
+_ASSETS_LIMITE_MAX = 100
+_ASSETS_TIPOS_VALIDOS = {"image", "video", "audio", "web", "doc"}
+
+
+@app.post("/internal/assets")
+async def internal_assets(request: Request):
+    """Lista los activos generados del usuario a partir de subscription_id.
+
+    Body: {"subscription_id": "sub_xxx", "tipo"?: "image", "limite"?: 20}
+
+    - `tipo` opcional filtra por tipo de activo (image|video|audio|web|doc);
+      un tipo desconocido se ignora (devuelve todos).
+    - `limite` opcional (default 20, tope 100).
+
+    Códigos:
+        401 → firma faltante o inválida.
+        400 → JSON malformado / no objeto / sin subscription_id.
+        404 → subscription_id no existe en suscripcion_stripe.
+        200 → {"assets": [...], "count": N}.
+    """
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="missing_subscription_id")
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+
+    # tipo: sólo se aplica si es uno conocido · un valor arbitrario del
+    # cliente no debe convertirse en un filtro raro contra la DB.
+    tipo_raw = (payload.get("tipo") or "").strip()
+    tipo = tipo_raw if tipo_raw in _ASSETS_TIPOS_VALIDOS else None
+
+    # limite: entero, acotado a [1, _ASSETS_LIMITE_MAX], default 20.
+    limite = payload.get("limite", 20)
+    if not isinstance(limite, int) or isinstance(limite, bool):
+        limite = 20
+    limite = max(1, min(limite, _ASSETS_LIMITE_MAX))
+
+    from agent import storage
+    assets = await storage.listar_assets_usuario(telefono, limite=limite, tipo=tipo)
+    return {
+        "assets": [_filtrar_asset_para_galeria(a) for a in assets],
+        "count": len(assets),
+    }
+
+
 # ── /internal/auth/* (HMAC bridge · lockout de login del dashboard, rank 4) ──
 #
 # Llamados por landing/lib/auth-lockout-bridge.ts (server-side) desde el
