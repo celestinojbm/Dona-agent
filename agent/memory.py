@@ -506,6 +506,36 @@ class EventoStripeProcesado(Base):
     recibido_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class Usuario(Base):
+    """
+    Identidad web del usuario — mapea email ↔ teléfono (Fase 1 · fundación
+    identidad web).
+
+    Hoy Dona indexa TODO por teléfono (créditos, activos, recordatorios…).
+    El auth web (email magic link, que se construye DESPUÉS con Resend) necesita
+    resolver desde un email a esos datos: esta tabla es ese puente.
+
+    - `email` es la identidad web canónica: SIEMPRE normalizado a lower()+strip()
+      antes de guardar o buscar (ver `_normalizar_email`). UNIQUE — un email es
+      una sola cuenta.
+    - `telefono` enlaza con los datos del backend. NULLABLE: un usuario puede
+      existir con solo email (aún no vinculó su WhatsApp) o solo teléfono.
+      UNIQUE cuando está presente — un teléfono pertenece a una sola cuenta.
+    - `stripe_customer_id` permite mapear al customer de Stripe (para portal de
+      facturación, etc.); la siembra inicial lo puebla desde suscripcion_stripe.
+
+    Esta tabla es la fundación: el flujo de magic link NO vive aquí todavía.
+    """
+    __tablename__ = "usuarios"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)  # RFC 5321 máx
+    telefono: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, nullable=True)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(200), index=True, nullable=True)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 # Timeout de sesión: 30 minutos de inactividad → nueva sesión
 SESION_TIMEOUT_MINUTOS = 30
 
@@ -712,6 +742,23 @@ _MIGRACIONES = [
     "CREATE INDEX IF NOT EXISTS ix_trans_tel ON transacciones_credito (telefono)",
     "CREATE INDEX IF NOT EXISTS ix_trans_stripe ON transacciones_credito (stripe_session_id)",
     "CREATE INDEX IF NOT EXISTS ix_trans_creado ON transacciones_credito (creado)",
+    # ── Fase 1: Fundación identidad web — mapeo email ↔ teléfono ──────────────
+    # Respaldo explícito de la tabla `usuarios` (create_all también la crea).
+    # Los UNIQUE sobre email/telefono son la barrera de "una cuenta por email/
+    # teléfono"; el upsert de crear_o_vincular_usuario descansa en ellos.
+    """
+    CREATE TABLE IF NOT EXISTS usuarios (
+        id                 SERIAL PRIMARY KEY,
+        email              VARCHAR(320) NOT NULL,
+        telefono           VARCHAR(50),
+        stripe_customer_id VARCHAR(200),
+        creado             TIMESTAMP,
+        actualizado        TIMESTAMP
+    )
+    """,
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_usuarios_email ON usuarios (email)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_usuarios_telefono ON usuarios (telefono)",
+    "CREATE INDEX IF NOT EXISTS ix_usuarios_stripe_customer ON usuarios (stripe_customer_id)",
 ]
 
 
@@ -2915,3 +2962,184 @@ async def obtener_stats_sesiones(telefono: str, dias: int = 30) -> dict:
             "duracion_promedio_min": round(sum(duraciones) / len(duraciones), 1),
             "mensajes_por_sesion": round(total_msgs / len(sesiones), 1),
         }
+
+
+# ── Identidad web: mapeo email ↔ teléfono (Fase 1 · fundación identidad) ─────
+# Helpers sobre la tabla `usuarios`. El auth por magic link (Resend) se apoyará
+# en estos; hoy solo damos la fundación: crear/buscar/vincular. El email es la
+# identidad canónica y SIEMPRE se normaliza antes de tocar la DB.
+
+
+def _normalizar_email(email: str) -> str:
+    """Normaliza un email a su forma canónica: lower() + strip().
+
+    El email es la identidad web; guardarlo y buscarlo siempre normalizado
+    evita cuentas duplicadas por diferencias de mayúsculas/espacios
+    ("  Cel@X.com " y "cel@x.com" son la misma cuenta)."""
+    return (email or "").strip().lower()
+
+
+async def obtener_usuario_por_email(email: str) -> Usuario | None:
+    """Retorna el Usuario cuyo email coincide (normalizado), o None."""
+    email_norm = _normalizar_email(email)
+    if not email_norm:
+        return None
+    async with async_session() as session:
+        result = await session.execute(
+            select(Usuario).where(Usuario.email == email_norm)
+        )
+        return result.scalar_one_or_none()
+
+
+async def obtener_usuario_por_telefono(telefono: str) -> Usuario | None:
+    """Retorna el Usuario enlazado a ese teléfono, o None."""
+    tel = (telefono or "").strip()
+    if not tel:
+        return None
+    async with async_session() as session:
+        result = await session.execute(
+            select(Usuario).where(Usuario.telefono == tel)
+        )
+        return result.scalar_one_or_none()
+
+
+async def crear_o_vincular_usuario(
+    email: str,
+    telefono: str | None = None,
+    stripe_customer_id: str | None = None,
+) -> Usuario:
+    """Upsert idempotente de un Usuario por email (identidad canónica).
+
+    - Si el email NO existe: crea la fila con los datos dados.
+    - Si el email YA existe: actualiza `telefono` / `stripe_customer_id` solo
+      cuando llegan valores nuevos (no los pisa con None). Re-vincular no borra.
+
+    Idempotente: llamar dos veces con los mismos datos deja una sola fila y no
+    lanza. El UNIQUE de email se maneja atrapando IntegrityError (una entrega
+    concurrente que ganó la carrera) y releyendo la fila existente.
+    """
+    email_norm = _normalizar_email(email)
+    if not email_norm:
+        raise ValueError("email es obligatorio en crear_o_vincular_usuario()")
+    tel = (telefono or "").strip() or None
+    cust = (stripe_customer_id or "").strip() or None
+
+    from sqlalchemy.exc import IntegrityError
+
+    async with async_session() as session:
+        existente = (await session.execute(
+            select(Usuario).where(Usuario.email == email_norm)
+        )).scalar_one_or_none()
+
+        if existente is not None:
+            cambios = False
+            if tel and existente.telefono != tel:
+                existente.telefono = tel
+                cambios = True
+            if cust and existente.stripe_customer_id != cust:
+                existente.stripe_customer_id = cust
+                cambios = True
+            if cambios:
+                existente.actualizado = datetime.utcnow()
+                await session.commit()
+                await session.refresh(existente)
+            return existente
+
+        ahora = datetime.utcnow()
+        usuario = Usuario(
+            email=email_norm,
+            telefono=tel,
+            stripe_customer_id=cust,
+            creado=ahora,
+            actualizado=ahora,
+        )
+        session.add(usuario)
+        try:
+            await session.commit()
+            await session.refresh(usuario)
+            return usuario
+        except IntegrityError:
+            # Otra entrega insertó el mismo email entre el SELECT y el INSERT.
+            # Releer y devolver la fila ganadora (idempotencia bajo concurrencia).
+            await session.rollback()
+
+    async with async_session() as s2:
+        ganadora = (await s2.execute(
+            select(Usuario).where(Usuario.email == email_norm)
+        )).scalar_one_or_none()
+        if ganadora is not None:
+            return ganadora
+    # Si no fue el email, el choque vino del UNIQUE de telefono (ese teléfono ya
+    # pertenece a otra cuenta). Reintentar sin telefono para no fallar la siembra.
+    logger.warning(
+        f"[USUARIOS] IntegrityError creando {email_norm!r} y el email no aparece; "
+        f"probable choque de telefono {tel!r} ya vinculado a otra cuenta. "
+        f"Se crea/actualiza sin telefono."
+    )
+    return await crear_o_vincular_usuario(email_norm, telefono=None, stripe_customer_id=cust)
+
+
+async def sembrar_usuarios_desde_stripe() -> dict:
+    """Siembra la tabla `usuarios` desde las suscripciones Stripe existentes.
+
+    Recorre `suscripcion_stripe` (que ya mapea telefono ↔ customer_id), pide a
+    Stripe el email de cada customer y hace upsert vía `crear_o_vincular_usuario`.
+    IDEMPOTENTE: re-correr no duplica (el upsert es por email). Reutiliza la API
+    key de Stripe de billing.py (no crea otro cliente).
+
+    Retorna un resumen con contadores para el endpoint admin. No corre en
+    startup: se dispara a mano.
+    """
+    from agent.billing import _stripe_client
+
+    stripe = _stripe_client()
+    if stripe is None:
+        logger.warning("[USUARIOS] Siembra abortada: Stripe no configurado (falta STRIPE_SECRET_KEY).")
+        return {"status": "sin_stripe", "customers": 0, "sembrados": 0, "errores": 0}
+
+    # Customers únicos a resolver: telefono por customer_id (una fila representativa).
+    async with async_session() as session:
+        subs = (await session.execute(
+            select(SuscripcionStripe.customer_id, SuscripcionStripe.telefono)
+        )).all()
+
+    por_customer: dict[str, str] = {}
+    for customer_id, telefono in subs:
+        if customer_id and customer_id not in por_customer:
+            por_customer[customer_id] = telefono
+
+    sembrados = 0
+    errores = 0
+    sin_email = 0
+    for customer_id, telefono in por_customer.items():
+        try:
+            # SDK de Stripe es sync → thread pool para no bloquear el event loop.
+            customer = await asyncio.to_thread(stripe.Customer.retrieve, customer_id)
+            email = getattr(customer, "email", None) or (
+                customer.get("email") if isinstance(customer, dict) else None
+            )
+            if not email:
+                sin_email += 1
+                logger.info(f"[USUARIOS] Customer {customer_id} sin email en Stripe; se omite.")
+                continue
+            await crear_o_vincular_usuario(
+                email=email,
+                telefono=telefono,
+                stripe_customer_id=customer_id,
+            )
+            sembrados += 1
+        except Exception as e:
+            errores += 1
+            logger.error(f"[USUARIOS] Error sembrando customer {customer_id}: {type(e).__name__}: {e}")
+
+    logger.info(
+        f"[USUARIOS] Siembra completada: {sembrados} sembrados, {sin_email} sin email, "
+        f"{errores} errores de {len(por_customer)} customers."
+    )
+    return {
+        "status": "ok",
+        "customers": len(por_customer),
+        "sembrados": sembrados,
+        "sin_email": sin_email,
+        "errores": errores,
+    }
