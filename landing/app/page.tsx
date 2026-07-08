@@ -243,7 +243,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
    acciones esperando aprobación y créditos con su barra de consumo. ── */
 function MockControlRoom() {
   return (
-    <div className="mock-screen relative z-10 mx-auto max-w-4xl overflow-hidden">
+    <div className="mock-screen relative z-10 mx-auto max-w-3xl overflow-hidden">
       <div className="p-4 sm:p-7">
         {/* Topbar: wordmark + módulos + acciones de usuario */}
         <div className="flex items-center justify-between gap-4">
@@ -652,7 +652,7 @@ export default function Home() {
 
       {/* ══════════════════ PRUEBA DE PRODUCTO: CONTROL ROOM EN ESCENARIO ══════════════════ */}
       <section className="relative z-10 mx-auto max-w-7xl px-6 pb-24 md:pb-28">
-        <div className="hero-stage px-5 pt-16 sm:px-12 sm:pt-24">
+        <div className="hero-stage px-5 pt-10 sm:px-12 sm:pt-14">
           <span className="stage-ghost" aria-hidden>
             Dona
           </span>
@@ -660,7 +660,7 @@ export default function Home() {
           {/* pie del monitor */}
           <div aria-hidden>
             <div className="mock-stand-neck" />
-            <div className="mock-stand-base mb-10" />
+            <div className="mock-stand-base mb-8" />
           </div>
         </div>
 

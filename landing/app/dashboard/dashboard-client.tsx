@@ -37,6 +37,7 @@ import {
   Lightbulb,
   Image as ImageIcon,
   BarChart3,
+  LineChart,
   Activity,
   Menu,
   X,
@@ -52,6 +53,7 @@ import SeccionOportunidades from "./seccion-oportunidades";
 import SeccionReportes from "./seccion-reportes";
 import SeccionGaleria from "./seccion-galeria";
 import SeccionChat from "./seccion-chat";
+import SeccionAnalitica from "./seccion-analitica";
 
 interface DashboardProps {
   session: { user?: { email?: string | null } };
@@ -69,8 +71,9 @@ const SECCIONES_VALIDAS = [
   "chat",
   "acciones",
   "oportunidades",
-  "outputs",
+  "analitica",
   "reportes",
+  "outputs",
   "creditos",
   "integraciones",
   "control-room",
@@ -387,8 +390,9 @@ export default function DashboardClient({ session }: DashboardProps) {
           },
         ]
       : []),
-    { id: "outputs", label: "Outputs", icon: ImageIcon },
+    { id: "analitica", label: "Analítica", icon: LineChart },
     { id: "reportes", label: "Reportes", icon: BarChart3 },
+    { id: "outputs", label: "Outputs", icon: ImageIcon },
     { id: "creditos", label: "Créditos y plan", icon: Wallet },
     { id: "integraciones", label: "Integraciones", icon: Link2 },
   ];
@@ -493,6 +497,16 @@ export default function DashboardClient({ session }: DashboardProps) {
         return <SeccionGaleria />;
       case "reportes":
         return <SeccionReportes />;
+      case "analitica":
+        if (load.status === "loading") return <SeccionesSkeleton />;
+        if (load.status === "error")
+          return <ErrorCard code={load.code} onRetry={handleRetry} />;
+        return (
+          <SeccionAnalitica
+            data={load.data}
+            irAAcciones={() => irA("acciones")}
+          />
+        );
       case "integraciones":
         return <SeccionIntegraciones connections={connections} />;
       case "acciones":

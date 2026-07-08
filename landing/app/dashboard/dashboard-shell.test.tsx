@@ -99,6 +99,7 @@ describe("DashboardShell · sidebar y navegación", () => {
     for (const label of [
       "Inicio",
       "Chat",
+      "Analítica",
       "Outputs",
       "Reportes",
       "Créditos y plan",
