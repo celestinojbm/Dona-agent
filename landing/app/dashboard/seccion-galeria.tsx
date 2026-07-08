@@ -95,14 +95,14 @@ export default function SeccionGaleria() {
 
   return (
     <section>
-      <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+      <h2 className="eyebrow mb-6 flex items-center gap-2">
         <ImageIcon className="w-4 h-4" />
         Galería
       </h2>
 
       {/* Aviso UX general */}
-      <div className="glass-card rounded-2xl px-6 py-5 mb-4 border-white/[0.06]">
-        <p className="text-sm text-white/55 font-light leading-relaxed">
+      <div className="surface-card px-6 py-5 mb-4">
+        <p className="text-sm text-[color:var(--ink-2)] leading-relaxed">
           Todo lo que Dona ha generado para ti — imágenes, videos, documentos
           y más — reunido aquí para verlo y descargarlo cuando quieras.
         </p>
@@ -110,7 +110,7 @@ export default function SeccionGaleria() {
 
       {/* Contador + refrescar */}
       <div className="flex items-center justify-between mb-6">
-        <p className="text-xs text-white/35 font-light">
+        <p className="text-xs text-[color:var(--muted)]">
           {load.status === "ready"
             ? `${assets.length} ${assets.length === 1 ? "activo" : "activos"}`
             : "Cargando activos…"}
@@ -118,7 +118,7 @@ export default function SeccionGaleria() {
         <button
           onClick={fetchAssets}
           disabled={load.status === "loading"}
-          className="btn-secondary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="btn-ghost px-5 py-2.5 rounded-full text-sm font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {load.status === "loading" ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -131,23 +131,23 @@ export default function SeccionGaleria() {
 
       {/* Loading */}
       {load.status === "loading" && (
-        <div className="glass-card rounded-2xl p-8 text-center">
-          <p className="text-white/35 font-light">Cargando…</p>
+        <div className="surface-card p-8 text-center">
+          <p className="text-[color:var(--muted)]">Cargando…</p>
         </div>
       )}
 
       {/* Error real */}
       {load.status === "error" && (
-        <div className="glass-card rounded-2xl p-8 border-rose-500/15">
-          <p className="text-white/70 font-light">
+        <div className="surface-card p-8 border-[#e64263]/40">
+          <p className="text-[color:var(--ink-2)]">
             No pudimos cargar tu galería.
           </p>
-          <p className="text-xs text-white/35 font-light mt-1 font-mono">
+          <p className="text-xs text-[color:var(--muted)] mt-1 font-mono">
             {load.code}
           </p>
           <button
             onClick={fetchAssets}
-            className="btn-secondary px-5 py-2 rounded-full text-sm mt-3"
+            className="btn-ghost px-5 py-2 rounded-full text-sm font-medium mt-3"
           >
             Reintentar
           </button>
@@ -156,11 +156,11 @@ export default function SeccionGaleria() {
 
       {/* Empty state */}
       {load.status === "ready" && assets.length === 0 && (
-        <div className="glass-card rounded-2xl p-8 text-center">
-          <p className="text-white/55 font-light">
+        <div className="surface-card p-8 text-center">
+          <p className="text-[color:var(--ink-2)]">
             Aún no has generado activos.
           </p>
-          <p className="text-xs text-white/35 font-light mt-2">
+          <p className="text-xs text-[color:var(--muted)] mt-2">
             Pídele a Dona una imagen, un video o un documento y aparecerá aquí.
           </p>
         </div>
@@ -186,9 +186,9 @@ function TarjetaAsset({ asset }: { asset: AssetGaleria }) {
     tipo === "image" && !!asset.url_publica && !imgError;
 
   return (
-    <article className="glass-card rounded-2xl overflow-hidden border-white/[0.06] flex flex-col">
+    <article className="surface-card overflow-hidden flex flex-col">
       {/* Preview / thumbnail */}
-      <div className="relative aspect-[4/3] bg-white/[0.03] flex items-center justify-center overflow-hidden">
+      <div className="relative aspect-[4/3] bg-[color:var(--bg-soft)] flex items-center justify-center overflow-hidden">
         {esImagenConPreview ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -199,9 +199,9 @@ function TarjetaAsset({ asset }: { asset: AssetGaleria }) {
             onError={() => setImgError(true)}
           />
         ) : (
-          <Icono className="w-10 h-10 text-white/20" />
+          <Icono className="w-10 h-10 text-[color:var(--muted)]" />
         )}
-        <span className="absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 text-white/60 font-light">
+        <span className="absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-white border border-[color:var(--line)] text-[color:var(--ink-2)] font-medium shadow-[0_1px_4px_rgba(11,11,18,0.18)]">
           {TIPO_LABEL[tipo]}
         </span>
       </div>
@@ -209,17 +209,17 @@ function TarjetaAsset({ asset }: { asset: AssetGaleria }) {
       {/* Meta */}
       <div className="px-4 py-3 flex flex-col gap-2 flex-1">
         {asset.prompt ? (
-          <p className="text-sm text-white/70 font-light leading-snug line-clamp-2">
+          <p className="text-sm text-[color:var(--ink-2)] leading-snug line-clamp-2">
             {asset.prompt}
           </p>
         ) : (
-          <p className="text-sm text-white/40 font-light italic">
+          <p className="text-sm text-[color:var(--muted)] italic">
             Sin descripción
           </p>
         )}
 
         <div className="mt-auto flex items-center justify-between gap-2 pt-2">
-          <span className="text-[11px] text-white/30 font-light">
+          <span className="text-[11px] text-[color:var(--muted)]">
             {formatFechaIso(asset.creado)}
             {asset.modelo ? ` · ${asset.modelo}` : ""}
           </span>
@@ -228,7 +228,7 @@ function TarjetaAsset({ asset }: { asset: AssetGaleria }) {
               href={asset.url_publica}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[11px] text-white/60 hover:text-white/90 font-light flex items-center gap-1 shrink-0 transition-colors"
+              className="text-[11px] text-[color:var(--ink-2)] hover:text-[color:var(--ink)] font-medium flex items-center gap-1 shrink-0 transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
               Descargar

@@ -77,21 +77,21 @@ function chipEstado(estado: string): { texto: string; color: string } {
     return {
       texto: "Activa",
       color:
-        "bg-emerald-500/[0.08] text-emerald-300/80 border-emerald-500/20",
+        "bg-emerald-600/10 text-emerald-700 border-emerald-600/40",
     };
   if (estado === "past_due")
     return {
       texto: "Pago atrasado",
-      color: "bg-amber-500/[0.08] text-amber-300/80 border-amber-500/20",
+      color: "bg-amber-500/15 text-amber-700 border-amber-500/40",
     };
   if (estado === "canceled")
     return {
       texto: "Cancelada",
-      color: "bg-rose-500/[0.08] text-rose-300/80 border-rose-500/20",
+      color: "bg-[#e64263]/10 text-[#e64263] border-[#e64263]/40",
     };
   return {
     texto: estado || "—",
-    color: "bg-white/[0.04] text-white/40 border-white/[0.08]",
+    color: "bg-[color:var(--bg-soft)] text-[color:var(--muted)] border-[color:var(--line)]",
   };
 }
 
@@ -254,20 +254,20 @@ export default function DashboardClient({ session }: DashboardProps) {
   ];
 
   return (
-    <div className="legacy-shell relative z-[2]">
+    <div className="relative z-[2] min-h-screen bg-[color:var(--bg)] text-[color:var(--ink)]">
       {/* Header */}
-      <header className="border-b border-white/[0.06] backdrop-blur-xl">
+      <header className="border-b border-[color:var(--line)]">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="text-xl font-normal text-white">
+          <Link href="/" className="text-xl font-semibold text-[color:var(--ink)]">
             Dona
           </Link>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-white/40 font-light">
+            <span className="text-sm text-[color:var(--muted)]">
               {session.user?.email}
             </span>
             <button
               onClick={() => signOut({ redirectTo: "/" })}
-              className="flex items-center gap-1.5 text-sm text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
               Salir
@@ -345,7 +345,7 @@ export default function DashboardClient({ session }: DashboardProps) {
 
         {/* Conexiones (hardcoded por ahora; out of scope para T1.4) */}
         <section>
-          <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+          <h2 className="eyebrow mb-6 flex items-center gap-2">
             <Link2 className="w-4 h-4" />
             Conexiones
           </h2>
@@ -356,37 +356,37 @@ export default function DashboardClient({ session }: DashboardProps) {
               return (
                 <div
                   key={conn.name}
-                  className="glass-card rounded-xl px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                  className="surface-card px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center">
-                      <Icon className="w-5 h-5 text-white/40" />
+                    <div className="icon-badge w-10 h-10">
+                      <Icon className="w-5 h-5" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-normal text-white">
+                        <span className="text-sm font-semibold text-[color:var(--ink)]">
                           {conn.name}
                         </span>
                         {conn.connected ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-white/40 font-mono">
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600/10 text-emerald-700 font-medium">
                             Conectado
                           </span>
                         ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.04] text-white/25 font-mono">
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[color:var(--bg-soft)] border border-[color:var(--line)] text-[color:var(--muted)] font-medium">
                             Desconectado
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-white/25 font-light mt-0.5">
+                      <p className="text-xs text-[color:var(--muted)] mt-0.5">
                         {conn.desc}
                       </p>
                     </div>
                   </div>
 
                   <button
-                    className={`text-sm px-5 py-2 rounded-full font-light ${
+                    className={`text-sm px-5 py-2 rounded-full ${
                       conn.connected
-                        ? "btn-secondary text-white/40"
+                        ? "btn-ghost"
                         : "btn-primary"
                     }`}
                   >
@@ -408,30 +408,30 @@ function SeccionSaldo({ data }: { data: UsuarioResumen }) {
   const { saldo_actual, creditos_mensuales } = data.creditos;
   return (
     <section>
-      <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+      <h2 className="eyebrow mb-6 flex items-center gap-2">
         <Wallet className="w-4 h-4" />
         Créditos
       </h2>
 
-      <div className="glass-card rounded-2xl p-8">
+      <div className="surface-card p-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
           <div>
-            <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">
+            <p className="eyebrow mb-2">
               Saldo actual
             </p>
             <div className="flex items-end gap-3">
-              <span className="text-6xl font-extralight text-white tabular-nums tracking-tighter">
+              <span className="text-6xl font-medium text-[color:var(--ink)] tabular-nums tracking-tight">
                 {saldo_actual}
               </span>
-              <span className="text-white/35 font-light pb-2">créditos</span>
+              <span className="text-[color:var(--muted)] pb-2">créditos</span>
             </div>
           </div>
           <div className="text-left md:text-right">
-            <p className="text-xs uppercase tracking-widest text-white/35 mb-2 font-light">
+            <p className="eyebrow mb-2">
               Plan mensual
             </p>
-            <p className="text-white/70 font-light">
-              <span className="text-2xl text-white font-normal tabular-nums">
+            <p className="text-[color:var(--ink-2)]">
+              <span className="text-2xl text-[color:var(--ink)] font-medium tabular-nums">
                 +{creditos_mensuales}
               </span>{" "}
               cada renovación
@@ -459,44 +459,44 @@ function SeccionSuscripcion({
 
   return (
     <section>
-      <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+      <h2 className="eyebrow mb-6 flex items-center gap-2">
         <CreditCard className="w-4 h-4" />
         Suscripción
       </h2>
 
-      <div className="glass-card rounded-2xl p-8">
+      <div className="surface-card p-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <span className="text-lg font-normal text-white">
+              <span className="text-lg font-semibold text-[color:var(--ink)]">
                 Plan {planNombre(plan)}
               </span>
               <span
-                className={`text-xs px-2.5 py-1 rounded-full border font-mono ${chip.color}`}
+                className={`text-xs px-2.5 py-1 rounded-full border font-medium ${chip.color}`}
               >
                 {chip.texto}
               </span>
             </div>
 
             {cancel_at_period_end && fechaRenovacion ? (
-              <p className="flex items-center gap-2 text-sm text-amber-300/70 font-light">
+              <p className="flex items-center gap-2 text-sm text-amber-700">
                 <AlertCircle className="w-4 h-4" />
                 Se cancela el {fechaRenovacion}
               </p>
             ) : estado === "active" && fechaRenovacion ? (
-              <p className="flex items-center gap-2 text-sm text-white/35 font-light">
-                <CheckCircle2 className="w-4 h-4 text-white/30" />
+              <p className="flex items-center gap-2 text-sm text-[color:var(--muted)]">
+                <CheckCircle2 className="w-4 h-4 text-[color:var(--muted)]" />
                 Próxima renovación: {fechaRenovacion}
               </p>
             ) : estado === "canceled" ? (
-              <p className="flex items-center gap-2 text-sm text-white/35 font-light">
-                <XCircle className="w-4 h-4 text-white/30" />
+              <p className="flex items-center gap-2 text-sm text-[color:var(--muted)]">
+                <XCircle className="w-4 h-4 text-[color:var(--muted)]" />
                 Suscripción cancelada — los créditos siguen disponibles
               </p>
             ) : null}
 
             {estado !== "canceled" && (
-              <p className="text-xs text-white/30 font-light max-w-md">
+              <p className="text-xs text-[color:var(--muted)] max-w-md">
                 Cambia método de pago, descarga facturas, pausa, cancela o
                 reactiva tu plan desde el portal de facturación.
               </p>
@@ -514,7 +514,7 @@ function SeccionSuscripcion({
             <button
               onClick={onManageBilling}
               disabled={openingPortal}
-              className="btn-secondary px-6 py-3 rounded-full text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn-ghost px-6 py-3 rounded-full text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {openingPortal ? "Abriendo..." : "Gestionar facturación"}
             </button>
@@ -534,7 +534,7 @@ function SeccionTopups({
 }) {
   return (
     <section>
-      <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+      <h2 className="eyebrow mb-6 flex items-center gap-2">
         <Zap className="w-4 h-4" />
         Comprar créditos extra
       </h2>
@@ -548,27 +548,27 @@ function SeccionTopups({
               key={p.codigo}
               onClick={() => onComprar(p.codigo)}
               disabled={isDisabled || isLoading}
-              className="glass-card rounded-2xl p-6 text-left transition-colors hover:border-white/[0.12] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="surface-card p-6 text-left disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <p className="text-xs uppercase tracking-widest text-white/35 mb-1 font-light">
+                  <p className="eyebrow mb-1">
                     Paquete {p.codigo}
                   </p>
-                  <p className="text-3xl font-light text-white tabular-nums tracking-tighter">
+                  <p className="text-3xl font-medium text-[color:var(--ink)] tabular-nums tracking-tight">
                     {p.creditos.toLocaleString("es-MX")}
                   </p>
-                  <p className="text-xs text-white/35 font-light mt-1">
+                  <p className="text-xs text-[color:var(--muted)] mt-1">
                     créditos · {p.sub}
                   </p>
                 </div>
-                <Plus className="w-5 h-5 text-white/30 shrink-0" />
+                <Plus className="w-5 h-5 text-[color:var(--muted)] shrink-0" />
               </div>
-              <div className="flex items-center justify-between border-t border-white/[0.04] pt-4">
-                <span className="text-lg text-white font-normal">
+              <div className="flex items-center justify-between border-t border-[color:var(--line)] pt-4">
+                <span className="text-lg text-[color:var(--ink)] font-medium">
                   ${p.precio_usd}
                 </span>
-                <span className="text-xs text-white/40 font-light">
+                <span className="text-xs font-medium text-[color:var(--brand-ink)]">
                   {isLoading ? "Abriendo..." : "Comprar"}
                 </span>
               </div>
@@ -577,7 +577,7 @@ function SeccionTopups({
         })}
       </div>
 
-      <p className="text-xs text-white/25 font-light mt-4 max-w-md">
+      <p className="text-xs text-[color:var(--muted)] mt-4 max-w-md">
         Los créditos extra se suman a tu saldo y no expiran. Tu plan
         Premium / Pro sigue activo y se renueva normalmente.
       </p>
@@ -591,43 +591,43 @@ function SeccionHistorial({ data }: { data: UsuarioResumen }) {
 
   return (
     <section>
-      <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+      <h2 className="eyebrow mb-6 flex items-center gap-2">
         <Receipt className="w-4 h-4" />
         Movimientos recientes
       </h2>
 
       {txs.length === 0 ? (
-        <div className="glass-card rounded-2xl p-8 text-center">
-          <p className="text-white/35 font-light">
+        <div className="surface-card p-8 text-center">
+          <p className="text-[color:var(--muted)]">
             Todavía no hay movimientos. Tu primer cargo o consumo aparecerá aquí.
           </p>
         </div>
       ) : (
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <ul className="divide-y divide-white/[0.04]">
+        <div className="surface-card overflow-hidden">
+          <ul className="divide-y divide-[color:var(--line)]">
             {txs.map((t, i) => (
               <li
                 key={i}
                 className="px-6 py-4 flex items-center justify-between gap-4"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm text-white/70 font-light truncate">
+                  <p className="text-sm text-[color:var(--ink-2)] truncate">
                     {t.razon || "Movimiento"}
                   </p>
-                  <p className="text-xs text-white/30 font-light mt-0.5">
+                  <p className="text-xs text-[color:var(--muted)] mt-0.5">
                     {formatFechaIso(t.creado)}
                   </p>
                 </div>
                 <div className="text-right shrink-0">
                   <p
-                    className={`text-base tabular-nums font-normal ${
-                      t.delta >= 0 ? "text-emerald-300/80" : "text-white/60"
+                    className={`text-base tabular-nums font-medium ${
+                      t.delta >= 0 ? "text-emerald-700" : "text-[color:var(--ink-2)]"
                     }`}
                   >
                     {t.delta >= 0 ? "+" : ""}
                     {t.delta}
                   </p>
-                  <p className="text-xs text-white/30 font-light">
+                  <p className="text-xs text-[color:var(--muted)]">
                     saldo {t.saldo_resultante}
                   </p>
                 </div>
@@ -645,16 +645,16 @@ function SeccionesSkeleton() {
     <>
       {/* Saldo skeleton */}
       <section>
-        <div className="h-4 w-24 mb-6 bg-white/[0.04] rounded animate-pulse" />
-        <div className="glass-card rounded-2xl p-8">
+        <div className="h-4 w-24 mb-6 bg-[color:var(--fill)] rounded animate-pulse" />
+        <div className="surface-card p-8">
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
             <div className="space-y-3">
-              <div className="h-3 w-24 bg-white/[0.04] rounded animate-pulse" />
-              <div className="h-12 w-32 bg-white/[0.04] rounded animate-pulse" />
+              <div className="h-3 w-24 bg-[color:var(--fill)] rounded animate-pulse" />
+              <div className="h-12 w-32 bg-[color:var(--fill)] rounded animate-pulse" />
             </div>
             <div className="space-y-3">
-              <div className="h-3 w-24 bg-white/[0.04] rounded animate-pulse" />
-              <div className="h-6 w-32 bg-white/[0.04] rounded animate-pulse" />
+              <div className="h-3 w-24 bg-[color:var(--fill)] rounded animate-pulse" />
+              <div className="h-6 w-32 bg-[color:var(--fill)] rounded animate-pulse" />
             </div>
           </div>
         </div>
@@ -662,21 +662,21 @@ function SeccionesSkeleton() {
 
       {/* Suscripción skeleton */}
       <section>
-        <div className="h-4 w-32 mb-6 bg-white/[0.04] rounded animate-pulse" />
-        <div className="glass-card rounded-2xl p-8 space-y-3">
-          <div className="h-5 w-48 bg-white/[0.04] rounded animate-pulse" />
-          <div className="h-4 w-64 bg-white/[0.04] rounded animate-pulse" />
+        <div className="h-4 w-32 mb-6 bg-[color:var(--fill)] rounded animate-pulse" />
+        <div className="surface-card p-8 space-y-3">
+          <div className="h-5 w-48 bg-[color:var(--fill)] rounded animate-pulse" />
+          <div className="h-4 w-64 bg-[color:var(--fill)] rounded animate-pulse" />
         </div>
       </section>
 
       {/* Historial skeleton */}
       <section>
-        <div className="h-4 w-40 mb-6 bg-white/[0.04] rounded animate-pulse" />
-        <div className="glass-card rounded-2xl p-8 space-y-4">
+        <div className="h-4 w-40 mb-6 bg-[color:var(--fill)] rounded animate-pulse" />
+        <div className="surface-card p-8 space-y-4">
           {[0, 1, 2].map((i) => (
             <div key={i} className="flex justify-between">
-              <div className="h-4 w-1/3 bg-white/[0.04] rounded animate-pulse" />
-              <div className="h-4 w-16 bg-white/[0.04] rounded animate-pulse" />
+              <div className="h-4 w-1/3 bg-[color:var(--fill)] rounded animate-pulse" />
+              <div className="h-4 w-16 bg-[color:var(--fill)] rounded animate-pulse" />
             </div>
           ))}
         </div>
@@ -688,20 +688,20 @@ function SeccionesSkeleton() {
 function ErrorCard({ code, onRetry }: { code: string; onRetry: () => void }) {
   return (
     <section>
-      <div className="glass-card rounded-2xl p-8 border-rose-500/15">
+      <div className="surface-card p-8" style={{ borderColor: "rgba(230, 66, 99, 0.4)" }}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-rose-300/70 mt-0.5 shrink-0" />
+            <AlertCircle className="w-5 h-5 text-[color:var(--dato-neg)] mt-0.5 shrink-0" />
             <div>
-              <p className="text-white/70 font-light">{mensajeError(code)}</p>
-              <p className="text-xs text-white/25 font-light mt-1 font-mono">
+              <p className="text-[color:var(--ink-2)]">{mensajeError(code)}</p>
+              <p className="text-xs text-[color:var(--muted)] mt-1 font-mono">
                 {code}
               </p>
             </div>
           </div>
           <button
             onClick={onRetry}
-            className="btn-secondary px-5 py-2 rounded-full text-sm flex items-center gap-2 self-start md:self-auto"
+            className="btn-ghost px-5 py-2 rounded-full text-sm flex items-center gap-2 self-start md:self-auto"
           >
             <RefreshCw className="w-4 h-4" />
             Reintentar

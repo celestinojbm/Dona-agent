@@ -73,14 +73,14 @@ export default function SeccionReportes() {
 
   return (
     <section>
-      <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+      <h2 className="eyebrow mb-6 flex items-center gap-2">
         <BarChart3 className="w-4 h-4" />
         Reportes
       </h2>
 
       {/* Aviso UX + toggle período */}
-      <div className="glass-card rounded-2xl px-6 py-5 mb-4 border-white/[0.06]">
-        <p className="text-sm text-white/55 font-light leading-relaxed">
+      <div className="surface-card px-6 py-5 mb-4">
+        <p className="text-sm text-[color:var(--ink-2)] leading-relaxed">
           Tus números de negocio — ventas, gastos, utilidad y pedidos — que
           Dona registra desde tus mensajes, reunidos aquí para verlos de un
           vistazo.
@@ -88,16 +88,16 @@ export default function SeccionReportes() {
       </div>
 
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
-        <div className="inline-flex rounded-full border border-white/[0.08] p-1 bg-white/[0.02]">
+        <div className="inline-flex rounded-full border border-[color:var(--line)] p-1 bg-white">
           {(["mes", "semana"] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPeriodo(p)}
               disabled={load.status === "loading"}
-              className={`px-5 py-1.5 rounded-full text-sm font-light transition-colors disabled:cursor-not-allowed ${
+              className={`px-5 py-1.5 rounded-full text-sm transition-colors disabled:cursor-not-allowed ${
                 periodo === p
-                  ? "bg-white/[0.08] text-white"
-                  : "text-white/40 hover:text-white/70"
+                  ? "pill-active font-medium"
+                  : "text-[color:var(--muted)] hover:text-[color:var(--ink-2)]"
               }`}
             >
               {p === "mes" ? "Este mes" : "Esta semana"}
@@ -107,7 +107,7 @@ export default function SeccionReportes() {
         <button
           onClick={() => fetchReporte(periodo)}
           disabled={load.status === "loading"}
-          className="btn-secondary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="btn-ghost px-5 py-2.5 rounded-full text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {load.status === "loading" ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -120,23 +120,23 @@ export default function SeccionReportes() {
 
       {/* Loading */}
       {load.status === "loading" && (
-        <div className="glass-card rounded-2xl p-8 text-center">
-          <p className="text-white/35 font-light">Cargando…</p>
+        <div className="surface-card p-8 text-center">
+          <p className="text-[color:var(--muted)]">Cargando…</p>
         </div>
       )}
 
       {/* Error real */}
       {load.status === "error" && (
-        <div className="glass-card rounded-2xl p-8 border-rose-500/15">
-          <p className="text-white/70 font-light">
+        <div className="surface-card p-8 border-[#e64263]/40">
+          <p className="text-[color:var(--ink-2)]">
             No pudimos cargar tus reportes.
           </p>
-          <p className="text-xs text-white/35 font-light mt-1 font-mono">
+          <p className="text-xs text-[color:var(--muted)] mt-1 font-mono">
             {load.code}
           </p>
           <button
             onClick={() => fetchReporte(periodo)}
-            className="btn-secondary px-5 py-2 rounded-full text-sm mt-3"
+            className="btn-ghost px-5 py-2 rounded-full text-sm mt-3"
           >
             Reintentar
           </button>
@@ -145,12 +145,12 @@ export default function SeccionReportes() {
 
       {/* Empty state · los datos dependen de captura por WhatsApp */}
       {load.status === "ready" && reporte && !reporte.hay_datos && (
-        <div className="glass-card rounded-2xl p-8 text-center">
-          <p className="text-white/55 font-light">
+        <div className="surface-card p-8 text-center">
+          <p className="text-[color:var(--ink-2)]">
             Aún no hay datos de negocio registrados
             {reporte.etiqueta ? ` en ${reporte.etiqueta}` : ""}.
           </p>
-          <p className="text-xs text-white/35 font-light mt-2">
+          <p className="text-xs text-[color:var(--muted)] mt-2">
             Cuéntale a Dona por WhatsApp tus ventas y gastos —
             &quot;vendí 3 pizzas en 450&quot;— y tus números aparecerán aquí.
           </p>
@@ -161,7 +161,7 @@ export default function SeccionReportes() {
       {load.status === "ready" && reporte && reporte.hay_datos && (
         <div className="space-y-4">
           {reporte.etiqueta && (
-            <p className="text-xs text-white/35 font-light">
+            <p className="text-xs text-[color:var(--muted)]">
               {reporte.etiqueta}
             </p>
           )}
@@ -172,36 +172,38 @@ export default function SeccionReportes() {
               label="Ventas"
               valor={reporte.ventas}
               icono={TrendingUp}
-              acento="text-emerald-300/80"
+              acento="text-emerald-700"
             />
             <TarjetaMetrica
               label="Gastos"
               valor={reporte.gastos}
               icono={TrendingDown}
-              acento="text-rose-300/70"
+              acento="text-[color:var(--dato-neg)]"
             />
             <TarjetaMetrica
               label="Utilidad"
               valor={reporte.utilidad}
               icono={Wallet}
               acento={
-                reporte.utilidad >= 0 ? "text-white" : "text-rose-300/70"
+                reporte.utilidad >= 0
+                  ? "text-[color:var(--ink)]"
+                  : "text-[color:var(--dato-neg)]"
               }
             />
           </div>
 
           {/* Pedidos + comparación */}
-          <div className="glass-card rounded-2xl px-6 py-5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="surface-card px-6 py-5 flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
-              <Package className="w-5 h-5 text-white/40" />
+              <Package className="w-5 h-5 text-[color:var(--muted)]" />
               <div>
-                <p className="text-sm text-white/70 font-light">
+                <p className="text-sm text-[color:var(--ink-2)]">
                   {reporte.num_pedidos}{" "}
                   {reporte.num_pedidos === 1 ? "pedido" : "pedidos"}
                 </p>
                 {reporte.periodo === "semana" &&
                   reporte.num_pedidos > 0 && (
-                    <p className="text-xs text-white/35 font-light mt-0.5">
+                    <p className="text-xs text-[color:var(--muted)] mt-0.5">
                       {reporte.pedidos_entregados ?? 0} entregados ·{" "}
                       {reporte.pedidos_pendientes ?? 0} en curso
                     </p>
@@ -210,10 +212,10 @@ export default function SeccionReportes() {
             </div>
             {comparacion && (
               <div
-                className={`text-sm font-light flex items-center gap-1.5 ${
+                className={`text-sm font-medium flex items-center gap-1.5 ${
                   comparacion.delta_ventas_pct >= 0
-                    ? "text-emerald-300/80"
-                    : "text-rose-300/70"
+                    ? "text-emerald-700"
+                    : "text-[color:var(--dato-neg)]"
                 }`}
               >
                 {comparacion.delta_ventas_pct >= 0 ? (
@@ -229,22 +231,22 @@ export default function SeccionReportes() {
 
           {/* Top categorías de gasto */}
           {reporte.top_categorias.length > 0 && (
-            <div className="glass-card rounded-2xl overflow-hidden">
-              <div className="px-6 py-4 border-b border-white/[0.04]">
-                <p className="text-xs uppercase tracking-widest text-white/35 font-light">
+            <div className="surface-card overflow-hidden">
+              <div className="px-6 py-4 border-b border-[color:var(--line)]">
+                <p className="eyebrow">
                   Top categorías de gasto
                 </p>
               </div>
-              <ul className="divide-y divide-white/[0.04]">
+              <ul className="divide-y divide-[color:var(--line)]">
                 {reporte.top_categorias.map((cat) => (
                   <li
                     key={cat.categoria}
                     className="px-6 py-3.5 flex items-center justify-between gap-4"
                   >
-                    <span className="text-sm text-white/70 font-light truncate">
+                    <span className="text-sm text-[color:var(--ink-2)] truncate">
                       {cat.categoria}
                     </span>
-                    <span className="text-sm text-white/60 font-normal tabular-nums shrink-0">
+                    <span className="text-sm text-[color:var(--ink)] font-medium tabular-nums shrink-0">
                       ${formatMonto(cat.total)}
                     </span>
                   </li>
@@ -270,15 +272,15 @@ function TarjetaMetrica({
   acento: string;
 }) {
   return (
-    <div className="glass-card rounded-2xl p-6">
+    <div className="surface-card p-6">
       <div className="flex items-center gap-2 mb-3">
         <Icono className={`w-4 h-4 ${acento}`} />
-        <p className="text-xs uppercase tracking-widest text-white/35 font-light">
+        <p className="eyebrow">
           {label}
         </p>
       </div>
-      <p className={`text-3xl font-extralight tabular-nums tracking-tighter ${acento}`}>
-        <span className="text-white/30 text-xl align-top">$</span>
+      <p className="text-3xl font-medium tabular-nums tracking-tight text-[color:var(--ink)]">
+        <span className="text-[color:var(--muted)] text-xl align-top">$</span>
         {formatMonto(valor)}
       </p>
     </div>

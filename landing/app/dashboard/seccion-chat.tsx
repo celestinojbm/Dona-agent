@@ -120,17 +120,17 @@ export default function SeccionChat() {
 
   return (
     <section data-tour="chat">
-      <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+      <h2 className="eyebrow mb-6 flex items-center gap-2">
         <MessageSquare className="w-4 h-4" />
         Chat con Dona
       </h2>
 
-      <div className="glass-card rounded-2xl overflow-hidden flex flex-col">
+      <div className="surface-static overflow-hidden flex flex-col">
         {/* Lista de mensajes */}
         <div className="min-h-[280px] max-h-[520px] overflow-y-auto px-5 py-6 space-y-4">
           {turnos.length === 0 && !enviando && (
             <div className="h-full flex items-center justify-center text-center py-10">
-              <p className="text-white/40 font-light max-w-sm">
+              <p className="text-[color:var(--muted)] max-w-sm">
                 Escríbele a Dona como lo harías por WhatsApp. Puede generar
                 imágenes, llevar tus números, redactar y enviar correos, y más —
                 con los mismos permisos y costos.
@@ -153,7 +153,7 @@ export default function SeccionChat() {
         </div>
 
         {/* Input */}
-        <div className="border-t border-white/[0.06] px-4 py-3">
+        <div className="border-t border-[color:var(--line)] px-4 py-3 transition-colors focus-within:border-[color:var(--brand)]">
           <div className="flex items-end gap-3">
             <textarea
               value={input}
@@ -162,7 +162,7 @@ export default function SeccionChat() {
               rows={1}
               placeholder="Escribe tu mensaje…"
               disabled={enviando}
-              className="flex-1 resize-none bg-transparent text-sm text-white/90 placeholder:text-white/30 font-light focus:outline-none py-2 max-h-32 disabled:opacity-50"
+              className="flex-1 resize-none bg-transparent text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] focus:outline-none py-2 max-h-32 disabled:opacity-50"
             />
             <button
               onClick={() => void enviar()}
@@ -188,10 +188,10 @@ function Burbuja({ mensaje }: { mensaje: MensajeChat }) {
   return (
     <div className={`flex ${esUsuario ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm font-light leading-relaxed whitespace-pre-wrap break-words ${
+        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words ${
           esUsuario
-            ? "bg-white/[0.10] text-white/90"
-            : "bg-white/[0.04] border border-white/[0.06] text-white/80"
+            ? "bg-[color:var(--fill)] text-[color:var(--ink)]"
+            : "bg-[color:var(--bg-soft)] border border-[color:var(--line)] text-[color:var(--ink-2)]"
         }`}
       >
         {mensaje.texto}
@@ -203,7 +203,7 @@ function Burbuja({ mensaje }: { mensaje: MensajeChat }) {
 function BurbujaError({ texto }: { texto: string }) {
   return (
     <div className="flex justify-start">
-      <div className="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm font-light leading-relaxed bg-rose-500/[0.08] border border-rose-500/20 text-rose-200/80 flex items-start gap-2">
+      <div className="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed bg-[#e64263]/10 border border-[#e64263]/40 text-[color:var(--dato-neg)] flex items-start gap-2">
         <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
         <span>{texto}</span>
       </div>
@@ -214,12 +214,12 @@ function BurbujaError({ texto }: { texto: string }) {
 function BurbujaEscribiendo() {
   return (
     <div className="flex justify-start">
-      <div className="rounded-2xl px-4 py-3 bg-white/[0.04] border border-white/[0.06] flex items-center gap-2">
-        <span className="text-xs text-white/40 font-light">Dona está escribiendo</span>
+      <div className="rounded-2xl px-4 py-3 bg-[color:var(--bg-soft)] border border-[color:var(--line)] flex items-center gap-2">
+        <span className="text-xs text-[color:var(--muted)]">Dona está escribiendo</span>
         <span className="flex gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:-0.3s]" />
-          <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:-0.15s]" />
-          <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" />
+          <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--muted)] animate-bounce [animation-delay:-0.3s]" />
+          <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--muted)] animate-bounce [animation-delay:-0.15s]" />
+          <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--muted)] animate-bounce" />
         </span>
       </div>
     </div>

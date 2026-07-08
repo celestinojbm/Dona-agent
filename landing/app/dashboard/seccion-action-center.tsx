@@ -70,10 +70,10 @@ const RIESGO_LABEL: Record<NivelRiesgo, string> = {
 };
 
 const RIESGO_COLOR: Record<NivelRiesgo, string> = {
-  low: "bg-emerald-500/[0.08] text-emerald-300/90 border-emerald-500/20",
-  medium: "bg-amber-500/[0.08] text-amber-300/90 border-amber-500/20",
-  high: "bg-orange-500/[0.08] text-orange-300/90 border-orange-500/20",
-  critical: "bg-rose-500/[0.08] text-rose-300/90 border-rose-500/20",
+  low: "bg-emerald-600/10 text-emerald-700 border-emerald-600/40",
+  medium: "bg-amber-500/15 text-amber-700 border-amber-500/40",
+  high: "bg-orange-500/10 text-orange-700 border-orange-500/40",
+  critical: "bg-[#e64263]/10 text-[#e64263] border-[#e64263]/40",
 };
 
 const ESTADO_LABEL: Record<EstadoAccion, string> = {
@@ -88,14 +88,14 @@ const ESTADO_LABEL: Record<EstadoAccion, string> = {
 };
 
 const ESTADO_COLOR: Record<EstadoAccion, string> = {
-  pending: "text-emerald-300/80",
-  needs_approval: "text-amber-300/80",
-  approved: "text-sky-300/80",
-  running: "text-sky-300/80",
-  completed: "text-emerald-300/80",
-  rejected: "text-white/40",
-  failed: "text-rose-300/80",
-  cancelled: "text-white/40",
+  pending: "text-emerald-700",
+  needs_approval: "text-amber-700",
+  approved: "text-sky-700",
+  running: "text-sky-700",
+  completed: "text-emerald-700",
+  rejected: "text-[color:var(--muted)]",
+  failed: "text-[color:var(--dato-neg)]",
+  cancelled: "text-[color:var(--muted)]",
 };
 
 function esTerminal(estado: EstadoAccion): boolean {
@@ -300,17 +300,17 @@ export default function SeccionActionCenter() {
 
   return (
     <section>
-      <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+      <h2 className="eyebrow mb-6 flex items-center gap-2">
         <Sparkles className="w-4 h-4" />
         Centro de acción
       </h2>
 
       {/* Aviso UX general */}
-      <div className="glass-card rounded-2xl px-6 py-5 mb-4 border-white/[0.06]">
-        <p className="text-sm text-white/55 font-light leading-relaxed">
+      <div className="surface-card px-6 py-5 mb-4">
+        <p className="text-sm text-[color:var(--ink-2)] leading-relaxed">
           Dona detectó oportunidades para tu negocio. Aquí preparamos
           borradores, planes y checklists.{" "}
-          <span className="text-white/75">
+          <span className="text-[color:var(--ink)] font-medium">
             Nada se publica ni se envía sin tu aprobación.
           </span>
         </p>
@@ -318,7 +318,7 @@ export default function SeccionActionCenter() {
 
       {/* Botón generar */}
       <div className="flex items-center justify-between mb-6">
-        <p className="text-xs text-white/35 font-light">
+        <p className="text-xs text-[color:var(--muted)]">
           {load.status === "ready"
             ? `${activas.length} acciones activas · ${historial.length} en historial`
             : "Cargando acciones…"}
@@ -326,7 +326,7 @@ export default function SeccionActionCenter() {
         <button
           onClick={handleGenerar}
           disabled={generando || load.status === "loading"}
-          className="btn-secondary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="btn-ghost px-5 py-2.5 rounded-full text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {generando ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -339,8 +339,8 @@ export default function SeccionActionCenter() {
 
       {/* Loading */}
       {load.status === "loading" && (
-        <div className="glass-card rounded-2xl p-8 text-center">
-          <p className="text-white/35 font-light">Cargando…</p>
+        <div className="surface-card p-8 text-center">
+          <p className="text-[color:var(--muted)]">Cargando…</p>
         </div>
       )}
 
@@ -348,17 +348,17 @@ export default function SeccionActionCenter() {
           sigue visible arriba · este panel solo informa la falla y
           ofrece reintento. */}
       {load.status === "error" && (
-        <div className="glass-card rounded-2xl p-8 border-rose-500/15">
-          <p className="text-white/70 font-light">
+        <div className="surface-card p-8 border-[#e64263]/40">
+          <p className="text-[color:var(--ink-2)]">
             No pudimos cargar tus acciones.
           </p>
-          <p className="text-xs text-white/35 font-light mt-1 font-mono">
+          <p className="text-xs text-[color:var(--muted)] mt-1 font-mono">
             {load.code}
           </p>
           <div className="flex items-center gap-2 mt-3">
             <button
               onClick={fetchAcciones}
-              className="btn-secondary px-5 py-2 rounded-full text-sm"
+              className="btn-ghost px-5 py-2 rounded-full text-sm"
             >
               Reintentar
             </button>
@@ -379,23 +379,23 @@ export default function SeccionActionCenter() {
           acciones y QUÉ hacer. Sin perfilDiag, mostramos el empty
           state genérico. */}
       {load.status === "ready" && acciones.length === 0 && (
-        <div className="glass-card rounded-2xl p-8">
+        <div className="surface-card p-8">
           {perfilDiag ? (
             <>
-              <p className="text-sm uppercase tracking-widest text-amber-300/80 font-light mb-3">
+              <p className="text-xs uppercase tracking-widest text-amber-700 font-semibold mb-3">
                 {perfilDiag.estado === "missing"
                   ? "Diagnóstico pendiente"
                   : "Diagnóstico incompleto"}
               </p>
-              <p className="text-white/70 font-light mb-2">
+              <p className="text-[color:var(--ink-2)] mb-2">
                 {perfilDiag.razon}
               </p>
               {perfilDiag.estado === "incomplete" && (
-                <p className="text-xs text-white/40 font-light mb-3 tabular-nums">
+                <p className="text-xs text-[color:var(--muted)] mb-3 tabular-nums">
                   {perfilDiag.campos_llenos}/{perfilDiag.campos_totales} campos del diagnóstico llenos
                 </p>
               )}
-              <p className="text-sm text-white/55 font-light mb-4">
+              <p className="text-sm text-[color:var(--ink-2)] mb-4">
                 {perfilDiag.siguiente_paso}
               </p>
               <div className="flex items-center gap-2">
@@ -410,7 +410,7 @@ export default function SeccionActionCenter() {
                 <button
                   onClick={handleGenerar}
                   disabled={generando}
-                  className="btn-secondary px-5 py-2.5 rounded-full text-sm disabled:opacity-50"
+                  className="btn-ghost px-5 py-2.5 rounded-full text-sm disabled:opacity-50"
                 >
                   Reintentar generar
                 </button>
@@ -418,7 +418,7 @@ export default function SeccionActionCenter() {
             </>
           ) : (
             <div className="text-center">
-              <p className="text-white/55 font-light mb-4">
+              <p className="text-[color:var(--ink-2)] mb-4">
                 Aún no hay acciones generadas.
               </p>
               <button
@@ -453,7 +453,7 @@ export default function SeccionActionCenter() {
       {/* Historial */}
       {historial.length > 0 && (
         <details className="mt-8">
-          <summary className="cursor-pointer text-xs text-white/35 font-light uppercase tracking-widest mb-3">
+          <summary className="cursor-pointer eyebrow mb-3">
             Historial ({historial.length})
           </summary>
           <div className="space-y-3 mt-3">
@@ -514,7 +514,7 @@ function CardAccion({
     ? "Aprobada · requiere confirmación dedicada"
     : ESTADO_LABEL[e];
   const estadoColorMostrado = highAprobadaPendienteConfirmacion
-    ? "text-orange-300/90"
+    ? "text-orange-700"
     : ESTADO_COLOR[e];
   const showAprobar =
     nextRequired === "approval_required" && r !== "critical";
@@ -567,31 +567,31 @@ function CardAccion({
   }
 
   return (
-    <div className="glass-card rounded-2xl px-6 py-5">
+    <div className="surface-card px-6 py-5">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-base font-normal text-white">
+            <span className="text-base font-semibold text-[color:var(--ink)]">
               {accion.titulo}
             </span>
             <span
-              className={`text-[10px] px-2 py-0.5 rounded-full border font-mono ${RIESGO_COLOR[r]}`}
+              className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${RIESGO_COLOR[r]}`}
             >
               {RIESGO_LABEL[r]}
             </span>
           </div>
-          <p className="text-sm text-white/55 font-light leading-relaxed">
+          <p className="text-sm text-[color:var(--ink-2)] leading-relaxed">
             {accion.descripcion}
           </p>
           {accion.razon_recomendacion && (
-            <p className="text-xs text-white/35 font-light mt-2 italic">
+            <p className="text-xs text-[color:var(--muted)] mt-2 italic">
               · {accion.razon_recomendacion}
             </p>
           )}
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <span
-            className={`text-xs font-light flex items-center gap-1.5 ${estadoColorMostrado}`}
+            className={`text-xs flex items-center gap-1.5 ${estadoColorMostrado}`}
           >
             {highAprobadaPendienteConfirmacion ? (
               <Lock className="w-3.5 h-3.5" />
@@ -601,7 +601,7 @@ function CardAccion({
             {estadoLabelMostrado}
           </span>
           {accion.costo_creditos_estimado > 0 && (
-            <span className="text-xs text-white/30 font-light tabular-nums">
+            <span className="text-xs text-[color:var(--muted)] tabular-nums">
               ~{accion.costo_creditos_estimado} créditos
             </span>
           )}
@@ -612,8 +612,8 @@ function CardAccion({
           (execution_block_reason); fallback a copy local si el payload
           es legacy. */}
       {showCriticalBlock && (
-        <div className="mt-3 p-3 rounded-lg bg-rose-500/[0.06] border border-rose-500/20">
-          <p className="text-xs text-rose-300/80 font-light flex items-start gap-2">
+        <div className="mt-3 p-3 rounded-lg bg-[#e64263]/10 border border-[#e64263]/40">
+          <p className="text-xs text-[color:var(--dato-neg)] flex items-start gap-2">
             <Lock className="w-4 h-4 mt-0.5 shrink-0" />
             {criticalBlockText}
           </p>
@@ -624,8 +624,8 @@ function CardAccion({
           (execution_block_reason); fallback a copy local si el payload
           es legacy. */}
       {highAprobadaPendienteConfirmacion && (
-        <div className="mt-3 p-3 rounded-lg bg-orange-500/[0.06] border border-orange-500/20">
-          <p className="text-xs text-orange-300/80 font-light flex items-start gap-2">
+        <div className="mt-3 p-3 rounded-lg bg-orange-500/10 border border-orange-500/40">
+          <p className="text-xs text-orange-700 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             {dedicatedBlockText}
           </p>
@@ -634,11 +634,11 @@ function CardAccion({
 
       {/* Resultado dry-run */}
       {result && e === "completed" && (
-        <div className="mt-3 p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-          <p className="text-xs uppercase tracking-widest text-white/30 mb-2 font-light">
+        <div className="mt-3 p-3 rounded-lg bg-[color:var(--bg-soft)] border border-[color:var(--line)]">
+          <p className="eyebrow mb-2">
             Resultado
           </p>
-          <pre className="text-xs text-white/60 font-mono whitespace-pre-wrap break-words leading-relaxed">
+          <pre className="text-xs text-[color:var(--ink-2)] font-mono whitespace-pre-wrap break-words leading-relaxed">
             {JSON.stringify(result, null, 2)}
           </pre>
         </div>
@@ -646,8 +646,8 @@ function CardAccion({
 
       {/* Error */}
       {accion.error_message && (e === "failed" || e === "rejected") && (
-        <div className="mt-3 p-3 rounded-lg bg-rose-500/[0.04] border border-rose-500/15">
-          <p className="text-xs text-rose-300/70 font-light">
+        <div className="mt-3 p-3 rounded-lg bg-[#e64263]/10 border border-[#e64263]/40">
+          <p className="text-xs text-[color:var(--dato-neg)]">
             {accion.error_message}
           </p>
         </div>
@@ -655,34 +655,34 @@ function CardAccion({
 
       {/* Preview y confirmación HIGH dedicada */}
       {highPreview && highAprobadaPendienteConfirmacion && (
-        <div className="mt-3 p-4 rounded-xl bg-orange-500/[0.05] border border-orange-500/20">
-          <p className="text-xs uppercase tracking-widest text-orange-200/80 mb-3 font-light">
+        <div className="mt-3 p-4 rounded-xl bg-orange-500/10 border border-orange-500/40">
+          <p className="text-xs uppercase tracking-widest text-orange-700 font-semibold mb-3">
             Preview de envío HIGH
           </p>
-          <div className="grid gap-2 text-xs text-white/60 font-light">
+          <div className="grid gap-2 text-xs text-[color:var(--ink-2)]">
             <p>
-              <span className="text-white/35">Destino:</span> {highPreview.destino_short}
+              <span className="text-[color:var(--muted)]">Destino:</span> {highPreview.destino_short}
             </p>
             <p>
-              <span className="text-white/35">Costo estimado:</span>{" "}
+              <span className="text-[color:var(--muted)]">Costo estimado:</span>{" "}
               {highPreview.costo_creditos_estimado} créditos
             </p>
             <p>
-              <span className="text-white/35">Riesgo:</span> HIGH
+              <span className="text-[color:var(--muted)]">Riesgo:</span> HIGH
             </p>
             <p className="whitespace-pre-wrap break-words">
-              <span className="text-white/35">Mensaje:</span>{" "}
+              <span className="text-[color:var(--muted)]">Mensaje:</span>{" "}
               {highPreview.mensaje_preview}
             </p>
           </div>
-          <label className="block text-xs text-white/45 font-light mt-4 mb-2" htmlFor={`confirm-high-${accion.id}`}>
+          <label className="block text-xs text-[color:var(--muted)] mt-4 mb-2" htmlFor={`confirm-high-${accion.id}`}>
             Escribe ENVIAR para confirmar
           </label>
           <input
             id={`confirm-high-${accion.id}`}
             value={highConfirmacion}
             onChange={(ev) => setHighConfirmacion(ev.target.value)}
-            className="w-full rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-orange-300/40"
+            className="w-full rounded-lg bg-white border border-[color:var(--line)] px-3 py-2 text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--brand)]"
             autoComplete="off"
           />
           <div className="flex items-center justify-end gap-2 mt-3">
@@ -692,7 +692,7 @@ function CardAccion({
                 setHighConfirmacion("");
               }}
               disabled={highBusy}
-              className="btn-secondary px-4 py-2 rounded-full text-xs disabled:opacity-50"
+              className="btn-ghost px-4 py-2 rounded-full text-xs disabled:opacity-50"
             >
               Cancelar
             </button>
@@ -716,7 +716,7 @@ function CardAccion({
               <button
                 onClick={onRechazar}
                 disabled={enCurso}
-                className="btn-secondary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
+                className="btn-ghost px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
               >
                 <XCircle className="w-3.5 h-3.5" />
                 Rechazar
@@ -753,7 +753,7 @@ function CardAccion({
             <button
               onClick={cargarPreviewHigh}
               disabled={enCurso || highBusy}
-              className="px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-orange-500/[0.08] border border-orange-500/25 text-orange-200 font-light disabled:opacity-50"
+              className="px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-orange-500/10 border border-orange-500/40 text-orange-700 font-medium disabled:opacity-50"
             >
               {highBusy && !highPreview ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />

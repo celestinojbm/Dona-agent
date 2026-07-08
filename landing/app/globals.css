@@ -43,6 +43,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Todas las clases del sistema viven en @layer components para que las
+   utilities de Tailwind v4 (@layer utilities) puedan sobreescribirlas —
+   sin esto, overrides como border-[#e64263]/40 sobre .surface-card son
+   inertes (el CSS sin capa gana a cualquier capa). */
+@layer components {
+
 .hero-mono {
   font-family: var(--font-hero-mono), ui-monospace, monospace;
 }
@@ -130,6 +136,20 @@ body {
   transform: translateY(-2px);
   border-color: #d4d4ce;
   box-shadow: 0 2px 4px rgba(11, 11, 18, 0.04), 0 22px 46px -28px rgba(11, 11, 18, 0.2);
+}
+/* Un botón-tarjeta deshabilitado no debe "saltar" al hover */
+button.surface-card:disabled:hover {
+  transform: none;
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.03), 0 12px 32px -26px rgba(11, 11, 18, 0.16);
+}
+/* Superficie estática del sistema: igual que surface-card pero SIN hover-lift
+   (contenedores grandes no-interactivos: chat del dashboard, form de login). */
+.surface-static {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.03), 0 12px 32px -26px rgba(11, 11, 18, 0.16);
 }
 /* Celda/tarjeta de relleno gris-violeta (patrón Merxo: celdas tintadas dentro
    de superficies blancas, sin borde) */
@@ -481,3 +501,5 @@ body {
   background: linear-gradient(135deg, #2563eb, #f97316);
   color: white;
 }
+
+} /* fin @layer components */

@@ -34,19 +34,19 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="legacy-shell flex items-center justify-center px-6 relative z-[2]">
-      <div className="glass-card rounded-2xl p-12 max-w-sm w-full">
+    <div className="min-h-screen bg-[color:var(--bg)] text-[color:var(--ink)] flex items-center justify-center px-6 relative z-[2]">
+      <div className="surface-static p-12 max-w-sm w-full">
         <Link
           href="/"
-          className="text-2xl font-normal text-white block text-center mb-8"
+          className="text-2xl font-semibold tracking-tight text-[color:var(--ink)] block text-center mb-8"
         >
           Dona
         </Link>
 
-        <h1 className="text-xl font-normal text-white text-center mb-2 tracking-tight">
+        <h1 className="text-xl font-semibold text-[color:var(--ink)] text-center mb-2 tracking-tight">
           Inicia sesion
         </h1>
-        <p className="text-sm text-white/35 font-light text-center mb-8">
+        <p className="text-sm text-[color:var(--muted)] text-center mb-8">
           Accede a tu dashboard de Dona
         </p>
 
@@ -57,7 +57,7 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="tu@correo.com"
             required
-            className="w-full px-5 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-white/20 transition-colors font-light"
+            className="w-full px-5 py-3.5 rounded-xl bg-white border border-[color:var(--line)] text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] focus:outline-none focus:border-[color:var(--brand)] transition-colors"
           />
           <input
             type="password"
@@ -65,15 +65,15 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Contrasena"
             required
-            className="w-full px-5 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-white/20 transition-colors font-light"
+            className="w-full px-5 py-3.5 rounded-xl bg-white border border-[color:var(--line)] text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] focus:outline-none focus:border-[color:var(--brand)] transition-colors"
           />
 
           {error && (
-            <div className="glass-card rounded-xl px-4 py-3 border-red-500/20">
-              <p className="text-sm text-red-400/80 font-light">{error}</p>
+            <div className="rounded-xl px-4 py-3 bg-[#e64263]/10 border border-[#e64263]/40">
+              <p className="text-sm text-[color:var(--ink)]">{error}</p>
               <a
                 href="mailto:hola@usadona.com"
-                className="text-sm text-white/50 hover:text-white underline font-light mt-1 inline-block"
+                className="text-sm text-[color:var(--ink-2)] hover:text-[color:var(--ink)] underline mt-1 inline-block"
               >
                 Escribir a soporte
               </a>
@@ -83,14 +83,14 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="btn-primary w-full py-3.5 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+            className="btn-primary w-full py-3.5 rounded-full text-sm flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {loading ? "Verificando..." : "Entrar"}
             {!loading && <ArrowRight className="w-4 h-4" />}
           </button>
         </form>
 
-        <p className="text-xs text-white/20 font-light text-center mt-6">
+        <p className="text-xs text-[color:var(--muted)] text-center mt-6">
           Solo usuarios con suscripcion activa pueden acceder.
         </p>
       </div>

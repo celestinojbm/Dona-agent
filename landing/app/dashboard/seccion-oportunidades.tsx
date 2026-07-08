@@ -44,9 +44,9 @@ const IMPACTO_LABEL: Record<OportunidadDetectada["impacto_estimado"], string> = 
 };
 
 const IMPACTO_COLOR: Record<OportunidadDetectada["impacto_estimado"], string> = {
-  alto: "bg-emerald-500/[0.08] text-emerald-300/90 border-emerald-500/20",
-  medio: "bg-amber-500/[0.08] text-amber-300/90 border-amber-500/20",
-  bajo: "bg-white/[0.04] text-white/50 border-white/10",
+  alto: "bg-emerald-600/10 text-emerald-700 border-emerald-600/40",
+  medio: "bg-amber-500/15 text-amber-700 border-amber-500/40",
+  bajo: "bg-[color:var(--bg-soft)] text-[color:var(--ink-2)] border-[color:var(--line)]",
 };
 
 const RIESGO_LABEL: Record<NivelRiesgo, string> = {
@@ -57,10 +57,10 @@ const RIESGO_LABEL: Record<NivelRiesgo, string> = {
 };
 
 const RIESGO_COLOR: Record<NivelRiesgo, string> = {
-  low: "bg-emerald-500/[0.08] text-emerald-300/90 border-emerald-500/20",
-  medium: "bg-amber-500/[0.08] text-amber-300/90 border-amber-500/20",
-  high: "bg-orange-500/[0.08] text-orange-300/90 border-orange-500/20",
-  critical: "bg-rose-500/[0.08] text-rose-300/90 border-rose-500/20",
+  low: "bg-emerald-600/10 text-emerald-700 border-emerald-600/40",
+  medium: "bg-amber-500/15 text-amber-700 border-amber-500/40",
+  high: "bg-orange-500/10 text-orange-700 border-orange-500/40",
+  critical: "bg-[#e64263]/10 text-[#e64263] border-[#e64263]/40",
 };
 
 export default function SeccionOportunidades() {
@@ -95,17 +95,17 @@ export default function SeccionOportunidades() {
 
   return (
     <section>
-      <h2 className="text-sm uppercase tracking-[0.2em] text-white/25 font-light mb-6 flex items-center gap-2">
+      <h2 className="eyebrow mb-6 flex items-center gap-2">
         <Lightbulb className="w-4 h-4" />
         Oportunidades detectadas
       </h2>
 
       {/* Aviso UX general */}
-      <div className="glass-card rounded-2xl px-6 py-5 mb-4 border-white/[0.06]">
-        <p className="text-sm text-white/55 font-light leading-relaxed">
+      <div className="surface-card px-6 py-5 mb-4">
+        <p className="text-sm text-[color:var(--ink-2)] leading-relaxed">
           El radar de Dona sobre tu negocio: qué conviene atacar ahora y
           por qué, a partir de tu diagnóstico y contexto.{" "}
-          <span className="text-white/75">
+          <span className="text-[color:var(--ink)] font-medium">
             Detectar no cuesta créditos ni ejecuta nada — para convertir
             una oportunidad en acción usa el Centro de acción.
           </span>
@@ -114,7 +114,7 @@ export default function SeccionOportunidades() {
 
       {/* Contador + refrescar */}
       <div className="flex items-center justify-between mb-6">
-        <p className="text-xs text-white/35 font-light">
+        <p className="text-xs text-[color:var(--muted)]">
           {load.status === "ready"
             ? `${oportunidades.length} oportunidades detectadas`
             : "Cargando oportunidades…"}
@@ -122,7 +122,7 @@ export default function SeccionOportunidades() {
         <button
           onClick={fetchOportunidades}
           disabled={load.status === "loading"}
-          className="btn-secondary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="btn-ghost px-5 py-2.5 rounded-full text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {load.status === "loading" ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -135,23 +135,23 @@ export default function SeccionOportunidades() {
 
       {/* Loading */}
       {load.status === "loading" && (
-        <div className="glass-card rounded-2xl p-8 text-center">
-          <p className="text-white/35 font-light">Cargando…</p>
+        <div className="surface-card p-8 text-center">
+          <p className="text-[color:var(--muted)]">Cargando…</p>
         </div>
       )}
 
       {/* Error real */}
       {load.status === "error" && (
-        <div className="glass-card rounded-2xl p-8 border-rose-500/15">
-          <p className="text-white/70 font-light">
+        <div className="surface-card p-8 border-[#e64263]/40">
+          <p className="text-[color:var(--ink-2)]">
             No pudimos cargar tus oportunidades.
           </p>
-          <p className="text-xs text-white/35 font-light mt-1 font-mono">
+          <p className="text-xs text-[color:var(--muted)] mt-1 font-mono">
             {load.code}
           </p>
           <button
             onClick={fetchOportunidades}
-            className="btn-secondary px-5 py-2 rounded-full text-sm mt-3"
+            className="btn-ghost px-5 py-2 rounded-full text-sm mt-3"
           >
             Reintentar
           </button>
@@ -160,20 +160,20 @@ export default function SeccionOportunidades() {
 
       {/* Perfil incompleto · explica por qué y qué sigue */}
       {load.status === "ready" && perfilIncompleto && (
-        <div className="glass-card rounded-2xl px-6 py-5 mb-4 border-amber-500/15">
-          <p className="text-sm text-white/70 font-light">
+        <div className="surface-card px-6 py-5 mb-4 border-amber-500/40">
+          <p className="text-sm text-[color:var(--ink-2)]">
             {data?.perfil_razon ||
               "Tu diagnóstico de negocio está incompleto, por eso aún no vemos oportunidades."}
           </p>
           {typeof data?.perfil_campos_llenos === "number" &&
             typeof data?.perfil_campos_totales === "number" && (
-              <p className="text-xs text-white/35 font-light mt-2">
+              <p className="text-xs text-[color:var(--muted)] mt-2">
                 Diagnóstico: {data.perfil_campos_llenos} de{" "}
                 {data.perfil_campos_totales} campos completados
               </p>
             )}
           {data?.perfil_siguiente_paso && (
-            <p className="text-xs text-amber-300/80 font-light mt-2">
+            <p className="text-xs text-amber-700 mt-2">
               {data.perfil_siguiente_paso}
             </p>
           )}
@@ -184,11 +184,11 @@ export default function SeccionOportunidades() {
       {load.status === "ready" &&
         !perfilIncompleto &&
         oportunidades.length === 0 && (
-          <div className="glass-card rounded-2xl p-8 text-center">
-            <p className="text-white/55 font-light">
+          <div className="surface-card p-8 text-center">
+            <p className="text-[color:var(--ink-2)]">
               No detectamos oportunidades nuevas por ahora.
             </p>
-            <p className="text-xs text-white/35 font-light mt-2">
+            <p className="text-xs text-[color:var(--muted)] mt-2">
               Dona vuelve a evaluar cuando cambia tu contexto de negocio.
             </p>
           </div>
@@ -215,21 +215,21 @@ function TarjetaOportunidad({
     ? oportunidad.impacto_estimado
     : "medio";
   return (
-    <article className="glass-card rounded-2xl px-6 py-5 border-white/[0.06]">
+    <article className="surface-card px-6 py-5">
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <h3 className="text-white/85 font-light text-base flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-white/30 shrink-0" />
+        <h3 className="text-[color:var(--ink)] font-semibold text-base flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-[color:var(--muted)] shrink-0" />
           {oportunidad.titulo}
         </h3>
         <div className="flex items-center gap-2 shrink-0">
           <span
-            className={`text-[11px] px-2.5 py-1 rounded-full border font-light ${IMPACTO_COLOR[impacto]}`}
+            className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${IMPACTO_COLOR[impacto]}`}
           >
             {IMPACTO_LABEL[impacto]}
           </span>
           {RIESGO_LABEL[oportunidad.riesgo] && (
             <span
-              className={`text-[11px] px-2.5 py-1 rounded-full border font-light ${RIESGO_COLOR[oportunidad.riesgo]}`}
+              className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${RIESGO_COLOR[oportunidad.riesgo]}`}
             >
               {RIESGO_LABEL[oportunidad.riesgo]}
             </span>
@@ -237,13 +237,13 @@ function TarjetaOportunidad({
         </div>
       </div>
 
-      <p className="text-sm text-white/55 font-light leading-relaxed mt-3">
+      <p className="text-sm text-[color:var(--ink-2)] leading-relaxed mt-3">
         {oportunidad.descripcion}
       </p>
 
       {oportunidad.razon && (
-        <p className="text-xs text-white/40 font-light mt-2">
-          <span className="text-white/60">Por qué ahora:</span>{" "}
+        <p className="text-xs text-[color:var(--muted)] mt-2">
+          <span className="text-[color:var(--ink-2)]">Por qué ahora:</span>{" "}
           {oportunidad.razon}
         </p>
       )}
@@ -254,7 +254,7 @@ function TarjetaOportunidad({
             {oportunidad.fuente_datos.map((fuente) => (
               <span
                 key={fuente}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.04] border border-white/10 text-white/40 font-light"
+                className="text-[10px] px-2 py-0.5 rounded-full bg-[color:var(--bg-soft)] border border-[color:var(--line)] text-[color:var(--muted)]"
               >
                 {fuente}
               </span>
@@ -262,10 +262,10 @@ function TarjetaOportunidad({
           </div>
         )}
         {oportunidad.playbook_sugerido && (
-          <p className="text-[11px] text-white/35 font-light flex items-center gap-1.5">
+          <p className="text-[11px] text-[color:var(--muted)] flex items-center gap-1.5">
             <ClipboardList className="w-3.5 h-3.5" />
             Playbook sugerido:{" "}
-            <span className="text-white/55">
+            <span className="text-[color:var(--ink-2)]">
               {oportunidad.playbook_sugerido}
             </span>
           </p>

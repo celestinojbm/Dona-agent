@@ -190,27 +190,27 @@ export default function TourDashboard({ habilitado }: TourDashboardProps) {
         type="button"
         aria-label="Cerrar tour"
         onClick={cerrar}
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm cursor-default"
+        className="absolute inset-0 bg-[rgba(11,11,18,0.62)] backdrop-blur-sm cursor-default"
       />
 
       {/* Modal card */}
-      <div className="glass-card relative z-10 rounded-2xl max-w-md w-full p-8 text-white">
+      <div className="modal-panel relative z-10 max-w-md w-full p-8 text-[color:var(--ink)]">
         {/* Cerrar X arriba derecha */}
         <button
           type="button"
           aria-label="Saltar tour"
           onClick={cerrar}
-          className="absolute top-4 right-4 text-white/40 hover:text-white/80 transition-colors cursor-pointer"
+          className="absolute top-4 right-4 text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Icono + paso */}
         <div className="flex items-center gap-4 mb-6">
-          <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center shrink-0">
-            <Icon className="w-6 h-6 text-white/70" />
+          <div className="icon-badge w-12 h-12 shrink-0">
+            <Icon className="w-6 h-6" />
           </div>
-          <div className="text-xs uppercase tracking-widest text-white/35 font-light">
+          <div className="eyebrow">
             Paso {step + 1} de {STEPS.length}
           </div>
         </div>
@@ -218,11 +218,11 @@ export default function TourDashboard({ habilitado }: TourDashboardProps) {
         {/* Título y descripción */}
         <h2
           id="tour-titulo"
-          className="text-xl font-normal text-white tracking-tight mb-3"
+          className="text-xl font-semibold text-[color:var(--ink)] tracking-tight mb-3"
         >
           {current.titulo}
         </h2>
-        <p className="text-sm text-white/55 font-light leading-relaxed mb-8">
+        <p className="text-sm text-[color:var(--ink-2)] leading-relaxed mb-8">
           {current.descripcion}
         </p>
 
@@ -233,10 +233,10 @@ export default function TourDashboard({ habilitado }: TourDashboardProps) {
               key={i}
               className={`h-1 rounded-full transition-all ${
                 i === step
-                  ? "w-6 bg-white/60"
+                  ? "w-6 bg-[color:var(--brand)]"
                   : i < step
-                    ? "w-1.5 bg-white/30"
-                    : "w-1.5 bg-white/10"
+                    ? "w-1.5 bg-[color:var(--muted)]"
+                    : "w-1.5 bg-[#0b0b12]/15"
               }`}
             />
           ))}
@@ -248,7 +248,7 @@ export default function TourDashboard({ habilitado }: TourDashboardProps) {
             type="button"
             onClick={() => setStep((s) => Math.max(s - 1, 0))}
             disabled={esPrimero}
-            className="btn-secondary px-4 py-2.5 rounded-full text-sm flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="btn-ghost px-4 py-2.5 rounded-full text-sm flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <ArrowLeft className="w-4 h-4" />
             Anterior
@@ -269,7 +269,7 @@ export default function TourDashboard({ habilitado }: TourDashboardProps) {
               <button
                 type="button"
                 onClick={cerrar}
-                className="btn-secondary px-4 py-2.5 rounded-full text-sm flex items-center gap-1.5"
+                className="btn-ghost px-4 py-2.5 rounded-full text-sm flex items-center gap-1.5"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 Listo
@@ -292,7 +292,7 @@ export default function TourDashboard({ habilitado }: TourDashboardProps) {
           <button
             type="button"
             onClick={cerrar}
-            className="block mx-auto mt-4 text-xs text-white/30 hover:text-white/60 transition-colors font-light"
+            className="block mx-auto mt-4 text-xs text-[color:var(--muted)] hover:text-[color:var(--ink-2)] transition-colors"
           >
             Saltar tour
           </button>
