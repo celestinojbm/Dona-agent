@@ -50,7 +50,15 @@ type TurnoUI =
   | { tipo: "mensaje"; mensaje: MensajeChat }
   | { tipo: "error"; texto: string };
 
-export default function SeccionChat() {
+interface SeccionChatProps {
+  /** En el shell la sección Chat ocupa todo el alto disponible (estilo
+   * WhatsApp Web): la lista crece y el input queda anclado abajo. Sin el
+   * prop conserva el layout compacto original (usado por tests y por
+   * cualquier embebido futuro). */
+  fullHeight?: boolean;
+}
+
+export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {}) {
   const [turnos, setTurnos] = useState<TurnoUI[]>([]);
   const [input, setInput] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -119,15 +127,26 @@ export default function SeccionChat() {
   }
 
   return (
-    <section data-tour="chat">
+    <section
+      data-tour="chat"
+      className={fullHeight ? "flex h-full min-h-0 flex-col" : undefined}
+    >
       <h2 className="eyebrow mb-6 flex items-center gap-2">
         <MessageSquare className="w-4 h-4" />
         Chat con Dona
       </h2>
 
-      <div className="surface-static overflow-hidden flex flex-col">
+      <div
+        className={`surface-static overflow-hidden flex flex-col ${
+          fullHeight ? "min-h-0 flex-1" : ""
+        }`}
+      >
         {/* Lista de mensajes */}
-        <div className="min-h-[280px] max-h-[520px] overflow-y-auto px-5 py-6 space-y-4">
+        <div
+          className={`overflow-y-auto px-5 py-6 space-y-4 ${
+            fullHeight ? "flex-1 min-h-0" : "min-h-[280px] max-h-[520px]"
+          }`}
+        >
           {turnos.length === 0 && !enviando && (
             <div className="h-full flex items-center justify-center text-center py-10">
               <p className="text-[color:var(--muted)] max-w-sm">

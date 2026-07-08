@@ -1,5 +1,21 @@
 "use client";
 
+// landing/app/dashboard/dashboard-client.tsx — Shell del dashboard.
+//
+// App-shell de dos columnas sobre el sistema claro editorial: sidebar
+// izquierda con las secciones (pill negra activa, como la nav de la landing
+// y el mockup del hero) + área de contenido que monta UNA sección a la vez.
+// El chat es ciudadano de primera clase (sección propia, full-height).
+//
+// La sección activa se sincroniza con la URL (?s=chat) vía replaceState:
+// deep-linking y refresh conservan dónde estabas, sin recargar la página.
+// Los gates de negocio se conservan tal cual eran en la página única:
+//   - inicio / créditos dependen de /api/dashboard-data (skeleton → error).
+//   - acciones / oportunidades solo con suscripción no cancelada.
+//   - Control Room solo para la allowlist interna (lib/control-room).
+// Las secciones con fetch propio (chat, outputs, reportes) no dependen del
+// load global: si dashboard-data falla, siguen disponibles.
+
 import { useState, useEffect, useCallback } from "react";
 import { signOut } from "next-auth/react";
 import {
@@ -17,6 +33,14 @@ import {
   RefreshCw,
   Zap,
   Plus,
+  Home,
+  Lightbulb,
+  Image as ImageIcon,
+  BarChart3,
+  Activity,
+  Menu,
+  X,
+  ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
 import type { UsuarioResumen } from "@/lib/dashboard-types";
@@ -37,6 +61,30 @@ type LoadState =
   | { status: "loading" }
   | { status: "ready"; data: UsuarioResumen }
   | { status: "error"; code: string };
+
+// ── Secciones del shell ────────────────────────────────────────────────────
+
+const SECCIONES_VALIDAS = [
+  "inicio",
+  "chat",
+  "acciones",
+  "oportunidades",
+  "outputs",
+  "reportes",
+  "creditos",
+  "integraciones",
+  "control-room",
+] as const;
+
+export type SeccionId = (typeof SECCIONES_VALIDAS)[number];
+
+function esSeccionValida(s: string | null): s is SeccionId {
+  return s !== null && (SECCIONES_VALIDAS as readonly string[]).includes(s);
+}
+
+// Estados terminales de una acción (espejo de seccion-action-center.tsx):
+// lo no-terminal cuenta como "pendiente" para el badge de la sidebar.
+const ESTADOS_ACCION_TERMINALES = ["completed", "rejected", "failed", "cancelled"];
 
 // ── Helpers de presentación (puramente UI, sin secrets) ───────────────────
 
@@ -130,6 +178,9 @@ export default function DashboardClient({ session }: DashboardProps) {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [openingPortal, setOpeningPortal] = useState(false);
   const [comprandoTopup, setComprandoTopup] = useState<string | null>(null);
+  const [seccion, setSeccion] = useState<SeccionId>("inicio");
+  const [menuMovil, setMenuMovil] = useState(false);
+  const [pendientes, setPendientes] = useState<number | null>(null);
 
   // Fetch puro (solo setea al final). El "loading" inicial viene del
   // useState; el retry lo dispara explícitamente vía handleRetry.
@@ -170,6 +221,60 @@ export default function DashboardClient({ session }: DashboardProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchDashboard();
   }, [fetchDashboard]);
+
+  // Sección inicial desde la URL (?s=chat). Solo en cliente: el SSR
+  // renderiza "inicio" y el efecto corrige al montar si hay deep-link.
+  useEffect(() => {
+    const s = new URLSearchParams(window.location.search).get("s");
+    if (esSeccionValida(s)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSeccion(s);
+    }
+  }, []);
+
+  // Badge de acciones pendientes en la sidebar. Best-effort: si el
+  // endpoint falla, el badge simplemente no se muestra (la sección
+  // Acciones hace su propio fetch con manejo de errores completo).
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/automation/acciones", {
+          cache: "no-store",
+        });
+        if (!res.ok || cancelado) return;
+        const data = (await res.json()) as {
+          acciones?: { estado: string }[];
+        };
+        if (!cancelado && Array.isArray(data.acciones)) {
+          setPendientes(
+            data.acciones.filter(
+              (a) => !ESTADOS_ACCION_TERMINALES.includes(a.estado),
+            ).length,
+          );
+        }
+      } catch {
+        // badge opcional — sin acción
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  // Navegar a una sección: estado + URL (?s=) sin recargar + scroll arriba.
+  const irA = useCallback((id: SeccionId) => {
+    setSeccion(id);
+    setMenuMovil(false);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("s", id);
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // la URL API está siempre en cliente; guard defensivo
+    }
+    window.scrollTo({ top: 0 });
+  }, []);
 
   // T1.5 — Abre Stripe Customer Portal en una pestaña del navegador.
   // El portal es la fuente canónica para cambiar método de pago,
@@ -253,39 +358,161 @@ export default function DashboardClient({ session }: DashboardProps) {
     },
   ];
 
-  return (
-    <div className="relative z-[2] min-h-screen bg-[color:var(--bg)] text-[color:var(--ink)]">
-      {/* Header */}
-      <header className="border-b border-[color:var(--line)]">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="text-xl font-semibold text-[color:var(--ink)]">
-            Dona
-          </Link>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-[color:var(--muted)]">
-              {session.user?.email}
-            </span>
+  // La suscripción cancelada apaga acciones/oportunidades (igual que en la
+  // página única). Mientras carga, los items no se muestran todavía.
+  const subCancelada =
+    load.status === "ready" && load.data.suscripcion.estado === "canceled";
+  const puedeOperar = load.status === "ready" && !subCancelada;
+
+  const navPrincipal: {
+    id: SeccionId;
+    label: string;
+    icon: typeof Home;
+    badge?: number | null;
+  }[] = [
+    { id: "inicio", label: "Inicio", icon: Home },
+    { id: "chat", label: "Chat", icon: MessageSquare },
+    ...(puedeOperar
+      ? [
+          {
+            id: "acciones" as const,
+            label: "Acciones",
+            icon: Zap,
+            badge: pendientes,
+          },
+          {
+            id: "oportunidades" as const,
+            label: "Oportunidades",
+            icon: Lightbulb,
+          },
+        ]
+      : []),
+    { id: "outputs", label: "Outputs", icon: ImageIcon },
+    { id: "reportes", label: "Reportes", icon: BarChart3 },
+    { id: "creditos", label: "Créditos y plan", icon: Wallet },
+    { id: "integraciones", label: "Integraciones", icon: Link2 },
+  ];
+
+  function renderNav() {
+    return (
+      <nav aria-label="Secciones del dashboard" className="space-y-1">
+        {navPrincipal.map((item) => {
+          const Icon = item.icon;
+          const activa = seccion === item.id;
+          return (
             <button
-              onClick={() => signOut({ redirectTo: "/" })}
-              className="flex items-center gap-1.5 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors cursor-pointer"
+              key={item.id}
+              type="button"
+              onClick={() => irA(item.id)}
+              aria-current={activa ? "page" : undefined}
+              className={`flex w-full cursor-pointer items-center gap-2.5 rounded-full px-3.5 py-2 text-sm transition-colors ${
+                activa
+                  ? "pill-active font-medium"
+                  : "text-[color:var(--ink-2)] hover:bg-[color:var(--bg-soft)] hover:text-[color:var(--ink)]"
+              }`}
             >
-              <LogOut className="w-4 h-4" />
-              Salir
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="truncate">{item.label}</span>
+              {typeof item.badge === "number" && item.badge > 0 && (
+                <span
+                  className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
+                    activa
+                      ? "bg-white/20 text-white"
+                      : "bg-[color:var(--fill)] text-[color:var(--brand-ink)]"
+                  }`}
+                >
+                  {item.badge}
+                </span>
+              )}
             </button>
-          </div>
-        </div>
-      </header>
+          );
+        })}
+      </nav>
+    );
+  }
 
-      <main className="max-w-5xl mx-auto px-6 py-12 space-y-10">
-        {/* Saldo + Suscripción + Historial dependen de dashboard-data */}
-        {load.status === "loading" && <SeccionesSkeleton />}
-
-        {load.status === "error" && (
-          <ErrorCard code={load.code} onRetry={handleRetry} />
+  function renderFooterNav() {
+    return (
+      <div className="space-y-4">
+        {mostrarControlRoomInterno && (
+          <button
+            type="button"
+            onClick={() => irA("control-room")}
+            aria-current={seccion === "control-room" ? "page" : undefined}
+            className={`flex w-full cursor-pointer items-center gap-2.5 rounded-full px-3.5 py-2 text-sm transition-colors ${
+              seccion === "control-room"
+                ? "pill-active font-medium"
+                : "text-[color:var(--muted)] hover:bg-[color:var(--bg-soft)] hover:text-[color:var(--ink)]"
+            }`}
+          >
+            <Activity className="h-4 w-4 shrink-0" />
+            Control Room
+            <span
+              className={`ml-auto text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                seccion === "control-room" ? "text-white/70" : "text-[color:var(--muted)]"
+              }`}
+            >
+              interno
+            </span>
+          </button>
         )}
+        <div className="border-t border-[color:var(--line)] px-3.5 pt-4">
+          {load.status === "ready" && (
+            <p className="mb-2 text-xs text-[color:var(--muted)]">
+              <span className="font-semibold text-[color:var(--ink)] tabular-nums">
+                {load.data.creditos.saldo_actual}
+              </span>{" "}
+              créditos
+            </p>
+          )}
+          <p className="truncate text-xs text-[color:var(--muted)]">
+            {session.user?.email}
+          </p>
+          <button
+            onClick={() => signOut({ redirectTo: "/" })}
+            className="mt-2 flex cursor-pointer items-center gap-1.5 text-sm text-[color:var(--muted)] transition-colors hover:text-[color:var(--ink)]"
+          >
+            <LogOut className="h-4 w-4" />
+            Salir
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-        {load.status === "ready" && (
-          <>
+  // Contenido de la sección activa, con los mismos gates que la página única.
+  function renderContenido() {
+    switch (seccion) {
+      case "chat":
+        return (
+          <div className="flex h-[calc(100dvh-11.5rem)] min-h-[420px] flex-col md:h-[calc(100dvh-6.5rem)]">
+            <SeccionChat fullHeight />
+          </div>
+        );
+      case "outputs":
+        return <SeccionGaleria />;
+      case "reportes":
+        return <SeccionReportes />;
+      case "integraciones":
+        return <SeccionIntegraciones connections={connections} />;
+      case "acciones":
+        if (load.status === "loading") return <SeccionesSkeleton />;
+        if (load.status === "error")
+          return <ErrorCard code={load.code} onRetry={handleRetry} />;
+        if (subCancelada) return <SeccionNoDisponible />;
+        return <SeccionActionCenter />;
+      case "oportunidades":
+        if (load.status === "loading") return <SeccionesSkeleton />;
+        if (load.status === "error")
+          return <ErrorCard code={load.code} onRetry={handleRetry} />;
+        if (subCancelada) return <SeccionNoDisponible />;
+        return <SeccionOportunidades />;
+      case "creditos":
+        if (load.status === "loading") return <SeccionesSkeleton />;
+        if (load.status === "error")
+          return <ErrorCard code={load.code} onRetry={handleRetry} />;
+        return (
+          <div className="space-y-10">
             <SeccionSaldo data={load.data} />
             <SeccionSuscripcion
               data={load.data}
@@ -297,108 +524,357 @@ export default function DashboardClient({ session }: DashboardProps) {
               onComprar={handleTopup}
             />
             <SeccionHistorial data={load.data} />
-            {/* Chat con Dona (Fase 1) · paridad total con WhatsApp. El
-                usuario habla con Dona desde la web y tiene TODAS las
-                herramientas (incluidas pagadas y envíos), pasando por LOS
-                MISMOS gates que WhatsApp (el backend reusa generar_respuesta).
-                Se muestra siempre que haya datos, incluso con sub cancelada:
-                los gates de cobro deciden qué puede ejecutar según su saldo. */}
-            <SeccionChat />
-            {/* Oportunidades detectadas · el eslabón diagnóstico→
-                oportunidad del core loop, antes del Action Center.
-                Solo lectura: detectar es gratis; convertir en acciones
-                vive en "Generar acciones" del Action Center. */}
-            {load.data.suscripcion.estado !== "canceled" && (
-              <SeccionOportunidades />
-            )}
-            {/* T2.1.B — Action Center. Acciones generadas por el
-                Automation Core (T2.1.A). Lista, aprueba, rechaza y
-                ejecuta dry-run. Solo se muestra si la sub está activa
-                (canceled no genera acciones nuevas). */}
-            {load.data.suscripcion.estado !== "canceled" && (
-              <SeccionActionCenter />
-            )}
-            {/* Reportes / Medición (Fase 1) · los números de negocio del
-                usuario (ventas, gastos, utilidad, pedidos, top categorías)
-                que hoy sólo obtiene por WhatsApp. Solo lectura. Se muestra
-                siempre, incluso con sub cancelada: son sus datos históricos.
-                Empty state con gracia si aún no capturó nada por WhatsApp. */}
-            <SeccionReportes />
-            {/* Galería de Activos (Fase 1) · lo que Dona ya generó para el
-                usuario (imágenes, videos, docs), visible en web. Solo
-                lectura. Se muestra siempre, incluso con sub cancelada: los
-                activos ya generados siguen siendo del usuario. */}
-            <SeccionGaleria />
-            {/* Control Room interno · progreso del proyecto y orquestacion
-                de agentes. Datos estaticos curados en este MVP; no llama
-                APIs externas ni reemplaza el Action Center operativo. */}
-            {mostrarControlRoomInterno && <SeccionControlRoom />}
-            {/* T2.0.D — Tour de primer login. Solo se muestra si la sub
-                está activa y el usuario aún no marcó "visto" en
-                localStorage. No bloquea ni reemplaza el contenido del
-                dashboard si el usuario lo cierra. */}
-            <TourDashboard
-              habilitado={load.data.suscripcion.estado !== "canceled"}
-            />
-          </>
+          </div>
+        );
+      case "control-room":
+        return mostrarControlRoomInterno ? (
+          <SeccionControlRoom />
+        ) : (
+          <SeccionNoDisponible />
+        );
+      case "inicio":
+      default:
+        if (load.status === "loading") return <SeccionesSkeleton />;
+        if (load.status === "error")
+          return <ErrorCard code={load.code} onRetry={handleRetry} />;
+        return (
+          <SeccionInicio
+            data={load.data}
+            pendientes={pendientes}
+            puedeOperar={puedeOperar}
+            irA={irA}
+          />
+        );
+    }
+  }
+
+  return (
+    <div className="relative z-[2] min-h-screen bg-[color:var(--bg)] text-[color:var(--ink)]">
+      {/* Topbar móvil */}
+      <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[color:var(--line)] bg-[color:var(--bg)] px-4 md:hidden">
+        <Link href="/" className="text-lg font-semibold tracking-tight">
+          Dona
+        </Link>
+        <button
+          type="button"
+          aria-label="Menú"
+          aria-expanded={menuMovil}
+          onClick={() => setMenuMovil((v) => !v)}
+          className="cursor-pointer text-[color:var(--ink-2)]"
+        >
+          {menuMovil ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+      </header>
+
+      {/* Drawer móvil */}
+      {menuMovil && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            aria-label="Cerrar menú"
+            onClick={() => setMenuMovil(false)}
+            className="absolute inset-0 cursor-default bg-[rgba(11,11,18,0.5)]"
+          />
+          <div className="absolute inset-y-0 left-0 flex w-72 flex-col justify-between overflow-y-auto border-r border-[color:var(--line)] bg-[color:var(--bg)] p-6">
+            <div>
+              <Link href="/" className="block px-3.5 text-xl font-semibold tracking-tight">
+                Dona
+              </Link>
+              <div className="mt-6">{renderNav()}</div>
+            </div>
+            <div className="mt-8">{renderFooterNav()}</div>
+          </div>
+        </div>
+      )}
+
+      <div className="mx-auto flex w-full max-w-[1440px]">
+        {/* Sidebar desktop */}
+        <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between border-r border-[color:var(--line)] px-4 py-6 md:flex">
+          <div className="min-h-0 overflow-y-auto">
+            <Link
+              href="/"
+              className="block px-3.5 text-[22px] font-semibold tracking-tight text-[color:var(--ink)]"
+            >
+              Dona
+            </Link>
+            <div className="mt-8">{renderNav()}</div>
+          </div>
+          {renderFooterNav()}
+        </aside>
+
+        {/* Contenido */}
+        <main className="min-w-0 flex-1 px-5 py-8 md:px-10 md:py-10">
+          <div className="mx-auto max-w-5xl">{renderContenido()}</div>
+        </main>
+      </div>
+
+      {/* T2.0.D — Tour de primer login. Ahora navega entre secciones del
+          shell paso a paso (onIrASeccion). Solo con sub activa y si no se
+          marcó "visto" en localStorage. */}
+      <TourDashboard
+        habilitado={puedeOperar}
+        onIrASeccion={(s) => {
+          if (esSeccionValida(s)) irA(s);
+        }}
+      />
+    </div>
+  );
+}
+
+// ── Secciones propias del shell ────────────────────────────────────────────
+
+/** Vista Inicio: resumen compuesto de piezas existentes + accesos rápidos. */
+function SeccionInicio({
+  data,
+  pendientes,
+  puedeOperar,
+  irA,
+}: {
+  data: UsuarioResumen;
+  pendientes: number | null;
+  puedeOperar: boolean;
+  irA: (s: SeccionId) => void;
+}) {
+  const chip = chipEstado(data.suscripcion.estado);
+  const txs = data.transacciones_recientes.slice(0, 4);
+  const hayPendientes = puedeOperar && pendientes !== null && pendientes > 0;
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <p className="eyebrow mb-3">Inicio</p>
+        <h1 className="text-3xl font-semibold tracking-tight text-[color:var(--ink)]">
+          {hayPendientes
+            ? `Hola — ${pendientes} ${pendientes === 1 ? "acción espera" : "acciones esperan"} tu aprobación`
+            : "Hola — esto es lo que pasa con tu cuenta"}
+        </h1>
+      </div>
+
+      {/* Métricas rápidas: cada tarjeta navega a su sección */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => irA("creditos")}
+          className="surface-card cursor-pointer p-6 text-left"
+        >
+          <p className="eyebrow mb-2">Créditos</p>
+          <p className="text-4xl font-medium tabular-nums tracking-tight text-[color:var(--ink)]">
+            {data.creditos.saldo_actual}
+          </p>
+          <p className="mt-2 flex items-center gap-1 text-xs font-medium text-[color:var(--brand-ink)]">
+            Ver saldo y paquetes
+            <ArrowRight className="h-3 w-3" />
+          </p>
+        </button>
+
+        {puedeOperar ? (
+          <button
+            type="button"
+            onClick={() => irA("acciones")}
+            className="surface-card cursor-pointer p-6 text-left"
+          >
+            <p className="eyebrow mb-2">Por aprobar</p>
+            <p className="text-4xl font-medium tabular-nums tracking-tight text-[color:var(--ink)]">
+              {pendientes === null ? "—" : String(pendientes).padStart(2, "0")}
+            </p>
+            <p className="mt-2 flex items-center gap-1 text-xs font-medium text-[color:var(--brand-ink)]">
+              Revisar acciones
+              <ArrowRight className="h-3 w-3" />
+            </p>
+          </button>
+        ) : (
+          <Link href="/#pricing" className="surface-card block p-6 text-left">
+            <p className="eyebrow mb-2">Suscripción</p>
+            <p className="text-lg font-semibold text-[color:var(--ink)]">Cancelada</p>
+            <p className="mt-2 flex items-center gap-1 text-xs font-medium text-[color:var(--brand-ink)]">
+              Reactivar plan
+              <ArrowRight className="h-3 w-3" />
+            </p>
+          </Link>
         )}
 
-        {/* Conexiones (hardcoded por ahora; out of scope para T1.4) */}
-        <section>
-          <h2 className="eyebrow mb-6 flex items-center gap-2">
-            <Link2 className="w-4 h-4" />
-            Conexiones
+        <button
+          type="button"
+          onClick={() => irA("creditos")}
+          className="surface-card cursor-pointer p-6 text-left"
+        >
+          <p className="eyebrow mb-2">Plan</p>
+          <div className="flex items-center gap-2">
+            <p className="text-lg font-semibold text-[color:var(--ink)]">
+              {planNombre(data.suscripcion.plan)}
+            </p>
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${chip.color}`}
+            >
+              {chip.texto}
+            </span>
+          </div>
+          <p className="mt-2 flex items-center gap-1 text-xs font-medium text-[color:var(--brand-ink)]">
+            Gestionar plan
+            <ArrowRight className="h-3 w-3" />
+          </p>
+        </button>
+      </div>
+
+      {/* Acceso rápido al chat: input falso que abre la sección */}
+      <button
+        type="button"
+        onClick={() => irA("chat")}
+        className="surface-static flex w-full cursor-pointer items-center gap-3 px-6 py-4 text-left transition-colors hover:border-[color:var(--brand)]"
+      >
+        <span className="icon-badge h-10 w-10 shrink-0">
+          <MessageSquare className="h-5 w-5" />
+        </span>
+        <span className="flex-1 text-sm text-[color:var(--muted)]">
+          Escríbele a Dona como lo harías por WhatsApp…
+        </span>
+        <span className="btn-primary flex h-9 w-9 items-center justify-center rounded-full">
+          <ArrowRight className="h-4 w-4" />
+        </span>
+      </button>
+
+      {/* Últimos movimientos (preview) */}
+      <section>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="eyebrow flex items-center gap-2">
+            <Receipt className="h-4 w-4" />
+            Últimos movimientos
           </h2>
-
-          <div className="space-y-4">
-            {connections.map((conn) => {
-              const Icon = conn.icon;
-              return (
-                <div
-                  key={conn.name}
-                  className="surface-card px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4"
+          <button
+            type="button"
+            onClick={() => irA("creditos")}
+            className="cursor-pointer text-xs font-medium text-[color:var(--brand-ink)] hover:underline"
+          >
+            Ver todos
+          </button>
+        </div>
+        {txs.length === 0 ? (
+          <div className="surface-card p-6 text-center">
+            <p className="text-sm text-[color:var(--muted)]">
+              Todavía no hay movimientos. Tu primer cargo o consumo aparecerá aquí.
+            </p>
+          </div>
+        ) : (
+          <div className="surface-card overflow-hidden">
+            <ul className="divide-y divide-[color:var(--line)]">
+              {txs.map((t, i) => (
+                <li
+                  key={i}
+                  className="flex items-center justify-between gap-4 px-6 py-3.5"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="icon-badge w-10 h-10">
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-[color:var(--ink)]">
-                          {conn.name}
-                        </span>
-                        {conn.connected ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600/10 text-emerald-700 font-medium">
-                            Conectado
-                          </span>
-                        ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[color:var(--bg-soft)] border border-[color:var(--line)] text-[color:var(--muted)] font-medium">
-                            Desconectado
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-[color:var(--muted)] mt-0.5">
-                        {conn.desc}
-                      </p>
-                    </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-[color:var(--ink-2)]">
+                      {t.razon || "Movimiento"}
+                    </p>
+                    <p className="mt-0.5 text-xs text-[color:var(--muted)]">
+                      {formatFechaIso(t.creado)}
+                    </p>
                   </div>
-
-                  <button
-                    className={`text-sm px-5 py-2 rounded-full ${
-                      conn.connected
-                        ? "btn-ghost"
-                        : "btn-primary"
+                  <p
+                    className={`shrink-0 text-sm font-medium tabular-nums ${
+                      t.delta >= 0
+                        ? "text-emerald-700"
+                        : "text-[color:var(--ink-2)]"
                     }`}
                   >
-                    {conn.connected ? "Desconectar" : "Conectar"}
-                  </button>
-                </div>
-              );
-            })}
+                    {t.delta >= 0 ? "+" : ""}
+                    {t.delta}
+                  </p>
+                </li>
+              ))}
+            </ul>
           </div>
-        </section>
-      </main>
+        )}
+      </section>
     </div>
+  );
+}
+
+/** Fallback para secciones apagadas (sub cancelada o sin permiso). */
+function SeccionNoDisponible() {
+  return (
+    <section>
+      <div className="surface-card p-8 text-center">
+        <p className="text-[color:var(--ink-2)]">
+          Esta sección no está disponible con tu suscripción actual.
+        </p>
+        <Link
+          href="/#pricing"
+          className="btn-primary mt-4 inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm"
+        >
+          Reactivar plan
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+/** Conexiones (hardcoded por ahora; out of scope para T1.4) */
+function SeccionIntegraciones({
+  connections,
+}: {
+  connections: {
+    name: string;
+    icon: typeof Mail;
+    connected: boolean;
+    desc: string;
+  }[];
+}) {
+  return (
+    <section>
+      <h2 className="eyebrow mb-6 flex items-center gap-2">
+        <Link2 className="w-4 h-4" />
+        Conexiones
+      </h2>
+
+      <div className="space-y-4">
+        {connections.map((conn) => {
+          const Icon = conn.icon;
+          return (
+            <div
+              key={conn.name}
+              className="surface-card px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4"
+            >
+              <div className="flex items-center gap-4">
+                <div className="icon-badge w-10 h-10">
+                  <Icon className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-[color:var(--ink)]">
+                      {conn.name}
+                    </span>
+                    {conn.connected ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600/10 text-emerald-700 font-medium">
+                        Conectado
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[color:var(--bg-soft)] border border-[color:var(--line)] text-[color:var(--muted)] font-medium">
+                        Desconectado
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[color:var(--muted)] mt-0.5">
+                    {conn.desc}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                className={`text-sm px-5 py-2 rounded-full ${
+                  conn.connected
+                    ? "btn-ghost"
+                    : "btn-primary"
+                }`}
+              >
+                {conn.connected ? "Desconectar" : "Conectar"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -661,7 +1137,7 @@ function SeccionesSkeleton() {
       </section>
 
       {/* Suscripción skeleton */}
-      <section>
+      <section className="mt-10">
         <div className="h-4 w-32 mb-6 bg-[color:var(--fill)] rounded animate-pulse" />
         <div className="surface-card p-8 space-y-3">
           <div className="h-5 w-48 bg-[color:var(--fill)] rounded animate-pulse" />
@@ -670,7 +1146,7 @@ function SeccionesSkeleton() {
       </section>
 
       {/* Historial skeleton */}
-      <section>
+      <section className="mt-10">
         <div className="h-4 w-40 mb-6 bg-[color:var(--fill)] rounded animate-pulse" />
         <div className="surface-card p-8 space-y-4">
           {[0, 1, 2].map((i) => (

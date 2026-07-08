@@ -23,7 +23,6 @@ import {
   CreditCard,
   Zap,
   Receipt,
-  Shield,
   Mail,
   MessageSquare,
   ArrowRight,
@@ -41,6 +40,10 @@ interface Step {
   icon: StepIcon;
   titulo: string;
   descripcion: string;
+  /** Sección del shell que este paso presenta. El tour navega el shell al
+   * entrar al paso (vía onIrASeccion), así el usuario ve la sección real
+   * detrás del modal mientras lee. */
+  seccion?: string;
 }
 
 const STEPS: readonly Step[] = [
@@ -48,49 +51,57 @@ const STEPS: readonly Step[] = [
     icon: Wallet,
     titulo: "Bienvenido a tu dashboard",
     descripcion:
-      "Aquí encuentras todo lo que pasa con tu cuenta de Dona en un solo lugar. Veamos las secciones principales en 30 segundos.",
+      "Aquí encuentras todo lo que pasa con tu cuenta de Dona en un solo lugar. La barra lateral te lleva a cada sección — veamos las principales en 30 segundos.",
+    seccion: "inicio",
+  },
+  {
+    icon: MessageSquare,
+    titulo: "Chat con Dona",
+    descripcion:
+      "Habla con Dona desde la web igual que por WhatsApp: mismas herramientas, mismos permisos y costos. Genera piezas, lleva tus números o pídele que prepare acciones.",
+    seccion: "chat",
+  },
+  {
+    icon: Zap,
+    titulo: "Acciones",
+    descripcion:
+      "Todo lo que Dona prepara aparece aquí antes de ejecutarse: con preview, costo en créditos y nivel de riesgo. Tú apruebas o rechazas — nada irreversible sale sin tu OK.",
+    seccion: "acciones",
   },
   {
     icon: Wallet,
     titulo: "Saldo y créditos",
     descripcion:
-      "Tu saldo actual está arriba. Cada renovación de tu plan suma los créditos mensuales correspondientes. Los créditos no expiran y se acumulan.",
+      "En Créditos y plan ves tu saldo actual. Cada renovación de tu plan suma los créditos mensuales correspondientes. Los créditos no expiran y se acumulan.",
+    seccion: "creditos",
   },
   {
     icon: CreditCard,
-    titulo: "Plan activo",
+    titulo: "Plan y facturación",
     descripcion:
-      "Aquí ves tu plan vigente y la próxima fecha de renovación. Si necesitas cancelar o cambiar el plan, abre el portal de facturación más abajo.",
-  },
-  {
-    icon: Zap,
-    titulo: "Comprar créditos extra",
-    descripcion:
-      "¿Necesitas más créditos sin cambiar de plan? Compra paquetes one-time desde la sección 'Comprar créditos extra'. Los créditos se suman a tu saldo y no expiran.",
+      "Aquí ves tu plan vigente y la próxima renovación. Desde 'Gestionar facturación' abres el portal de Stripe para cambiar método de pago, descargar facturas, pausar o cancelar.",
+    seccion: "creditos",
   },
   {
     icon: Receipt,
-    titulo: "Movimientos recientes",
+    titulo: "Créditos extra y movimientos",
     descripcion:
-      "Cada cargo y cada consumo queda registrado en tu historial. Puedes verificar cuándo se acreditaron créditos y en qué se gastaron.",
-  },
-  {
-    icon: Shield,
-    titulo: "Gestionar facturación",
-    descripcion:
-      "Desde el botón 'Gestionar facturación' abres el portal de Stripe para cambiar tu método de pago, descargar facturas, pausar o cancelar tu plan.",
+      "¿Necesitas más créditos sin cambiar de plan? Compra paquetes one-time que no expiran. Y cada cargo o consumo queda registrado en tus movimientos.",
+    seccion: "creditos",
   },
   {
     icon: Mail,
     titulo: "¿Necesitas ayuda?",
     descripcion:
       "Para cualquier duda sobre tu cuenta, suscripción o uso de Dona, escríbenos a hola@usadona.com o visita la página de soporte.",
+    seccion: "inicio",
   },
   {
     icon: MessageSquare,
     titulo: "Próximo paso · diagnóstico por WhatsApp",
     descripcion:
       "Para que Dona te ayude de verdad, cuéntale sobre tu negocio. Abre WhatsApp y escribe 'hola' para empezar el diagnóstico inicial. Solo te tomará unos minutos a lo largo de los próximos días.",
+    seccion: "chat",
   },
 ];
 
@@ -115,12 +126,27 @@ function dashboardWhatsAppUrl(): string {
 interface TourDashboardProps {
   /** Si false, el tour no se monta. Útil si la sub está canceled. */
   habilitado: boolean;
+  /** Navega el shell a la sección que presenta el paso actual. Opcional:
+   * sin el callback el tour funciona como modal puro (comportamiento
+   * previo al shell). */
+  onIrASeccion?: (seccion: string) => void;
 }
 
-export default function TourDashboard({ habilitado }: TourDashboardProps) {
+export default function TourDashboard({
+  habilitado,
+  onIrASeccion,
+}: TourDashboardProps) {
   const [montado, setMontado] = useState(false);
   const [visible, setVisible] = useState(false);
   const [step, setStep] = useState(0);
+
+  // Al entrar a un paso (con el tour visible), llevar el shell a la
+  // sección correspondiente para que se vea detrás del modal.
+  useEffect(() => {
+    if (!visible || !onIrASeccion) return;
+    const s = STEPS[step]?.seccion;
+    if (s) onIrASeccion(s);
+  }, [step, visible, onIrASeccion]);
 
   // Effect 1: detectar si ya se vio el tour (al mount).
   // La regla react-hooks/set-state-in-effect (Next 16) desaconseja
