@@ -201,7 +201,7 @@ function TarjetaAsset({ asset }: { asset: AssetGaleria }) {
         ) : (
           <Icono className="w-10 h-10 text-[color:var(--muted)]" />
         )}
-        <span className="absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-white border border-[color:var(--line)] text-[color:var(--ink-2)] font-medium shadow-[0_1px_4px_rgba(11,11,18,0.18)]">
+        <span className="absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-[color:var(--surface)] border border-[color:var(--line)] text-[color:var(--ink-2)] font-medium shadow-[0_1px_4px_rgba(11,11,18,0.18)]">
           {TIPO_LABEL[tipo]}
         </span>
       </div>

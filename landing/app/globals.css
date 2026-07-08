@@ -1,4 +1,20 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+/* Animación de altura del Accordion (Radix): habilita las utilidades
+   animate-accordion-down / -up usando la variable que Radix mide. */
+@theme {
+  --animate-accordion-down: accordion-down 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-accordion-up: accordion-up 0.2s ease;
+}
+@keyframes accordion-down {
+  from { height: 0; }
+  to { height: var(--radix-accordion-content-height); }
+}
+@keyframes accordion-up {
+  from { height: var(--radix-accordion-content-height); }
+  to { height: 0; }
+}
 
 /*
   DONA — Design System v7 (landing clara editorial)
@@ -29,6 +45,26 @@
   --brand-ink: #4a3fd6;  /* brand para texto sobre claro (más contraste) */
   --brand-soft: #8f8ff7; /* extremo claro del gradiente de marca */
   --dato-neg: #e64263;   /* semántica de datos en mockups: negativo (rojo Merxo) */
+  --surface: #fff;       /* superficie de tarjetas/controles (blanco en claro) */
+}
+
+/* ── Tema OSCURO (opt-in vía next-themes; clase .dark en <html>) ─────────
+   Negro editorial SOBRIO — no el look LTX oscuro-dramático rechazado. El
+   claro sigue de default. Se conservan el acento violeta y el gradiente
+   violeta→naranja (funcionan sobre oscuro). Contrastes apuntados a AA. */
+.dark {
+  --bg: #0d0d11;         /* fondo de página: negro cálido, no puro */
+  --bg-soft: #17171d;    /* superficie interna sutil */
+  --fill: #20202b;       /* relleno gris-violeta oscuro */
+  --ink: #f3f3f1;        /* texto principal — ~16:1 sobre --bg */
+  --ink-2: #c3c3cc;      /* texto secundario */
+  --muted: #8b8b96;      /* muted — AA sobre --bg */
+  --line: #29292f;       /* hairlines sobre oscuro */
+  --brand: #6d6df3;      /* acento (un poco más brillante en oscuro) */
+  --brand-ink: #a6a6fb;  /* brand para texto sobre oscuro (más claro) */
+  --brand-soft: #a9a9f9;
+  --dato-neg: #f4708c;   /* negativo, aclarado para oscuro */
+  --surface: #16161c;    /* superficie de tarjetas/controles en oscuro */
 }
 
 html {
@@ -73,7 +109,7 @@ body {
    páginas legacy oscuras lo devuelven a violeta más abajo. */
 .btn-primary {
   background: var(--ink);
-  color: #fff;
+  color: var(--bg);
   border: 1px solid transparent;
   box-shadow: 0 1px 2px rgba(11, 11, 18, 0.1), 0 10px 26px -14px rgba(11, 11, 18, 0.5);
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
@@ -89,7 +125,7 @@ body {
   cursor: not-allowed;
 }
 .btn-ghost {
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--line);
   transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
@@ -101,7 +137,7 @@ body {
 }
 /* Botón sobre superficies de gradiente (tarjetas destacadas) */
 .btn-inverse {
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   border: 1px solid transparent;
   box-shadow: 0 1px 2px rgba(11, 11, 18, 0.12);
@@ -123,10 +159,13 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
+.dark .nav-blur {
+  background: rgba(13, 13, 17, 0.82);
+}
 
 /* ── Superficies / tarjetas ── */
 .surface-card {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 1.25rem;
   box-shadow: 0 1px 2px rgba(11, 11, 18, 0.03), 0 12px 32px -26px rgba(11, 11, 18, 0.16);
@@ -146,7 +185,7 @@ button.surface-card:disabled:hover {
 /* Superficie estática del sistema: igual que surface-card pero SIN hover-lift
    (contenedores grandes no-interactivos: chat del dashboard, form de login). */
 .surface-static {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 1.25rem;
   box-shadow: 0 1px 2px rgba(11, 11, 18, 0.03), 0 12px 32px -26px rgba(11, 11, 18, 0.16);
@@ -223,7 +262,7 @@ button.surface-card:disabled:hover {
   align-items: center;
   gap: 0.5rem;
   border-radius: 9999px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   padding: 0.45rem 0.9rem;
   font-size: 13px;
@@ -259,7 +298,7 @@ button.surface-card:disabled:hover {
 
 /* Monitor: bisel oscuro delgado + pantalla blanca */
 .mock-screen {
-  background: #fff;
+  background: var(--surface);
   border: clamp(7px, 0.9vw, 11px) solid #101016;
   border-radius: clamp(14px, 1.8vw, 24px);
   box-shadow:
@@ -285,7 +324,7 @@ button.surface-card:disabled:hover {
 /* Pill activa (nav del sitio con scrollspy y nav del mockup) */
 .pill-active {
   background: var(--ink);
-  color: #fff;
+  color: var(--bg);
   border-radius: 9999px;
 }
 /* Chips de datos del mockup (positivo en violeta de marca, negativo en rojo) */
@@ -367,7 +406,7 @@ button.surface-card:disabled:hover {
   height: 2.25rem;
   width: 2.25rem;
   border-radius: 9999px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   color: var(--ink-2);
   transition: background 0.15s ease, color 0.15s ease;

@@ -34,7 +34,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 function escribirYEnviar(texto: string) {
-  const input = screen.getByPlaceholderText("Escribe tu mensaje…");
+  const input = screen.getByPlaceholderText("Escríbele a Dona…");
   fireEvent.change(input, { target: { value: texto } });
   const btn = screen.getByLabelText("Enviar mensaje");
   fireEvent.click(btn);

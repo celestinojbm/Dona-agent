@@ -13,7 +13,6 @@ import {
   Check,
   Menu,
   X,
-  ChevronDown,
   Workflow,
   Users,
   Brain,
@@ -36,6 +35,15 @@ import {
   Store,
   Palette,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
+import { toast } from "sonner";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 /* ════════════════════════════════════════════════════════════════════════
    Landing pública de Dona — base clara editorial (case-study premium):
@@ -211,39 +219,12 @@ function SectionHead({
   );
 }
 
-/* ── FAQ (acordeón, contenido siempre en el DOM) ── */
-function FaqItem({ q, a }: { q: string; a: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="surface-card overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full cursor-pointer items-center justify-between gap-4 px-7 py-6 text-left"
-      >
-        <span className="text-lg font-semibold text-[color:var(--ink)]">{q}</span>
-        <ChevronDown
-          className={`h-5 w-5 shrink-0 text-[color:var(--muted)] transition-transform duration-200 ${
-            open ? "rotate-180" : ""
-          }`}
-        />
-      </button>
-      <div className={open ? "block" : "hidden"}>
-        <p className="px-7 pb-6 text-[16px] font-medium leading-relaxed text-[color:var(--ink-2)]">
-          {a}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 /* ── Control Room de Dona en un monitor (mockup 100% CSS, datos de ejemplo).
    Es la prueba de producto del hero: nav con los seis módulos, resultados,
    acciones esperando aprobación y créditos con su barra de consumo. ── */
 function MockControlRoom() {
   return (
-    <div className="mock-screen relative z-10 mx-auto max-w-3xl overflow-hidden">
+    <div className="mock-screen relative z-10 mx-auto max-w-4xl overflow-hidden">
       <div className="p-4 sm:p-7">
         {/* Topbar: wordmark + módulos + acciones de usuario */}
         <div className="flex items-center justify-between gap-4">
@@ -273,7 +254,7 @@ function MockControlRoom() {
         <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
           <p className="max-w-md text-xl font-medium leading-snug tracking-tight text-[color:var(--ink)] sm:text-2xl">
             Hola, Andrea — esta semana Dona ejecutó{" "}
-            <span className="inline-flex translate-y-[-1px] items-center rounded-full border border-[color:var(--line)] bg-white px-3 py-0.5 text-lg shadow-sm sm:text-xl">
+            <span className="inline-flex translate-y-[-1px] items-center rounded-full border border-[color:var(--line)] bg-[color:var(--surface)] px-3 py-0.5 text-lg shadow-sm sm:text-xl">
               34 acciones
             </span>
           </p>
@@ -386,46 +367,10 @@ const DEMO_VIDEO_SRC: string | null = null;
    Accesible: role=dialog, aria-modal, cierra con ESC / clic fuera / botón,
    bloquea el scroll del body y respeta prefers-reduced-motion vía CSS. */
 function DemoModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    panelRef.current?.focus();
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   return (
-    <div
-      className="modal-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Dona en acción"
-      onClick={onClose}
-    >
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        className="modal-panel outline-none"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          className="modal-close cursor-pointer"
-          onClick={onClose}
-          aria-label="Cerrar"
-        >
-          <X className="h-5 w-5" />
-        </button>
+    <Dialog open={open} onOpenChange={(abierto) => { if (!abierto) onClose(); }}>
+      <DialogContent aria-describedby={undefined}>
+        <DialogTitle className="sr-only">Dona en acción</DialogTitle>
 
         {DEMO_VIDEO_SRC ? (
           <div className="p-3">
@@ -442,7 +387,7 @@ function DemoModal({ open, onClose }: { open: boolean; onClose: () => void }) {
         ) : (
           <div className="p-6 sm:p-8">
             <div className="flex items-center gap-3">
-              <span className="grid h-10 w-10 place-items-center rounded-full bg-[color:var(--ink)] text-white">
+              <span className="grid h-10 w-10 place-items-center rounded-full bg-[color:var(--ink)] text-[color:var(--bg)]">
                 <Play className="h-4 w-4" fill="currentColor" />
               </span>
               <div>
@@ -472,8 +417,8 @@ function DemoModal({ open, onClose }: { open: boolean; onClose: () => void }) {
             </div>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -519,11 +464,11 @@ export default function Home() {
       if (data.url) {
         window.location.href = data.url;
       } else {
-        alert(data.error || "No se pudo crear la sesión de pago.");
+        toast.error(data.error || "No se pudo crear la sesión de pago.");
         setCheckoutLoading(null);
       }
     } catch {
-      alert("Error de conexión. Intenta de nuevo.");
+      toast.error("Error de conexión. Intenta de nuevo.");
       setCheckoutLoading(null);
     }
   }, []);
@@ -564,6 +509,7 @@ export default function Home() {
             })}
           </div>
           <div className="hidden items-center gap-3 md:flex">
+            <ThemeToggle />
             <a href="/login" className="cursor-pointer text-sm text-[color:var(--ink-2)] transition-colors hover:text-[color:var(--ink)]">
               Entrar
             </a>
@@ -571,15 +517,18 @@ export default function Home() {
               Empezar
             </a>
           </div>
-          <button
-            type="button"
-            className="cursor-pointer text-[color:var(--ink-2)] md:hidden"
-            onClick={() => setMobileMenu((v) => !v)}
-            aria-label="Menú"
-            aria-expanded={mobileMenu}
-          >
-            {mobileMenu ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
+          <div className="flex items-center gap-2 md:hidden">
+            <ThemeToggle />
+            <button
+              type="button"
+              className="cursor-pointer text-[color:var(--ink-2)]"
+              onClick={() => setMobileMenu((v) => !v)}
+              aria-label="Menú"
+              aria-expanded={mobileMenu}
+            >
+              {mobileMenu ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </div>
         </div>
         {mobileMenu && (
           <div className="border-t border-[color:var(--line)] bg-[color:var(--bg)] md:hidden">
@@ -652,7 +601,7 @@ export default function Home() {
 
       {/* ══════════════════ PRUEBA DE PRODUCTO: CONTROL ROOM EN ESCENARIO ══════════════════ */}
       <section className="relative z-10 mx-auto max-w-7xl px-6 pb-24 md:pb-28">
-        <div className="hero-stage px-5 pt-10 sm:px-12 sm:pt-14">
+        <div className="hero-stage px-5 pt-16 sm:px-12 sm:pt-24">
           <span className="stage-ghost" aria-hidden>
             Dona
           </span>
@@ -791,7 +740,7 @@ export default function Home() {
                     }}
                     aria-hidden
                   />
-                  <span className="relative grid h-11 w-11 place-items-center rounded-xl bg-white text-[color:var(--brand-ink)] shadow-sm">
+                  <span className="relative grid h-11 w-11 place-items-center rounded-xl bg-[color:var(--surface)] text-[color:var(--brand-ink)] shadow-sm">
                     <Icon className="h-5 w-5" />
                   </span>
                 </div>
@@ -932,7 +881,7 @@ export default function Home() {
           <div className="surface-fill flex flex-col p-7">
             <div className="flex items-center gap-2">
               <p className="eyebrow">Enterprise</p>
-              <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--muted)]">
+              <span className="rounded-full bg-[color:var(--surface)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--muted)]">
                 Próximamente
               </span>
             </div>
@@ -1002,16 +951,19 @@ export default function Home() {
               y te contestamos.
             </p>
           </div>
-          <div className="space-y-4 md:pt-3">
-            {FAQ.map((f) => (
-              <FaqItem key={f.q} q={f.q} a={f.a} />
+          <Accordion type="multiple" className="space-y-4 md:pt-3">
+            {FAQ.map((f, i) => (
+              <AccordionItem key={f.q} value={`faq-${i}`}>
+                <AccordionTrigger>{f.q}</AccordionTrigger>
+                <AccordionContent>{f.a}</AccordionContent>
+              </AccordionItem>
             ))}
-          </div>
+          </Accordion>
         </div>
       </section>
 
       {/* ══════════════════ FOOTER ══════════════════ */}
-      <footer className="relative z-10 border-t border-[color:var(--line)] bg-white">
+      <footer className="relative z-10 border-t border-[color:var(--line)] bg-[color:var(--surface)]">
         <div className="mx-auto max-w-7xl px-6 py-14">
           <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
             <div className="flex items-center gap-3">

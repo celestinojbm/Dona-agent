@@ -23,6 +23,7 @@
 //     colapsada "Historial".
 
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   Sparkles,
   CheckCircle2,
@@ -246,7 +247,7 @@ export default function SeccionActionCenter() {
           ),
         });
       } else if (!res.ok) {
-        alert("No pudimos generar acciones nuevas. Intenta de nuevo.");
+        toast.error("No pudimos generar acciones nuevas. Intenta de nuevo.");
       } else {
         // 200 · puede traer perfil_estado del backend
         const data = await res.json();
@@ -269,7 +270,7 @@ export default function SeccionActionCenter() {
         await fetchAcciones();
       }
     } catch {
-      alert("Error de conexión al generar acciones.");
+      toast.error("Error de conexión al generar acciones.");
     }
     setGenerando(false);
   }
@@ -285,11 +286,11 @@ export default function SeccionActionCenter() {
         { method: "POST" },
       );
       if (!res.ok) {
-        alert(`No pudimos ${op} esta acción. Intenta de nuevo.`);
+        toast.error(`No pudimos ${op} esta acción. Intenta de nuevo.`);
       }
       await fetchAcciones();
     } catch {
-      alert("Error de conexión.");
+      toast.error("Error de conexión.");
     }
     setAccionEnCurso(null);
   }
@@ -530,14 +531,14 @@ function CardAccion({
         method: "POST",
       });
       if (!res.ok) {
-        alert("No pudimos cargar el preview HIGH. Intenta de nuevo.");
+        toast.error("No pudimos cargar el preview HIGH. Intenta de nuevo.");
         return;
       }
       const data = (await res.json()) as HighPreviewResponse;
       setHighPreview(data);
       setHighConfirmacion("");
     } catch {
-      alert("Error de conexión al cargar preview HIGH.");
+      toast.error("Error de conexión al cargar preview HIGH.");
     } finally {
       setHighBusy(false);
     }
@@ -553,14 +554,14 @@ function CardAccion({
         body: JSON.stringify({ confirmacion: highConfirmacion }),
       });
       if (!res.ok) {
-        alert("No pudimos confirmar esta acción HIGH. Revisa su estado e intenta de nuevo.");
+        toast.error("No pudimos confirmar esta acción HIGH. Revisa su estado e intenta de nuevo.");
         return;
       }
       setHighPreview(null);
       setHighConfirmacion("");
       await onConfirmada?.();
     } catch {
-      alert("Error de conexión al confirmar acción HIGH.");
+      toast.error("Error de conexión al confirmar acción HIGH.");
     } finally {
       setHighBusy(false);
     }
@@ -682,7 +683,7 @@ function CardAccion({
             id={`confirm-high-${accion.id}`}
             value={highConfirmacion}
             onChange={(ev) => setHighConfirmacion(ev.target.value)}
-            className="w-full rounded-lg bg-white border border-[color:var(--line)] px-3 py-2 text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--brand)]"
+            className="w-full rounded-lg bg-[color:var(--surface)] border border-[color:var(--line)] px-3 py-2 text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--brand)]"
             autoComplete="off"
           />
           <div className="flex items-center justify-end gap-2 mt-3">

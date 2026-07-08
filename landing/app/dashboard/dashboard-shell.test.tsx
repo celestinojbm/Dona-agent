@@ -150,7 +150,7 @@ describe("DashboardShell · sidebar y navegación", () => {
       (await screen.findAllByText(/Chat con Dona/i)).length,
     ).toBeGreaterThan(0);
     expect(
-      await screen.findByPlaceholderText(/Escribe tu mensaje/i),
+      await screen.findByPlaceholderText(/Escríbele a Dona/i),
     ).toBeInTheDocument();
   });
 });

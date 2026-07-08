@@ -57,7 +57,7 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="tu@correo.com"
             required
-            className="w-full px-5 py-3.5 rounded-xl bg-white border border-[color:var(--line)] text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] focus:outline-none focus:border-[color:var(--brand)] transition-colors"
+            className="w-full px-5 py-3.5 rounded-xl bg-[color:var(--surface)] border border-[color:var(--line)] text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] focus:outline-none focus:border-[color:var(--brand)] transition-colors"
           />
           <input
             type="password"
@@ -65,7 +65,7 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Contrasena"
             required
-            className="w-full px-5 py-3.5 rounded-xl bg-white border border-[color:var(--line)] text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] focus:outline-none focus:border-[color:var(--brand)] transition-colors"
+            className="w-full px-5 py-3.5 rounded-xl bg-[color:var(--surface)] border border-[color:var(--line)] text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] focus:outline-none focus:border-[color:var(--brand)] transition-colors"
           />
 
           {error && (

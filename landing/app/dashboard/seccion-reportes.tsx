@@ -88,7 +88,7 @@ export default function SeccionReportes() {
       </div>
 
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
-        <div className="inline-flex rounded-full border border-[color:var(--line)] p-1 bg-white">
+        <div className="inline-flex rounded-full border border-[color:var(--line)] p-1 bg-[color:var(--surface)]">
           {(["mes", "semana"] as const).map((p) => (
             <button
               key={p}

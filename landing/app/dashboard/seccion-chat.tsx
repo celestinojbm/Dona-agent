@@ -20,7 +20,7 @@
 //     tirar la conversación.
 
 import { useCallback, useRef, useState, useEffect } from "react";
-import { MessageSquare, Send, Loader2, AlertCircle } from "lucide-react";
+import { MessageSquare, ArrowUp, Loader2, AlertCircle } from "lucide-react";
 import type { ChatResponse, MensajeChat } from "@/lib/chat-types";
 
 // Mapea el `error` del route a un mensaje humano (sin exponer internals).
@@ -50,6 +50,15 @@ type TurnoUI =
   | { tipo: "mensaje"; mensaje: MensajeChat }
   | { tipo: "error"; texto: string };
 
+// Sugerencias de arranque (estado vacío): precargan el input. Todas mapean a
+// capacidades REALES de Dona por el mismo canal que WhatsApp.
+const SUGERENCIAS = [
+  "Genera una imagen",
+  "Lleva mis números de la semana",
+  "Redacta y envía un correo",
+  "Resume mis pendientes",
+];
+
 interface SeccionChatProps {
   /** En el shell la sección Chat ocupa todo el alto disponible (estilo
    * WhatsApp Web): la lista crece y el input queda anclado abajo. Sin el
@@ -63,6 +72,7 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
   const [input, setInput] = useState("");
   const [enviando, setEnviando] = useState(false);
   const finRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Auto-scroll al último turno cuando cambia la lista o el estado de envío.
   // scrollIntoView no existe en jsdom (tests) ni en navegadores muy viejos;
@@ -148,12 +158,27 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
           }`}
         >
           {turnos.length === 0 && !enviando && (
-            <div className="h-full flex items-center justify-center text-center py-10">
-              <p className="text-[color:var(--muted)] max-w-sm">
+            <div className="flex h-full flex-col items-center justify-center gap-5 py-10 text-center">
+              <p className="max-w-sm text-[color:var(--muted)]">
                 Escríbele a Dona como lo harías por WhatsApp. Puede generar
                 imágenes, llevar tus números, redactar y enviar correos, y más —
                 con los mismos permisos y costos.
               </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {SUGERENCIAS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => {
+                      setInput(s);
+                      inputRef.current?.focus();
+                    }}
+                    className="chip-pill cursor-pointer transition-colors hover:border-[color:var(--brand)] hover:text-[color:var(--ink)]"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -171,30 +196,36 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
           <div ref={finRef} />
         </div>
 
-        {/* Input */}
-        <div className="border-t border-[color:var(--line)] px-4 py-3 transition-colors focus-within:border-[color:var(--brand)]">
-          <div className="flex items-end gap-3">
+        {/* Composer */}
+        <div className="border-t border-[color:var(--line)] p-4">
+          <div className="rounded-2xl border border-[color:var(--line)] bg-[color:var(--surface)] shadow-[0_1px_2px_rgba(11,11,18,0.04),0_10px_28px_-22px_rgba(11,11,18,0.25)] transition-colors focus-within:border-[color:var(--brand)]">
             <textarea
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
               rows={1}
-              placeholder="Escribe tu mensaje…"
+              placeholder="Escríbele a Dona…"
               disabled={enviando}
-              className="flex-1 resize-none bg-transparent text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] focus:outline-none py-2 max-h-32 disabled:opacity-50"
+              className="max-h-40 w-full resize-none bg-transparent px-4 pt-3.5 text-[15px] leading-relaxed text-[color:var(--ink)] placeholder:text-[color:var(--muted)] focus:outline-none disabled:opacity-50"
             />
-            <button
-              onClick={() => void enviar()}
-              disabled={enviando || !input.trim()}
-              aria-label="Enviar mensaje"
-              className="btn-primary shrink-0 w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {enviando ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-            </button>
+            <div className="flex items-center justify-between px-3 pb-3 pt-1.5">
+              <span className="pl-1 text-[11px] text-[color:var(--muted)]">
+                Enter para enviar · Shift+Enter salto de línea
+              </span>
+              <button
+                onClick={() => void enviar()}
+                disabled={enviando || !input.trim()}
+                aria-label="Enviar mensaje"
+                className="btn-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {enviando ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowUp className="h-4 w-4" />
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

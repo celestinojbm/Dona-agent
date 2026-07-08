@@ -17,6 +17,9 @@
 // load global: si dashboard-data falla, siguen disponibles.
 
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { signOut } from "next-auth/react";
 import {
   Mail,
@@ -295,15 +298,15 @@ export default function DashboardClient({ session }: DashboardProps) {
         return;
       }
       if (data.error === "portal_not_configured") {
-        alert(
+        toast.error(
           "El portal de facturación todavía no está configurado. " +
             "Escríbenos a hola@usadona.com y te ayudamos.",
         );
       } else {
-        alert("No pudimos abrir el portal. Intenta de nuevo en un momento.");
+        toast.error("No pudimos abrir el portal. Intenta de nuevo en un momento.");
       }
     } catch {
-      alert("Error de conexión. Intenta de nuevo.");
+      toast.error("Error de conexión. Intenta de nuevo.");
     }
     setOpeningPortal(false);
   }
@@ -327,15 +330,15 @@ export default function DashboardClient({ session }: DashboardProps) {
         return;
       }
       if (data.error === "paquete_no_configurado") {
-        alert(
+        toast.error(
           "Este paquete todavía no está disponible. " +
             "Escríbenos a hola@usadona.com y te ayudamos.",
         );
       } else {
-        alert("No pudimos iniciar la compra. Intenta de nuevo en un momento.");
+        toast.error("No pudimos iniciar la compra. Intenta de nuevo en un momento.");
       }
     } catch {
-      alert("Error de conexión. Intenta de nuevo.");
+      toast.error("Error de conexión. Intenta de nuevo.");
     }
     setComprandoTopup(null);
   }
@@ -421,7 +424,7 @@ export default function DashboardClient({ session }: DashboardProps) {
                 <span
                   className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
                     activa
-                      ? "bg-white/20 text-white"
+                      ? "bg-[color:var(--bg)]/25 text-[color:var(--bg)]"
                       : "bg-[color:var(--fill)] text-[color:var(--brand-ink)]"
                   }`}
                 >
@@ -453,7 +456,7 @@ export default function DashboardClient({ session }: DashboardProps) {
             Control Room
             <span
               className={`ml-auto text-[10px] font-semibold uppercase tracking-[0.12em] ${
-                seccion === "control-room" ? "text-white/70" : "text-[color:var(--muted)]"
+                seccion === "control-room" ? "text-[color:var(--bg)]/70" : "text-[color:var(--muted)]"
               }`}
             >
               interno
@@ -479,6 +482,9 @@ export default function DashboardClient({ session }: DashboardProps) {
             <LogOut className="h-4 w-4" />
             Salir
           </button>
+          <div className="mt-3">
+            <ThemeToggle />
+          </div>
         </div>
       </div>
     );
@@ -580,26 +586,23 @@ export default function DashboardClient({ session }: DashboardProps) {
         </button>
       </header>
 
-      {/* Drawer móvil */}
-      {menuMovil && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <button
-            type="button"
-            aria-label="Cerrar menú"
-            onClick={() => setMenuMovil(false)}
-            className="absolute inset-0 cursor-default bg-[rgba(11,11,18,0.5)]"
-          />
-          <div className="absolute inset-y-0 left-0 flex w-72 flex-col justify-between overflow-y-auto border-r border-[color:var(--line)] bg-[color:var(--bg)] p-6">
-            <div>
-              <Link href="/" className="block px-3.5 text-xl font-semibold tracking-tight">
-                Dona
-              </Link>
-              <div className="mt-6">{renderNav()}</div>
-            </div>
-            <div className="mt-8">{renderFooterNav()}</div>
+      {/* Drawer móvil (Radix Sheet: focus-trap, ESC, scroll-lock, foco devuelto) */}
+      <Sheet open={menuMovil} onOpenChange={setMenuMovil}>
+        <SheetContent
+          side="left"
+          aria-describedby={undefined}
+          className="justify-between overflow-y-auto p-6 md:hidden"
+        >
+          <SheetTitle className="sr-only">Menú de navegación</SheetTitle>
+          <div>
+            <Link href="/" className="block px-3.5 text-xl font-semibold tracking-tight">
+              Dona
+            </Link>
+            <div className="mt-6">{renderNav()}</div>
           </div>
-        </div>
-      )}
+          <div className="mt-8">{renderFooterNav()}</div>
+        </SheetContent>
+      </Sheet>
 
       <div className="mx-auto flex w-full max-w-[1440px]">
         {/* Sidebar desktop */}
