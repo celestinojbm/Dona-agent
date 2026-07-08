@@ -98,6 +98,12 @@ fbq('track', 'PageView');`,
         <div className="relative z-10 flex flex-col min-h-full">
           {children}
         </div>
+        {/* Apertura cinematografica (LTX iter 31): telon negro que se disuelve
+            una sola vez al cargar (fade from black). 100% CSS, sin JS; por
+            defecto invisible y pointer-events-none, asi que nunca tapa ni
+            bloquea el contenido si la animacion no corre. Se salta con
+            prefers-reduced-motion. Ver .cinematic-intro en globals.css. */}
+        <div className="cinematic-intro" aria-hidden="true" />
       </body>
     </html>
   );

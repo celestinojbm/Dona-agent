@@ -387,6 +387,39 @@ body {
   }
 }
 
+/* -- Apertura cinematografica (LTX iter 31): fundido desde negro al cargar --
+   Un telon negro a pantalla completa que se disuelve una sola vez al abrir la
+   pagina (opacity 1→0), la firma de "fade from black" que abre casi todo film y
+   que usan LTX/Higgsfield/Luma para entrar en escena. Es 100% CSS (sin JS): la
+   animacion arranca sola con `forwards` y se queda en opacity 0.
+   Progressive enhancement / a prueba de fallos: el estado por defecto es
+   `opacity: 0` + `pointer-events: none`, asi que si por lo que sea la animacion
+   no corre (CSS parcial, etc.) el telon queda invisible y jamas tapa ni bloquea
+   el contenido. z-index por encima de todo (nav z-50, beam z-60) para cubrir la
+   escena entera durante el fundido. Respeta `prefers-reduced-motion`: ahi no hay
+   fundido (animation: none) y el telon queda invisible desde el primer frame. */
+.cinematic-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  will-change: opacity;
+  animation: cinematic-intro-fade 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes cinematic-intro-fade {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cinematic-intro {
+    animation: none;
+    opacity: 0;
+    will-change: auto;
+  }
+}
+
 /* -- Section spacing -- */
 .section-space {
   padding-top: 10rem;
