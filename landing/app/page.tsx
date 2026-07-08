@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
+  Play,
   Search,
   Sparkles,
   FileText,
@@ -375,10 +376,112 @@ function MockControlRoom() {
   );
 }
 
+/* Fuente del video de demo real. Queda en null hasta que exista la grabación
+   del producto (screen-recording) en /public/dona-demo.mp4. Mientras tanto el
+   modal muestra la recreación en vivo del Control Room. Para activar el video
+   real: sube el archivo a /public y cambia esta constante a "/dona-demo.mp4". */
+const DEMO_VIDEO_SRC: string | null = null;
+
+/* ── Modal "Ver Dona en acción" ──────────────────────────────────────────
+   Accesible: role=dialog, aria-modal, cierra con ESC / clic fuera / botón,
+   bloquea el scroll del body y respeta prefers-reduced-motion vía CSS. */
+function DemoModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    panelRef.current?.focus();
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Dona en acción"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="modal-panel outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="modal-close cursor-pointer"
+          onClick={onClose}
+          aria-label="Cerrar"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        {DEMO_VIDEO_SRC ? (
+          <div className="p-3">
+            <video
+              className="w-full rounded-2xl"
+              controls
+              playsInline
+              preload="metadata"
+              poster="/dona-demo-poster.jpg"
+            >
+              <source src={DEMO_VIDEO_SRC} type="video/mp4" />
+            </video>
+          </div>
+        ) : (
+          <div className="p-6 sm:p-8">
+            <div className="flex items-center gap-3">
+              <span className="grid h-10 w-10 place-items-center rounded-full bg-[color:var(--ink)] text-white">
+                <Play className="h-4 w-4" fill="currentColor" />
+              </span>
+              <div>
+                <p className="text-[15px] font-semibold text-[color:var(--ink)]">Dona en acción</p>
+                <p className="text-[13px] text-[color:var(--muted)]">
+                  El loop corriendo, de la intención al resultado.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <MockControlRoom />
+            </div>
+
+            <div className="mt-7">
+              <div className="demo-rail" aria-hidden />
+              <ol className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
+                {LOOP_PASOS.map((p, i) => (
+                  <li key={p.titulo} className="text-center">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--muted)]">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <p className="text-[12px] font-medium text-[color:var(--ink)]">{p.titulo}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [seccionActiva, setSeccionActiva] = useState<string | null>(null);
+  const [demoOpen, setDemoOpen] = useState(false);
   const rootRef = useReveal();
 
   // Scrollspy: al bajar (o al hacer clic en la nav) la sección visible se
@@ -536,9 +639,14 @@ export default function Home() {
             Empezar con Dona
             <ArrowRight className="h-5 w-5" />
           </a>
-          <a href="#loop" className="btn-ghost inline-flex cursor-pointer items-center gap-2 rounded-full px-8 py-4 text-base font-medium">
+          <button
+            type="button"
+            onClick={() => setDemoOpen(true)}
+            className="btn-ghost inline-flex cursor-pointer items-center gap-2 rounded-full px-8 py-4 text-base font-medium"
+          >
+            <Play className="h-4 w-4" fill="currentColor" />
             Ver Dona en acción
-          </a>
+          </button>
         </div>
       </section>
 
@@ -965,6 +1073,8 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      <DemoModal open={demoOpen} onClose={() => setDemoOpen(false)} />
     </main>
   );
 }

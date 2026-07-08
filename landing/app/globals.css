@@ -299,6 +299,86 @@ body {
   background: linear-gradient(90deg, #8f8ff7 0%, #5b5bf0 55%, #f97316 100%);
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   MODAL DE DEMO ("Ver Dona en acción"). Contenido accesible: overlay oscuro
+   con blur, panel centrado. Muestra el <video> self-hosted cuando existe la
+   grabación real; si no, cae en una recreación en vivo del Control Room con
+   un "rail de reproducción" que barre bajo los seis pasos del loop.
+   ════════════════════════════════════════════════════════════════════════ */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(11, 11, 18, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: modal-fade 0.2s ease;
+}
+.modal-panel {
+  position: relative;
+  width: min(1040px, 100%);
+  max-height: 92vh;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  box-shadow: 0 40px 90px -30px rgba(11, 11, 18, 0.6);
+  animation: modal-rise 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes modal-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes modal-rise {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+.modal-close {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.25rem;
+  width: 2.25rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.modal-close:hover {
+  background: var(--bg-soft);
+  color: var(--ink);
+}
+
+/* Rail de reproducción: barra que barre de izq. a der. bajo los pasos, para
+   dar sensación de "demo corriendo" sin depender de timers en JS. */
+.demo-rail {
+  position: relative;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.demo-rail-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 24%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #5b5bf0, #f97316);
+  animation: demo-sweep 9s linear infinite;
+}
+@keyframes demo-sweep {
+  0%   { left: -24%; }
+  100% { left: 100%; }
+}
+
 /* ── Reveal on-scroll (progressive enhancement) ──────────────────────────
    Contenido VISIBLE por defecto (sin JS / SSR / reduced-motion). Solo se
    oculta si JS marca el contenedor [data-reveal-root="ready"], y se revela
@@ -319,6 +399,9 @@ body {
   .btn-ghost:hover,
   .btn-inverse:hover,
   .surface-card:hover { transform: none; }
+  .modal-backdrop,
+  .modal-panel { animation: none; }
+  .demo-rail-fill { animation: none; width: 100%; }
   [data-reveal-root="ready"] [data-reveal] {
     opacity: 1 !important;
     transform: none !important;

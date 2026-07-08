@@ -32,6 +32,10 @@ const csp = [
   "script-src 'self' 'unsafe-inline' https://connect.facebook.net",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https://www.facebook.com",
+  // media-src explícito para el video de demo self-hosted (/public). Aunque
+  // default-src 'self' ya lo cubriría, se lista para dejar la intención clara
+  // ahora que servimos video propio. blob: por si el player usa blobs.
+  "media-src 'self' blob:",
   "connect-src 'self' https://www.facebook.com",
   "font-src 'self'",
   "frame-ancestors 'none'",
@@ -57,7 +61,8 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/hero.mp4",
+        // Video de demo self-hosted: byte-range (seek) + cache larga inmutable.
+        source: "/dona-demo.mp4",
         headers: [
           { key: "Accept-Ranges", value: "bytes" },
           { key: "Content-Type", value: "video/mp4" },
