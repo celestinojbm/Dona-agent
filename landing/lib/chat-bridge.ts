@@ -26,7 +26,7 @@ import "server-only";
 
 import crypto from "node:crypto";
 
-import type { ChatApiResult, ChatResponse } from "./chat-types";
+import type { ChatApiResult, ChatMediaWire, ChatResponse } from "./chat-types";
 
 // 120s · holgado sobre el timeout de 90s del backend en /internal/chat.
 const CHAT_BRIDGE_TIMEOUT_MS = 120_000;
@@ -47,8 +47,14 @@ function generarRequestId(): string {
  * - Firma el body JSON con HMAC-SHA256(body, INTERNAL_BRIDGE_SECRET).
  * - Lee BACKEND_URL e INTERNAL_BRIDGE_SECRET de env; nunca los expone al
  *   resultado.
- * - Propaga `status` para que el route handler mapee 404/401/429/timeout.
+ * - Propaga `status` para que el route handler mapee 404/401/429/413/timeout.
  * - Logs no incluyen subscription_id completo ni el texto del mensaje (PII).
+ *
+ * Media (Fase 3): además del texto, un turno puede traer voz y/o imagen en
+ * `media` (base64 SIN prefijo). Se exige ≥1 de: `mensaje`, `media.audio_base64`
+ * o `media.imagen_base64`. Los campos de media SÓLO se agregan al body cuando
+ * están presentes, así un turno de sólo-texto sigue firmando y enviando
+ * EXACTAMENTE `{subscription_id, mensaje}` (sin ruido para el backend).
  *
  * Llamar SÓLO desde código server-side (route handlers), nunca desde el
  * cliente: imprime el secret en el HMAC.
@@ -56,12 +62,18 @@ function generarRequestId(): string {
 export async function enviarMensajeChat(
   subscriptionId: string,
   mensaje: string,
+  media?: ChatMediaWire,
 ): Promise<ChatApiResult> {
   const backendUrl = process.env.BACKEND_URL?.trim();
   const secret = process.env.INTERNAL_BRIDGE_SECRET?.trim();
 
+  const texto = mensaje?.trim() ?? "";
+  const hayMedia = Boolean(media?.audio_base64 || media?.imagen_base64);
+
   if (!subscriptionId) return { ok: false, error: "missing_subscription_id" };
-  if (!mensaje || !mensaje.trim()) return { ok: false, error: "missing_mensaje" };
+  // Debe venir texto o al menos un adjunto. Sólo-texto vacío y sin media es un
+  // turno vacío (mismo criterio que el backend: missing_mensaje).
+  if (!texto && !hayMedia) return { ok: false, error: "missing_mensaje" };
   if (!backendUrl) {
     console.error("[BRIDGE-CHAT] BACKEND_URL no configurada");
     return { ok: false, error: "backend_url_missing" };
@@ -72,11 +84,21 @@ export async function enviarMensajeChat(
   }
 
   // El body que firmamos es exactamente el body que enviamos. NUNCA incluye
-  // telefono: el backend lo resuelve desde subscription_id (anti-IDOR).
-  const bodyStr = JSON.stringify({
-    subscription_id: subscriptionId,
-    mensaje: mensaje.trim(),
-  });
+  // telefono: el backend lo resuelve desde subscription_id (anti-IDOR). Los
+  // campos de media se añaden SÓLO si vienen, para no alterar el body de
+  // sólo-texto.
+  const body: Record<string, string> = { subscription_id: subscriptionId };
+  if (texto) body.mensaje = texto;
+  if (media?.audio_base64) {
+    body.audio_base64 = media.audio_base64;
+    if (media.audio_mime) body.audio_mime = media.audio_mime;
+  }
+  if (media?.imagen_base64) {
+    body.imagen_base64 = media.imagen_base64;
+    if (media.imagen_mime) body.imagen_mime = media.imagen_mime;
+    if (media.imagen_caption) body.imagen_caption = media.imagen_caption;
+  }
+  const bodyStr = JSON.stringify(body);
   const signature = crypto
     .createHmac("sha256", secret)
     .update(bodyStr, "utf8")

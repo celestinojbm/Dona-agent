@@ -10,8 +10,19 @@
 //   - timeout retorna ok=false con error timeout (el timeout largo del chat).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import crypto from "node:crypto";
 
 const ORIGINAL_ENV = { ...process.env };
+
+// HMAC-SHA256 esperado sobre el body EXACTO enviado, con el secret del test.
+// Recomputarlo (en vez de sólo verificar el formato hex) detecta que se firme
+// un body distinto del que se envía (invariante de seguridad del bridge).
+function hmacEsperado(bodyStr: string): string {
+  return crypto
+    .createHmac("sha256", "test-secret-xyz")
+    .update(bodyStr, "utf8")
+    .digest("hex");
+}
 
 beforeEach(() => {
   process.env.BACKEND_URL = "http://backend.test";
@@ -79,7 +90,8 @@ describe("chat-bridge · firma HMAC, URL y body", () => {
     expect(url).toBe("http://backend.test/internal/chat");
     const init = fetchSpy.mock.calls[0][1] as RequestInit;
     const headers = init.headers as Record<string, string>;
-    expect(headers["X-Internal-Signature"]).toMatch(/^[a-f0-9]{64}$/);
+    // Correctitud (no sólo forma): la firma DEBE ser el HMAC del body EXACTO.
+    expect(headers["X-Internal-Signature"]).toBe(hmacEsperado(init.body as string));
     expect(headers["Content-Type"]).toBe("application/json");
   });
 
@@ -168,5 +180,124 @@ describe("chat-bridge · timeout largo (exclusivo del chat)", () => {
     const r = await enviarMensajeChat("sub_x", "hola");
     expect(r.ok).toBe(false);
     expect(r.error).toBe("timeout");
+  });
+});
+
+
+// ── Fase 3 · media (voz/imagen) ────────────────────────────────────────────
+
+describe("chat-bridge · media · validación", () => {
+  it("sólo-audio (sin texto) NO es missing_mensaje y llega al backend", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ respuesta: "oí tu nota" }), { status: 200 }),
+      );
+    const { enviarMensajeChat } = await import("./chat-bridge");
+    const r = await enviarMensajeChat("sub_x", "", { audio_base64: "QUFBQQ==" });
+    expect(r.ok).toBe(true);
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+
+  it("sólo-imagen (sin texto) NO es missing_mensaje y llega al backend", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ respuesta: "vi tu imagen" }), { status: 200 }),
+      );
+    const { enviarMensajeChat } = await import("./chat-bridge");
+    const r = await enviarMensajeChat("sub_x", "", { imagen_base64: "QUFBQQ==" });
+    expect(r.ok).toBe(true);
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+
+  it("sin texto y sin media (objeto vacío) sigue siendo missing_mensaje (sin red)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const { enviarMensajeChat } = await import("./chat-bridge");
+    const r = await enviarMensajeChat("sub_x", "  ", {});
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe("missing_mensaje");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("chat-bridge · media · body firmado", () => {
+  it("incluye audio_base64/audio_mime cuando hay voz", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ respuesta: "ok" }), { status: 200 }),
+      );
+    const { enviarMensajeChat } = await import("./chat-bridge");
+    await enviarMensajeChat("sub_x", "escucha esto", {
+      audio_base64: "QUFBQQ==",
+      audio_mime: "audio/webm",
+    });
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string);
+    expect(body).toEqual({
+      subscription_id: "sub_x",
+      mensaje: "escucha esto",
+      audio_base64: "QUFBQQ==",
+      audio_mime: "audio/webm",
+    });
+    expect(body).not.toHaveProperty("telefono");
+  });
+
+  it("incluye imagen_base64/imagen_mime/imagen_caption cuando hay foto", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ respuesta: "ok" }), { status: 200 }),
+      );
+    const { enviarMensajeChat } = await import("./chat-bridge");
+    await enviarMensajeChat("sub_x", "", {
+      imagen_base64: "QkJCQg==",
+      imagen_mime: "image/png",
+      imagen_caption: "factura",
+    });
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string);
+    expect(body).toEqual({
+      subscription_id: "sub_x",
+      imagen_base64: "QkJCQg==",
+      imagen_mime: "image/png",
+      imagen_caption: "factura",
+    });
+    // Sin texto ⇒ sin la clave `mensaje` (no se envía vacía).
+    expect(body).not.toHaveProperty("mensaje");
+  });
+
+  it("NO agrega claves de media cuando no vienen (sólo-texto queda idéntico)", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ respuesta: "ok" }), { status: 200 }),
+      );
+    const { enviarMensajeChat } = await import("./chat-bridge");
+    await enviarMensajeChat("sub_x", "hola", {
+      // objeto de media presente pero SIN base64 alguno
+      audio_mime: "audio/webm",
+    });
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string);
+    expect(body).toEqual({ subscription_id: "sub_x", mensaje: "hola" });
+  });
+
+  it("la firma HMAC cubre el body con media (firma sobre el body exacto)", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ respuesta: "ok" }), { status: 200 }),
+      );
+    const { enviarMensajeChat } = await import("./chat-bridge");
+    await enviarMensajeChat("sub_x", "", { imagen_base64: "QkJCQg==" });
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    const bodyStr = init.body as string;
+    // El body firmado incluye la media...
+    expect(JSON.parse(bodyStr)).toMatchObject({ imagen_base64: "QkJCQg==" });
+    // ...y la firma es el HMAC de ESE body exacto (no de un body sin media).
+    expect(headers["X-Internal-Signature"]).toBe(hmacEsperado(bodyStr));
   });
 });

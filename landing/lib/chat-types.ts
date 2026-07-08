@@ -28,3 +28,20 @@ export interface ChatApiResult {
   data?: ChatResponse;
   error?: string;
 }
+
+/**
+ * Media OPCIONAL de un turno de chat web (voz/imagen). El naming es IDÉNTICO al
+ * contrato del backend (/internal/chat) para que los campos fluyan
+ * cliente → /api/chat → bridge → backend SIN remapeo intermedio.
+ *
+ * - `*_base64` va SIN el prefijo `data:<mime>;base64,` (sólo el payload base64).
+ * - Se envía ≥1 de: `mensaje` (texto), `audio_base64`, `imagen_base64`.
+ * - Cada adjunto tiene tope de 12 MB decodificados (mismo cap que el backend).
+ */
+export interface ChatMediaWire {
+  audio_base64?: string;
+  audio_mime?: string;
+  imagen_base64?: string;
+  imagen_mime?: string;
+  imagen_caption?: string;
+}

@@ -677,3 +677,281 @@ class TestHistorialCompartido:
         contenidos = [m["content"] for m in hist]
         assert "pregunta web" in contenidos
         assert "respuesta web" in contenidos
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Parte 4 · Media (voz/imagen) — Fase 3 · paridad multimodal con WhatsApp
+# ══════════════════════════════════════════════════════════════════════════
+#
+# El chat web acepta, además de texto, una nota de voz y/o una imagen en base64,
+# reusando el MISMO pipeline que WhatsApp:
+#   - Voz  → agent.transcriber.transcribir_audio (texto PLANO, primera persona).
+#   - Imagen → agent.vision.analizar_imagen_con_claude + el envoltorio
+#     anti-inyección del webhook (SEC-INJ-07): al LLM va envuelto/sanitizado,
+#     al historial va el plano legible.
+# Estos tests fijan ese contrato sin llamar a proveedores reales (mocks).
+
+
+@_requiere_main
+class TestProcesarMediaChat:
+    """Función pura _procesar_media_chat: combina texto + media en
+    (mensaje_llm, mensaje_hist), con caps y errores tipados."""
+
+    @staticmethod
+    def _fn():
+        from agent.main import _procesar_media_chat
+        return _procesar_media_chat
+
+    @staticmethod
+    def _b64(data: bytes) -> str:
+        import base64
+        return base64.b64encode(data).decode("ascii")
+
+    @pytest.mark.asyncio
+    async def test_texto_solo_pasa_igual(self):
+        llm, hist = await self._fn()({}, "hola dona")
+        assert llm == "hola dona"
+        assert hist == "hola dona"
+
+    @pytest.mark.asyncio
+    async def test_voz_se_transcribe_y_va_plano(self, monkeypatch):
+        import agent.transcriber as transcriber
+
+        async def _fake(_bytes, _mime):
+            return "esto lo dije por voz"
+
+        monkeypatch.setattr(transcriber, "transcribir_audio", _fake)
+        payload = {"audio_base64": self._b64(b"audio"), "audio_mime": "audio/webm"}
+        llm, hist = await self._fn()(payload, "acompaño con texto")
+
+        assert "acompaño con texto" in llm
+        assert "esto lo dije por voz" in llm
+        # La voz es primera persona: NO lleva envoltorio anti-inyección.
+        assert "NOTA:" not in llm
+        # Historial idéntico al texto plano que ve el LLM (voz).
+        assert hist == llm
+
+    @pytest.mark.asyncio
+    async def test_imagen_envuelta_para_llm_plana_para_historial(self, monkeypatch):
+        import agent.vision as vision
+
+        async def _fake(_bytes, _mime, _caption):
+            return "se ve una factura por 100 dolares"
+
+        monkeypatch.setattr(vision, "analizar_imagen_con_claude", _fake)
+        payload = {"imagen_base64": self._b64(b"img"), "imagen_mime": "image/png"}
+        llm, hist = await self._fn()(payload, "")
+
+        # LLM: envoltorio anti-inyección (datos, no instrucciones).
+        assert "NOTA:" in llm
+        assert "EXTRAÍDO DE UNA IMAGEN" in llm
+        assert "se ve una factura" in llm
+        # Historial: plano legible, SIN el envoltorio.
+        assert hist.startswith("[Imagen recibida]")
+        assert "NOTA:" not in hist
+        assert "se ve una factura" in hist
+
+    @pytest.mark.asyncio
+    async def test_imagen_con_caption_en_el_plano(self, monkeypatch):
+        import agent.vision as vision
+        capturado = {}
+
+        async def _fake(_bytes, _mime, caption):
+            capturado["caption"] = caption
+            return "analisis"
+
+        monkeypatch.setattr(vision, "analizar_imagen_con_claude", _fake)
+        payload = {
+            "imagen_base64": self._b64(b"img"),
+            "imagen_mime": "image/jpeg",
+            "imagen_caption": "es mi recibo",
+        }
+        _llm, hist = await self._fn()(payload, "")
+        assert capturado["caption"] == "es mi recibo"
+        assert "es mi recibo" in hist  # el caption aparece en la etiqueta
+
+    @pytest.mark.asyncio
+    async def test_audio_base64_invalido_400(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as e:
+            await self._fn()({"audio_base64": "no-es-base64!!"}, "")
+        assert e.value.status_code == 400
+        assert e.value.detail == "audio_base64_invalido"
+
+    @pytest.mark.asyncio
+    async def test_imagen_base64_invalido_400(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as e:
+            await self._fn()({"imagen_base64": "no-es-base64!!"}, "")
+        assert e.value.status_code == 400
+        assert e.value.detail == "imagen_base64_invalido"
+
+    @pytest.mark.asyncio
+    async def test_audio_demasiado_grande_413(self, monkeypatch):
+        import agent.main as main
+        # Bajar el cap para no allocar 12 MB en el test.
+        monkeypatch.setattr(main, "_CHAT_MAX_MEDIA_BYTES", 4)
+        from fastapi import HTTPException
+        payload = {"audio_base64": self._b64(b"12345678")}  # 8 bytes > 4
+        with pytest.raises(HTTPException) as e:
+            await self._fn()(payload, "")
+        assert e.value.status_code == 413
+        assert e.value.detail == "audio_demasiado_grande"
+
+    @pytest.mark.asyncio
+    async def test_imagen_demasiado_grande_413(self, monkeypatch):
+        import agent.main as main
+        monkeypatch.setattr(main, "_CHAT_MAX_MEDIA_BYTES", 4)
+        from fastapi import HTTPException
+        payload = {"imagen_base64": self._b64(b"12345678")}
+        with pytest.raises(HTTPException) as e:
+            await self._fn()(payload, "")
+        assert e.value.status_code == 413
+        assert e.value.detail == "imagen_demasiado_grande"
+
+    @pytest.mark.asyncio
+    async def test_voz_intranscribible_se_omite(self, monkeypatch):
+        """Si la transcripción devuelve None y no hay texto, el mensaje para el
+        LLM queda vacío (el endpoint responde seguro sin llegar al LLM)."""
+        import agent.transcriber as transcriber
+
+        async def _fake(_bytes, _mime):
+            return None
+
+        monkeypatch.setattr(transcriber, "transcribir_audio", _fake)
+        llm, hist = await self._fn()({"audio_base64": self._b64(b"x")}, "")
+        assert llm == ""
+        assert hist == ""
+
+
+@_requiere_main
+class TestMediaEndpoint:
+    """Ruta completa /internal/chat con media (auth HMAC + resolución de sub +
+    pipeline). Mocks de transcriber/vision/generar_respuesta."""
+
+    @staticmethod
+    def _b64(data: bytes) -> str:
+        import base64
+        return base64.b64encode(data).decode("ascii")
+
+    @pytest.mark.asyncio
+    async def test_audio_only_transcribe_y_llega_al_llm(self, setup, monkeypatch):
+        client, memory, main = setup
+        await _crear_sub(memory, "sub_media_a", "15551119200")
+
+        import agent.transcriber as transcriber
+
+        async def _fake_transcribir(_bytes, _mime):
+            return "hola desde una nota de voz"
+
+        monkeypatch.setattr(transcriber, "transcribir_audio", _fake_transcribir)
+        visto = {}
+
+        async def _fake_generar(mensaje, historial, telefono="", timestamp_mensaje=0, proveedor=None):
+            visto["mensaje"] = mensaje
+            return "te escuché"
+
+        monkeypatch.setattr(main, "generar_respuesta", _fake_generar)
+        r = _post(client, _body(
+            subscription_id="sub_media_a",
+            audio_base64=self._b64(b"audio-bytes"),
+            audio_mime="audio/webm",
+        ))
+        assert r.status_code == 200
+        assert r.json() == {"respuesta": "te escuché"}
+        assert "hola desde una nota de voz" in visto["mensaje"]
+
+    @pytest.mark.asyncio
+    async def test_image_only_llm_envuelto_historial_plano(self, setup, monkeypatch):
+        client, memory, main = setup
+        tel = "15551119201"
+        await _crear_sub(memory, "sub_media_i", tel)
+
+        import agent.vision as vision
+
+        async def _fake_analizar(_bytes, _mime, _caption):
+            return "una gráfica de ventas de la semana"
+
+        monkeypatch.setattr(vision, "analizar_imagen_con_claude", _fake_analizar)
+        visto = {}
+
+        async def _fake_generar(mensaje, historial, telefono="", timestamp_mensaje=0, proveedor=None):
+            visto["mensaje_llm"] = mensaje
+            return "vi tu gráfica"
+
+        monkeypatch.setattr(main, "generar_respuesta", _fake_generar)
+        r = _post(client, _body(
+            subscription_id="sub_media_i",
+            imagen_base64=self._b64(b"img-bytes"),
+            imagen_mime="image/png",
+        ))
+        assert r.status_code == 200
+        # El LLM recibe el contenido de imagen ENVUELTO (anti-inyección).
+        assert "NOTA:" in visto["mensaje_llm"]
+        # El historial guarda el PLANO legible (sin el envoltorio).
+        hist = await memory.obtener_historial(tel)
+        contenidos = [m["content"] for m in hist]
+        assert any("una gráfica de ventas" in c for c in contenidos)
+        assert all("NOTA:" not in c for c in contenidos)
+
+    @pytest.mark.asyncio
+    async def test_media_no_procesable_sin_texto_responde_seguro(self, setup, monkeypatch):
+        """Voz intranscribible + sin texto ⇒ respuesta segura y el LLM NUNCA
+        se invoca (no se cobra/ejecuta nada por un adjunto vacío)."""
+        client, memory, main = setup
+        await _crear_sub(memory, "sub_media_x", "15551119202")
+
+        import agent.transcriber as transcriber
+
+        async def _fake(_bytes, _mime):
+            return None
+
+        monkeypatch.setattr(transcriber, "transcribir_audio", _fake)
+        llamado = {"n": 0}
+
+        async def _fake_generar(*a, **k):
+            llamado["n"] += 1
+            return "no debería llegar"
+
+        monkeypatch.setattr(main, "generar_respuesta", _fake_generar)
+        r = _post(client, _body(
+            subscription_id="sub_media_x",
+            audio_base64=self._b64(b"ruido"),
+        ))
+        assert r.status_code == 200
+        assert "No pude procesar" in r.json()["respuesta"]
+        assert llamado["n"] == 0
+
+    @pytest.mark.asyncio
+    async def test_audio_base64_invalido_400_en_endpoint(self, setup):
+        client, memory, _ = setup
+        await _crear_sub(memory, "sub_media_bad", "15551119203")
+        r = _post(client, _body(
+            subscription_id="sub_media_bad",
+            audio_base64="esto no es base64 !!",
+        ))
+        assert r.status_code == 400
+        assert "audio_base64_invalido" in r.json().get("detail", "")
+
+    @pytest.mark.asyncio
+    async def test_solo_media_no_dispara_missing_mensaje(self, setup, monkeypatch):
+        """Un turno con SÓLO imagen (sin texto) no debe rechazarse como vacío."""
+        client, memory, main = setup
+        await _crear_sub(memory, "sub_media_om", "15551119204")
+
+        import agent.vision as vision
+
+        async def _fake_analizar(_bytes, _mime, _caption):
+            return "contenido de la imagen"
+
+        monkeypatch.setattr(vision, "analizar_imagen_con_claude", _fake_analizar)
+
+        async def _fake_generar(*a, **k):
+            return "ok"
+
+        monkeypatch.setattr(main, "generar_respuesta", _fake_generar)
+        r = _post(client, _body(
+            subscription_id="sub_media_om",
+            imagen_base64=self._b64(b"img"),
+        ))
+        assert r.status_code == 200
