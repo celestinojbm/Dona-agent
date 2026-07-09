@@ -390,21 +390,28 @@ function FAQSection({ items }: { items: readonly { q: string; a: string }[] }) {
   const [open, setOpen] = useState<number | null>(null);
   return (
     <div className="space-y-3 max-w-2xl mx-auto">
-      {items.map((item, i) => (
-        <div key={i} className="glass-card rounded-xl overflow-hidden">
-          <button onClick={() => setOpen(open === i ? null : i)} className="w-full flex items-center justify-between px-6 py-5 text-left text-white/80 hover:text-white transition-colors cursor-pointer">
-            <span className="font-light text-sm md:text-base pr-4">{item.q}</span>
-            <ChevronDown className={`w-5 h-5 shrink-0 transition-transform duration-300 ${open === i ? "rotate-180" : ""}`} />
-          </button>
-          <AnimatePresence>
-            {open === i && (
-              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }}>
-                <div className="px-6 pb-5 text-sm text-white/40 leading-relaxed font-light">{item.a}</div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      ))}
+      {items.map((item, i) => {
+        const isOpen = open === i;
+        return (
+          <div key={i} className={`faq-item glass-card rounded-xl overflow-hidden ${isOpen ? "faq-item-open" : ""}`}>
+            {/* Costura de luz (LTX iter 32): se "dibuja" (scaleY 0→1) al abrir el
+                item, marcando la pregunta activa con el degradado de marca.
+                Decorativa — no anuncia nada al lector. */}
+            <span className="faq-seam" aria-hidden="true" />
+            <button onClick={() => setOpen(isOpen ? null : i)} className="w-full flex items-center justify-between px-6 py-5 text-left text-white/80 hover:text-white transition-colors cursor-pointer">
+              <span className="faq-question font-light text-sm md:text-base pr-4">{item.q}</span>
+              <ChevronDown className={`w-5 h-5 shrink-0 transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`} />
+            </button>
+            <AnimatePresence>
+              {isOpen && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }}>
+                  <div className="px-6 pb-5 text-sm text-white/40 leading-relaxed font-light">{item.a}</div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })}
     </div>
   );
 }
