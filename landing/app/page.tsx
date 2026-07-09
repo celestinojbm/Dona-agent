@@ -42,8 +42,8 @@ import {
   AccordionTrigger,
   AccordionContent,
 } from "@/components/ui/accordion";
-import { toast } from "sonner";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { PLANES_DISPLAY } from "@/lib/planes";
 
 /* ════════════════════════════════════════════════════════════════════════
    Landing pública de Dona — base clara editorial (case-study premium):
@@ -115,38 +115,8 @@ const FAQ = [
   { q: "¿Puedo cancelar cuando quiera?", a: "Sí. No hay contratos ni permanencia. Cancelas desde tu cuenta cuando lo decidas." },
 ];
 
-const PRICING = [
-  {
-    plan: "premium" as const,
-    nombre: "Premium",
-    precio: "$20",
-    periodo: "/mes",
-    features: [
-      "Studio, Flow y Memory",
-      "Acciones con preview y aprobación",
-      "Créditos incluidos cada mes",
-      "Entrada por WhatsApp, web, app y voz",
-      "Audit trail y límites de gasto",
-      "Soporte prioritario",
-    ],
-    destacado: false,
-  },
-  {
-    plan: "pro" as const,
-    nombre: "Pro",
-    precio: "$40",
-    periodo: "/mes",
-    features: [
-      "Todo lo de Premium",
-      "Agents con límites por herramienta",
-      "Control Room y medición avanzada",
-      "Integraciones y automatizaciones",
-      "Multi-negocio",
-      "Más créditos incluidos",
-    ],
-    destacado: true,
-  },
-];
+// Catálogo de display de los planes: compartido con /checkout (lib/planes).
+const PRICING = PLANES_DISPLAY;
 
 /* Barras de la gráfica del mockup (alturas en %). Zona roja = caída marcada
    con chip negativo; zona violeta = repunte marcado con chip positivo. */
@@ -450,27 +420,12 @@ export default function Home() {
     return () => obs.disconnect();
   }, []);
 
-  // Checkout Stripe — mismo contrato que la landing anterior: POST /api/checkout
-  // con { plan }. El endpoint corre 100% server-side y devuelve session.url.
-  const handleCheckout = useCallback(async (plan: "premium" | "pro") => {
+  // Checkout — los CTAs de pricing llevan a la página propia /checkout?plan=X
+  // ("Configura tu plan", Stripe Embedded). La creación de la sesión de pago
+  // sigue siendo 100% server-side (POST /api/checkout desde esa página).
+  const handleCheckout = useCallback((plan: "premium" | "pro") => {
     setCheckoutLoading(plan);
-    try {
-      const res = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
-      });
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        toast.error(data.error || "No se pudo crear la sesión de pago.");
-        setCheckoutLoading(null);
-      }
-    } catch {
-      toast.error("Error de conexión. Intenta de nuevo.");
-      setCheckoutLoading(null);
-    }
+    window.location.assign(`/checkout?plan=${plan}`);
   }, []);
 
   const navLinks = [
@@ -872,7 +827,7 @@ export default function Home() {
                 disabled={checkoutLoading === p.plan}
                 className={`${p.destacado ? "btn-inverse" : "btn-primary"} mt-8 inline-flex w-full cursor-pointer items-center justify-center rounded-full px-5 py-3 text-sm font-medium`}
               >
-                {checkoutLoading === p.plan ? "Redirigiendo…" : "Empezar ahora"}
+                {checkoutLoading === p.plan ? "Abriendo…" : "Empezar ahora"}
               </button>
             </div>
           ))}

@@ -46,14 +46,22 @@ describe("landing pública · narrativa canónica", () => {
   });
 
   it("conserva el checkout Stripe con los planes Premium y Pro", () => {
-    // El flujo de checkout server-side no debe romperse: POST /api/checkout { plan }.
-    expect(pageSource).toContain("/api/checkout");
+    // Los CTAs de pricing llevan al checkout propio con el plan elegido…
+    expect(pageSource).toContain("/checkout?plan=");
     expect(pageSource).toContain("handleCheckout");
-    // Los planes de suscripción se envían con las claves que espera el backend.
-    expect(pageSource).toContain('plan: "premium"');
-    expect(pageSource).toContain('plan: "pro"');
-    expect(pageSource).toContain("$20");
-    expect(pageSource).toContain("$40");
+    // …y la página de checkout crea la sesión server-side (POST /api/checkout).
+    const checkoutSource = readFileSync(
+      join(repoRoot, "app/checkout/checkout-client.tsx"),
+      "utf-8",
+    );
+    expect(checkoutSource).toContain("/api/checkout");
+    // El catálogo compartido conserva las claves que espera el backend y los
+    // precios publicados.
+    const planesSource = readFileSync(join(repoRoot, "lib/planes.ts"), "utf-8");
+    expect(planesSource).toContain('plan: "premium"');
+    expect(planesSource).toContain('plan: "pro"');
+    expect(planesSource).toContain("$20");
+    expect(planesSource).toContain("$40");
   });
 
   it("elimina testimonios inventados y pain-stats sin sustanciar (riesgo FTC)", () => {

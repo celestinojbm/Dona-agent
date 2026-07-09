@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type Stripe from "stripe";
 import {
   getStripe,
   PLANS,
@@ -12,11 +13,17 @@ import { fetchUsuarioResumen } from "@/lib/internal-bridge";
 // T1.7 · Checkout dual-mode.
 //
 // kind="subscription" (default por compat con UI vieja):
-//   - body: { plan: "premium"|"pro", phone? }
+//   - body: { plan: "premium"|"pro", phone?, embedded? }
 //   - mode: subscription
 //   - flow PÚBLICO (pre-cuenta). El usuario no tiene sesión todavía.
 //     Acepta phone en metadata para que, post-checkout, podamos
 //     vincular el customer Stripe al teléfono dado.
+//   - embedded=true → Stripe Embedded Checkout (ui_mode: "embedded"): en vez
+//     de redirigir a stripe.com, devuelve { clientSecret } y el pago se monta
+//     DENTRO de /checkout (app/checkout). El webhook y el fulfillment son los
+//     MISMOS (checkout.session.completed con la misma metadata); solo cambia
+//     dónde se renderiza el formulario de pago. Sin embedded (default) sigue
+//     devolviendo { url } de la página hospedada (compat).
 //
 // kind="topup":
 //   - body: { paquete: "100"|"500"|"2000" }
@@ -59,7 +66,7 @@ export async function POST(req: NextRequest) {
 
 
 async function crearCheckoutSuscripcion(
-  body: { plan?: string },
+  body: { plan?: string; embedded?: unknown },
   phone: string,
   origin: string,
 ) {
@@ -70,6 +77,7 @@ async function crearCheckoutSuscripcion(
       { status: 400 },
     );
   }
+  const embedded = body.embedded === true;
 
   const selectedPlan = PLANS[plan as PlanKey];
 
@@ -89,20 +97,37 @@ async function crearCheckoutSuscripcion(
         },
       ];
 
-  const session = await getStripe().checkout.sessions.create({
+  // Embedded ("embedded_page" en la API v22 de Stripe): el formulario se
+  // monta en /checkout y Stripe redirige a return_url al completar. Hosted
+  // (default): success_url/cancel_url como siempre. Misma metadata en ambos →
+  // el webhook procesa idéntico.
+  const params: Stripe.Checkout.SessionCreateParams = {
     mode: "subscription",
     payment_method_types: ["card"],
     line_items: lineItems,
-    success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${origin}/cancel`,
     metadata: {
       kind: "subscription",
       plan,
       phone,
     },
     phone_number_collection: { enabled: true },
-  });
+  };
+  if (embedded) {
+    params.ui_mode = "embedded_page";
+    params.return_url = `${origin}/success?session_id={CHECKOUT_SESSION_ID}`;
+  } else {
+    params.success_url = `${origin}/success?session_id={CHECKOUT_SESSION_ID}`;
+    params.cancel_url = `${origin}/cancel`;
+  }
+  const session = await getStripe().checkout.sessions.create(params);
 
+  if (embedded) {
+    if (!session.client_secret) {
+      console.error("[CHECKOUT] embedded sin client_secret en la sesión");
+      return NextResponse.json({ error: "checkout_failed" }, { status: 502 });
+    }
+    return NextResponse.json({ clientSecret: session.client_secret });
+  }
   return NextResponse.json({ url: session.url });
 }
 

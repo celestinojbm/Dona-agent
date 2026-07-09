@@ -20,24 +20,30 @@ import type { NextConfig } from "next";
 // - No se permiten fonts.googleapis.com/fonts.gstatic.com: las fuentes
 //   (Outfit, JetBrains Mono) se autoalojan vía next/font/google, que las
 //   sirve desde 'self' en build time — no hay fetch remoto a Google Fonts.
-// - No se permiten dominios de Stripe: el checkout (app/api/checkout)
-//   corre 100% server-side vía Stripe SDK y redirige a una URL de Stripe
-//   Checkout hospedada (session.url) — no hay Stripe.js ni Stripe Elements
-//   en el cliente, así que no hace falta abrir script-src/connect-src/
-//   frame-src para js.stripe.com/api.stripe.com.
+// - Dominios de Stripe: el checkout de suscripción usa Stripe EMBEDDED
+//   Checkout (app/checkout monta el formulario con Stripe.js en el cliente).
+//   Orígenes requeridos por la doc de Stripe para embedded:
+//     · js.stripe.com en script-src y frame-src (Stripe.js + iframe del form),
+//     · api.stripe.com / merchant-ui-api.stripe.com / r.stripe.com en
+//       connect-src (API, UI del form y telemetría),
+//     · hooks.stripe.com en frame-src (3DS / bancos),
+//     · *.stripe.com en img-src (logos de marcas de tarjeta / wallets).
+//   Los top-ups siguen en Checkout hospedado (redirect server-side): esos no
+//   necesitan nada de esto, pero compartir la CSP no les afecta.
 // - frame-ancestors 'none': refuerza X-Frame-Options: DENY (ningún
 //   auto-embedding encontrado en la app).
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://connect.facebook.net",
+  "script-src 'self' 'unsafe-inline' https://connect.facebook.net https://js.stripe.com",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: https://www.facebook.com",
+  "img-src 'self' data: https://www.facebook.com https://*.stripe.com",
   // media-src explícito para el video de demo self-hosted (/public). Aunque
   // default-src 'self' ya lo cubriría, se lista para dejar la intención clara
   // ahora que servimos video propio. blob: por si el player usa blobs.
   "media-src 'self' blob:",
-  "connect-src 'self' https://www.facebook.com",
+  "connect-src 'self' https://www.facebook.com https://api.stripe.com https://merchant-ui-api.stripe.com https://r.stripe.com",
   "font-src 'self'",
+  "frame-src https://js.stripe.com https://hooks.stripe.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -49,11 +55,13 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // Cámara, micrófono y geolocalización no se usan en ningún punto de la
-  // landing (confirmado por grep de mediaDevices/getUserMedia/geolocation).
+  // Cámara y geolocalización no se usan en ningún punto de la app. El
+  // MICRÓFONO SÍ: el chat del dashboard graba notas de voz (Fase 3,
+  // seccion-chat.tsx usa getUserMedia) — microphone=() lo denegaría en TODAS
+  // las rutas (este header aplica a "/(.*)"), así que se permite para 'self'.
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=()",
+    value: "camera=(), microphone=(self), geolocation=()",
   },
 ];
 
