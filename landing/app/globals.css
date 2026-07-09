@@ -387,6 +387,65 @@ body {
   }
 }
 
+/* -- FAQ micro-interaccion (LTX iter 32): cada fila del acordeon cobra una firma
+   tactil y cinematografica. Una costura de luz vertical (`.faq-seam`) a la
+   izquierda se "dibuja" (scaleY 0→1) cuando la pregunta se abre, marcando el item
+   activo con el degradado de marca (azul→violeta→ambar), en la misma familia
+   visual del timeline beam y el scroll beam. Al abrir/hover la fila se aclara y la
+   pregunta se desplaza levemente (translateX) — micro-interaccion tipo Linear/LTX.
+   Solo transiciones de color/opacidad/transform (sin reflow). El desplazamiento en
+   transform se anula con prefers-reduced-motion; la costura queda visible sin el
+   trazo animado, para que el item abierto siga marcado. -- */
+.faq-item {
+  position: relative;
+  transition: border-color 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+              background 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.faq-item-open {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+}
+.faq-seam {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, #2563EB, #7C3AED, #F97316);
+  box-shadow: 0 0 12px rgba(124, 58, 237, 0.35);
+  transform: scaleY(0);
+  transform-origin: top center;
+  opacity: 0;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+.faq-item-open .faq-seam {
+  transform: scaleY(1);
+  opacity: 1;
+}
+.faq-question {
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.faq-item:hover .faq-question,
+.faq-item-open .faq-question {
+  transform: translateX(6px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .faq-question {
+    transition: none;
+  }
+  .faq-item:hover .faq-question,
+  .faq-item-open .faq-question {
+    transform: none;
+  }
+  .faq-seam {
+    transform: scaleY(1);
+    transition: opacity 0.3s ease;
+  }
+}
+
 /* -- Section spacing -- */
 .section-space {
   padding-top: 10rem;
