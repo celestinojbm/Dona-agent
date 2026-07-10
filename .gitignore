@@ -35,3 +35,4 @@ htmlcov/
 # Estado local de herramientas de agente (oh-my-claudecode)
 .omc/
 landing/.omc/
+coverage.xml
