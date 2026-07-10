@@ -237,6 +237,9 @@ class TestProactivoDefault:
         proactivo (no solo los del motor de proactividad)."""
         from agent.proactivity import MAX_MENSAJES_DIARIOS
 
+        # tz diurna: el foco es el límite diario, no las quiet hours (que sin
+        # timezone bloquearían antes de llegar al contador — Fase 1B).
+        await memoria.guardar_timezone(TEL, _offset_para_hora_local(12))
         fake = _proveedor_fake()
         for i in range(MAX_MENSAJES_DIARIOS):
             assert await fake.enviar_mensaje(TEL, f"proactivo {i}") is True
@@ -297,11 +300,23 @@ class TestProactivoDefault:
 
         assert ok is True
 
-    async def test_sin_timezone_no_hay_quiet_hours(self, memoria):
-        """Sin timezone conocida NO se aplica quiet hours: usar la hora UTC
-        bloquearía tardes de EEUU, no madrugadas."""
+    async def test_sin_timezone_bloquea_proactivo_conservador(self, memoria):
+        """Fase 1B (decisión del owner): sin timezone confiable, un PROACTIVO
+        se BLOQUEA. No se puede probar que el destinatario está dentro de la
+        ventana 8am–9pm, así que el default conservador es no enviar."""
         fake = _proveedor_fake()
         ok = await fake.enviar_mensaje(TEL, "proactivo sin tz")
+
+        assert ok is False
+        assert fake.enviados == []
+
+    async def test_quiet_hours_permite_borde_20h(self, memoria):
+        """Control del borde interno superior: las 20:xx locales (8:59 PM)
+        siguen DENTRO de la ventana [8, 21) → permitido."""
+        await memoria.guardar_timezone(TEL, _offset_para_hora_local(20))
+
+        fake = _proveedor_fake()
+        ok = await fake.enviar_mensaje(TEL, "casi las nueve")
 
         assert ok is True
 
@@ -382,6 +397,9 @@ class TestSupresionEmergencia:
         from agent.proactivity import manejar_stop_tcpa, manejar_start_tcpa
         from agent.envio_gate import esta_suprimido_emergencia
 
+        # tz diurna: el foco es que START levante la supresión, no las quiet
+        # hours (sin timezone bloquearían el proactivo — Fase 1B).
+        await memoria.guardar_timezone(TEL, _offset_para_hora_local(12))
         await manejar_stop_tcpa(TEL)
         assert esta_suprimido_emergencia(TEL)
 
@@ -455,6 +473,9 @@ class TestEjecutorHighOptOutTercero:
         import agent.automation.executors.send_message as sm
 
         await memoria.guardar_mensaje(TEL_OTRO, "user", "hola dona")
+        # tz diurna del tercero: el foco es el opt-out, no las quiet hours
+        # (sin timezone el envío a un tercero se bloquea — Fase 1B).
+        await memoria.guardar_timezone(TEL_OTRO, _offset_para_hora_local(12))
 
         fake = _proveedor_fake()
         monkeypatch.setattr(sm, "_obtener_proveedor", lambda: fake)
@@ -658,6 +679,9 @@ class TestSobrecargaEsProactivo:
         """REGRESIÓN (review Hermes): gate + incremento manual = doble conteo."""
         main_mod, avisados = main_sobrecarga
 
+        # tz diurna: el foco es el doble conteo, no las quiet hours (sin
+        # timezone el aviso proactivo se bloquea — Fase 1B).
+        await memoria.guardar_timezone(TEL, _offset_para_hora_local(12))
         fake = _proveedor_fake()
         await main_mod._verificar_sobrecarga(TEL, fake, "no puedo con todo")
 
