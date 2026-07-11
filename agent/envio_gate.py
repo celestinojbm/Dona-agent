@@ -44,9 +44,10 @@ Clasificación del envío (de menos a más restrictivo):
 
   PROACTIVO   (default) Todo lo no etiquetado: motor de proactividad,
               onboarding push, resumen semanal, y cualquier path futuro que
-              olvide declararse. Opt-out fail-closed + quiet hours (solo con
-              timezone conocida) + límite diario compartido
-              (MAX_MENSAJES_DIARIOS), contado AQUÍ en el gate.
+              olvide declararse. Opt-out fail-closed + quiet hours
+              (conservador: sin timezone confiable se BLOQUEA — Fase 1B) +
+              límite diario compartido (MAX_MENSAJES_DIARIOS), contado AQUÍ
+              en el gate.
 
 Quiet hours — ventana horaria: [HORA_INICIO_ENVIOS_PROACTIVOS,
 HORA_FIN_ENVIOS_PROACTIVOS) = [8, 21) hora local. Se alinea al estándar
@@ -337,12 +338,19 @@ async def _bloqueado_por_quiet_hours(
     telefono: str, telefono_fallback: str | None = None,
 ) -> bool:
     """True si `telefono` está fuera de la ventana [HORA_INICIO, HORA_FIN)
-    en su hora local. Solo se evalúa con timezone conocida: aplicar la hora
-    UTC a un usuario de EEUU (UTC-5..-8) bloquearía las tardes, no las
-    madrugadas — peor que no bloquear nada. Si `telefono` no tiene timezone
-    y se pasó `telefono_fallback` (el owner, para el caso TCPA-04), se
-    intenta con la de éste antes de renunciar al chequeo. Fail-closed ante
-    error de lectura (retorna True → el caller bloquea el envío)."""
+    en su hora local. Se intenta la timezone del `telefono` y, si no se
+    conoce y se pasó `telefono_fallback` (el owner, para el caso TCPA-04),
+    la de éste.
+
+    Fase 1B (decisión del owner): si NO hay timezone confiable tras el
+    fallback, el envío se BLOQUEA (conservador). Sin hora local no se puede
+    probar que estamos dentro de 8am–9pm, y un proactivo enviado a ciegas es
+    exposición TCPA — el comportamiento por default es no enviar. (Antes se
+    dejaba pasar para no mal-bloquear tardes de EEUU con la hora UTC; ahora
+    se prioriza no enviar sin consentimiento horario demostrable.)
+
+    Fail-closed también ante error de lectura de timezone (retorna True → el
+    caller bloquea el envío)."""
     from agent.memory import obtener_timezone
 
     try:
@@ -357,7 +365,13 @@ async def _bloqueado_por_quiet_hours(
         return True
 
     if offset_min is None:
-        return False
+        # Conservador (Fase 1B): sin timezone confiable no se puede afirmar
+        # que el destinatario está dentro de la ventana permitida → BLOQUEA.
+        logger.info(
+            f"[GATE] Envío bloqueado motivo=quiet_hours_sin_timezone "
+            f"(conservador) tel={telefono}"
+        )
+        return True
 
     from datetime import timedelta
 

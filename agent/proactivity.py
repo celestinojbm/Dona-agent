@@ -16,6 +16,7 @@ Se ejecuta cada hora via el scheduler.
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime, timedelta
 
 from anthropic import AsyncAnthropic
@@ -86,6 +87,23 @@ COMANDOS_STOP_TCPA = {
     # TCPA-02 — variantes en español equivalentes
     "alto", "cancelar", "no más mensajes", "no mas mensajes",
     "date de baja", "quítame", "quitame", "para",
+    # Fase 1B — variantes adicionales pedidas por el owner (compliance TCPA).
+    # Siguen siendo matching de FRASE COMPLETA: "no me escribas más" dispara,
+    # pero "no puedo parar de escribirte" no. El par con/sin acento replica el
+    # patrón de "no más/mas mensajes".
+    "detener", "darme de baja", "no me escribas",
+    "no me escribas mas", "no me escribas más", "no enviar",
+    # Fase 1B (micro-ajuste) — frases NATURALES de baja. Siguen siendo frase
+    # completa exacta, así que discriminan por identidad del texto: "quiero
+    # darme de baja" dispara, pero "quiero darme de alta" (alta≠baja), "quiero
+    # cancelar mi pedido" y "no quiero dejar de recibir mensajes" (doble
+    # negación ≠ "no quiero recibir mensajes") NO disparan.
+    "quiero darme de baja", "quiero que me den de baja",
+    "me quiero dar de baja", "dame de baja", "por favor dame de baja",
+    "por favor no me escribas",
+    "no quiero recibir mensajes",
+    "no quiero más mensajes", "no quiero mas mensajes",
+    "dejen de escribirme", "deja de escribirme",
 }
 
 # Palabras para reactivar tras STOP (TCPA-compliant re-opt-in)
@@ -114,25 +132,33 @@ COMANDOS_PROACTIVIDAD = {
 }
 
 
+# Puntuación común que NO debe impedir reconocer un comando de frase completa:
+# coma, punto, punto y coma, dos puntos, exclamación/interrogación (normales e
+# invertidos) y guiones (ASCII + rango unicode de rayas/em-dash). Se reemplaza
+# por espacio y luego se colapsan espacios. Esto NO habilita matching de
+# substring: tras normalizar se sigue exigiendo que el texto COMPLETO sea
+# exactamente uno de los comandos del set.
+_PUNTUACION_COMANDO = re.compile(r"[.,;:!?¡¿\-‐-―]+")
+
+
 def _normalizar_comando_tcpa(texto: str) -> str:
     """Normaliza texto para matching de FRASE COMPLETA (nunca substring):
-    minúsculas, quita espacios y puntuación de apertura/cierre en ambos
-    extremos, y quita un "dona" antepuesto o pospuesto (con o sin coma/espacio
-    de separación) — p. ej. "Dona, STOP" o "stop dona" siguen siendo el mismo
-    comando. NO se hace ningún matching de substring dentro de frases largas:
-    solo se acepta si, tras esta normalización, el texto completo es
-    exactamente uno de los comandos reconocidos."""
-    normalizado = texto.strip().lower().strip(".!?;,¡¿ ")
-    # Quita un "dona" antepuesto o pospuesto (p. ej. "dona stop", "stop dona").
-    for prefijo in ("dona, ", "dona "):
-        if normalizado.startswith(prefijo):
-            normalizado = normalizado[len(prefijo):]
-            break
-    for sufijo in (", dona", " dona"):
-        if normalizado.endswith(sufijo):
-            normalizado = normalizado[: -len(sufijo)]
-            break
-    return normalizado.strip(".!?;,¡¿ ")
+    minúsculas, reemplaza puntuación común por espacios, colapsa espacios, y
+    quita un "dona" antepuesto y/o pospuesto — p. ej. "Dona, STOP", "stop.",
+    "por favor, dame de baja" y "por favor - dame de baja" quedan todos en su
+    forma canónica. NO se hace ningún matching de substring dentro de frases
+    largas: solo se acepta si, tras esta normalización, el texto COMPLETO es
+    exactamente uno de los comandos reconocidos (por eso "quiero cancelar mi
+    pedido" o "quiero darme de alta" NO disparan)."""
+    # Puntuación → espacio, minúsculas, espacios colapsados y recortados.
+    normalizado = " ".join(_PUNTUACION_COMANDO.sub(" ", texto.lower()).split())
+    # Quita un "dona" antepuesto y/o pospuesto. La puntuación ya se fue, así
+    # que "dona, stop" aquí ya es "dona stop".
+    if normalizado.startswith("dona "):
+        normalizado = normalizado[len("dona "):]
+    if normalizado.endswith(" dona"):
+        normalizado = normalizado[: -len(" dona")]
+    return normalizado.strip()
 
 
 def es_comando_stop_tcpa(texto: str) -> bool:

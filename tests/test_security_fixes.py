@@ -264,6 +264,111 @@ class TestTCPAOptOut:
         from agent.proactivity import es_comando_stop_tcpa
         assert es_comando_stop_tcpa(texto) is True
 
+    # ── Fase 1B: variantes adicionales pedidas por el owner ─────────────────
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "detener", "Detener", "DETENER", "detener.",
+            "darme de baja", "Darme De Baja",
+            "no me escribas", "No Me Escribas", "no me escribas!",
+            "no me escribas mas", "no me escribas más",
+            "no enviar", "NO ENVIAR",
+            # con "dona" antepuesto/pospuesto siguen siendo el mismo comando
+            "dona detener", "no me escribas, dona",
+        ],
+    )
+    def test_stop_variantes_fase1b(self, texto):
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa(texto) is True
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "no puedo detener la impresora",
+            "quiero darme de baja del gimnasio, no de dona",
+            "no me escribas ahora, hablamos mañana",
+        ],
+    )
+    def test_stop_fase1b_no_dispara_en_frase_larga(self, texto):
+        """Las variantes nuevas también son de frase completa: dentro de una
+        oración normal NO disparan el opt-out."""
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa(texto) is False
+
+    # ── Fase 1B (micro-ajuste): frases naturales de baja ────────────────────
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "quiero darme de baja", "Quiero darme de baja",
+            "quiero que me den de baja",
+            "me quiero dar de baja",
+            "dame de baja", "por favor dame de baja",
+            "por favor no me escribas",
+            "no quiero recibir mensajes",
+            "no quiero más mensajes", "no quiero mas mensajes",
+            "dejen de escribirme", "deja de escribirme",
+            # con "dona" pospuesto sigue siendo el mismo opt-out
+            "quiero darme de baja, dona",
+        ],
+    )
+    def test_stop_frases_naturales_de_baja(self, texto):
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa(texto) is True
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "no puedo detener la impresora",
+            "quiero cancelar mi pedido",
+            "quiero darme de alta",
+            "no quiero dejar de recibir mensajes",
+        ],
+    )
+    def test_stop_frases_naturales_no_dispara_falso_positivo(self, texto):
+        """Frases que se parecen pero NO son baja: 'alta' (no 'baja'),
+        cancelar un pedido (no la mensajería), y la doble negación 'no quiero
+        dejar de recibir' (quiere SEGUIR recibiendo) no deben dar opt-out."""
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa(texto) is False
+
+    # ── Fase 1B (micro-ajuste): normalización de puntuación ─────────────────
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            # coma, dos puntos, guion entre "por favor" y la frase
+            "por favor, dame de baja",
+            "por favor: dame de baja",
+            "por favor - dame de baja",
+            "por favor,dame de baja",           # sin espacio tras la coma
+            # punto / exclamación finales
+            "no quiero recibir mensajes.",
+            "no quiero más mensajes!",
+            "stop.",
+            "cancelar!",
+            # "dona" con coma
+            "dona, stop",
+            "stop, dona",
+            # guion tipográfico (em-dash)
+            "por favor — dame de baja",
+        ],
+    )
+    def test_stop_puntuacion_no_impide_match(self, texto):
+        """La puntuación común (coma, punto, dos puntos, guion, exclamación)
+        se normaliza a espacios: no impide reconocer una frase de opt-out de
+        FRASE COMPLETA."""
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa(texto) is True
+
+    def test_puntuacion_no_convierte_en_substring(self):
+        """La normalización NO habilita substring: una frase larga que
+        CONTIENE un comando entre puntuación sigue sin disparar."""
+        from agent.proactivity import es_comando_stop_tcpa
+        assert es_comando_stop_tcpa("bueno, stop, pero sigamos luego") is False
+        assert es_comando_stop_tcpa("cancelar el pedido, por favor") is False
+
     @pytest.mark.parametrize(
         "texto",
         [

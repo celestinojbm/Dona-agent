@@ -34,6 +34,13 @@ FRIO = "15557770001"
 FRIO2 = "15557770002"
 
 
+def _offset_hora_local_diurna() -> int:
+    """Offset (min) tal que la hora local sea ~mediodía ahora — dentro de la
+    ventana [8, 21), determinista respecto al reloj real."""
+    ahora = datetime.utcnow()
+    return (12 * 60 + 30 - (ahora.hour * 60 + ahora.minute)) % 1440
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
 
@@ -65,6 +72,12 @@ async def entorno(tmp_path, monkeypatch):
 
     # El flujo dedicado completo ejecuta el ciclo real de créditos.
     await _bi.acreditar(OWNER, 50, "seed")
+
+    # Fase 1B: los envíos a terceros pasan quiet hours sobre la tz del owner
+    # como fallback. Sin tz conocida se bloquearían (conservador), lo que
+    # desviaría el foco de estos tests (consentimiento/copy). El owner tiene
+    # una tz diurna fija para que quiet hours no interfiera.
+    await agent.memory.guardar_timezone(OWNER, _offset_hora_local_diurna())
 
     import agent.automation.consent_terceros as consent
     return agent.memory, consent
