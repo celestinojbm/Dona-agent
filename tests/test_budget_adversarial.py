@@ -53,6 +53,26 @@ def _budget_limpio(monkeypatch):
     pr._costo_diario_owner.clear()
 
 
+@pytest.fixture(autouse=True)
+def _emocion_sin_red(monkeypatch):
+    """Aísla la suite de la red. `generar_respuesta` llama a
+    `agent.emotion.detectar_emocion`, que usa Haiku vía `agent.llm`
+    (`completar_texto`) — un cliente que `_mock_create` (parchea
+    `brain.client`) y `sin_fallback` (anula los fallbacks de brain) NO
+    cubren. Sin este stub, los tests intentan una llamada REAL a la API de
+    emoción: bajo el presupuesto ajustado de estos tests introduce flakiness
+    por latencia de red, y en CI puede cruzar el `timeout-minutes: 15` del
+    job (visto en PR #228). Devuelve una emoción neutra sin red — equivalente
+    a la rama `except` que brain ya maneja; ningún test de este archivo
+    asierta sobre emoción."""
+    import agent.emotion as emotion
+
+    async def _neutra(mensaje, contexto_usuario=""):
+        return {}
+
+    monkeypatch.setattr(emotion, "detectar_emocion", _neutra)
+
+
 # ── Fakes ────────────────────────────────────────────────────────────────
 
 
