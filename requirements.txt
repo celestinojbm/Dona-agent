@@ -27,7 +27,7 @@ aioboto3>=15.5.0,<16.0.0
 # Job queue asíncrona sobre Redis
 arq>=0.28.0,<1.0.0
 # Stripe Checkout + webhooks
-stripe>=7.0.0,<13.0.0
+stripe>=15.3.0,<16.0.0
 
 # Generación de PDFs (factura / presupuesto / recibo) — pure Python, sin system deps
 reportlab>=4.0.0,<5.0.0
