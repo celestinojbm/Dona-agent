@@ -1,9 +1,9 @@
-# agent/tools_registry.py — Registry canónico de definición de tools (Fase 2 · Bloque 1)
+# agent/tools_registry.py — Registry canónico de definición de tools (Fase 2 · Bloques 1-2)
 
 """
-Fuente ÚNICA de definición para las tools migradas. En el Bloque 1 contiene
-SOLO `listar_tareas_google`. Provee a `brain` el schema (para el LLM) y una
-ruta de dispatch **read-only** con resolución LAZY del handler.
+Fuente ÚNICA de definición para las tools migradas. Bloque 1: `listar_tareas_google`.
+Bloque 2: `buscar_correos`. Provee a `brain` el schema (para el LLM), la categoría
+para el routing y una ruta de dispatch **read-only** con resolución LAZY del handler.
 
 Límites deliberados de este bloque (no relajar sin decisión explícita):
 
@@ -87,8 +87,39 @@ _LISTAR_TAREAS_GOOGLE = ToolDefinition(
 )
 
 
+_BUSCAR_CORREOS = ToolDefinition(
+    name="buscar_correos",
+    description=(
+        "Búsqueda avanzada en Gmail. Por default busca solo en la BANDEJA PRINCIPAL "
+        "(category:primary) — excluye Promociones, Social, Updates. "
+        "Úsala cuando el usuario diga 'busca correos de X', 'encuentra emails sobre Y', "
+        "'correos con adjunto', 'emails de esta semana de Juan'. "
+        "Si el usuario pide explícitamente otra categoría ('busca en promociones', "
+        "'en todas las categorías', 'incluye social'), incorpóralo en la consulta y "
+        "el sistema lo detectará. "
+        "Traduce la consulta en lenguaje natural a query de Gmail."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "consulta": {
+                "type": "string",
+                "description": "Búsqueda en lenguaje natural (ej: 'correos de juan de esta semana', 'emails sobre factura con adjunto').",
+            }
+        },
+        "required": ["consulta"],
+    },
+    category="gmail",
+    provider="gmail",
+    capability="read",
+    risk_tier="LOW",
+    handler_ref="agent.tool_handlers.gmail:handle_buscar_correos",
+)
+
+
 REGISTRY: dict[str, ToolDefinition] = {
     _LISTAR_TAREAS_GOOGLE.name: _LISTAR_TAREAS_GOOGLE,
+    _BUSCAR_CORREOS.name: _BUSCAR_CORREOS,
 }
 
 # Cache de handlers ya resueltos: el import lazy ocurre una sola vez por ref.
