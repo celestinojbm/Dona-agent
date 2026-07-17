@@ -12,10 +12,23 @@ runtime via _migrar_columnas() de agent/memory.py.
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent.memory import Base
+
+# Predicados de los índices parciales del flujo email persistente (PR 1 del
+# Action Center de correo). Un solo string compartido entre el modelo (SQLite
+# vía create_all) y MIGRACIONES_AUTOMATION (Postgres) para que ambos motores
+# apliquen EXACTAMENTE la misma regla.
+_WHERE_EMAIL_CONFIRMABLE = (
+    "tipo_accion = 'enviar_correo_gmail' "
+    "AND estado IN ('needs_approval', 'approved')"
+)
+_WHERE_EMAIL_PREP_KEY = (
+    "tipo_accion = 'enviar_correo_gmail' "
+    "AND preparation_request_key <> ''"
+)
 
 
 class AccionAutomatizacion(Base):
@@ -28,6 +41,32 @@ class AccionAutomatizacion(Base):
                             ↘ failed
     """
     __tablename__ = "acciones_automatizacion"
+
+    # Índices parciales del flujo email persistente. `approved` se incluye en
+    # el índice de confirmable aunque PR 1 nunca lo produce: prepara la
+    # compatibilidad con la transición transaccional de PR 2 sin re-crear el
+    # índice. Solo afectan filas tipo 'enviar_correo_gmail'.
+    __table_args__ = (
+        # Una sola acción de correo confirmable por teléfono.
+        Index(
+            "uq_accion_email_confirmable",
+            "telefono",
+            unique=True,
+            postgresql_where=text(_WHERE_EMAIL_CONFIRMABLE),
+            sqlite_where=text(_WHERE_EMAIL_CONFIRMABLE),
+        ),
+        # Idempotencia persistente de la preparación (retry del mismo request
+        # entrante NUNCA duplica la acción).
+        Index(
+            "uq_accion_email_prep_key",
+            "telefono",
+            "tipo_accion",
+            "preparation_request_key",
+            unique=True,
+            postgresql_where=text(_WHERE_EMAIL_PREP_KEY),
+            sqlite_where=text(_WHERE_EMAIL_PREP_KEY),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Owner del negocio · matching contra perfil_negocio.telefono
@@ -57,6 +96,19 @@ class AccionAutomatizacion(Base):
     # Hash de idempotencia · evita duplicar mismo (telefono, opportunity_id,
     # playbook_id, fecha) · ver action_center.crear_accion para construcción
     idempotency_key: Mapped[str] = mapped_column(String(120), default="", index=True)
+    # ── Flujo email persistente (PR 1) · solo lo usan filas de tipo
+    # 'enviar_correo_gmail'; el resto de tipos las deja en su default ──
+    # Clave de idempotencia de la preparación · derivada del mensaje entrante
+    # (mensaje_id) o de un fallback determinístico del turno. NUNCA un UUID
+    # nuevo por retry.
+    preparation_request_key: Mapped[str] = mapped_column(String(80), default="")
+    # SHA-256 hex del payload canónico (destinatario/asunto/cuerpo/thread).
+    payload_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    # SHA-256 hex del token de confirmación normalizado · el token en claro
+    # jamás se persiste.
+    confirmation_reference_hash: Mapped[str] = mapped_column(String(64), default="")
+    # TTL de la acción confirmable (now >= expires_at → expirada).
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -243,6 +295,22 @@ MIGRACIONES_AUTOMATION = [
     "CREATE INDEX IF NOT EXISTS ix_acciones_aut_estado ON acciones_automatizacion (estado)",
     "CREATE INDEX IF NOT EXISTS ix_acciones_aut_idem ON acciones_automatizacion (idempotency_key)",
     "CREATE INDEX IF NOT EXISTS ix_acciones_aut_tipo ON acciones_automatizacion (tipo_accion)",
+    # PR 1 email persistente — columnas aditivas. Sin backfill: las filas
+    # existentes (de cualquier tipo) quedan con el default. En re-runs el
+    # error 'already exists/duplicate' se absorbe en _migrar_columnas.
+    "ALTER TABLE acciones_automatizacion ADD COLUMN preparation_request_key VARCHAR(80) NOT NULL DEFAULT ''",
+    "ALTER TABLE acciones_automatizacion ADD COLUMN payload_fingerprint VARCHAR(64) NOT NULL DEFAULT ''",
+    "ALTER TABLE acciones_automatizacion ADD COLUMN confirmation_reference_hash VARCHAR(64) NOT NULL DEFAULT ''",
+    "ALTER TABLE acciones_automatizacion ADD COLUMN expires_at TIMESTAMP",
+    # Índices parciales · mismos predicados que el modelo (SQLite los crea
+    # create_all vía sqlite_where). 'approved' en el índice de confirmable
+    # prepara la transición transaccional futura (PR 2).
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_accion_email_confirmable "
+    "ON acciones_automatizacion (telefono) "
+    f"WHERE {_WHERE_EMAIL_CONFIRMABLE}",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_accion_email_prep_key "
+    "ON acciones_automatizacion (telefono, tipo_accion, preparation_request_key) "
+    f"WHERE {_WHERE_EMAIL_PREP_KEY}",
     """
     CREATE TABLE IF NOT EXISTS audit_log_automatizacion (
         id              SERIAL PRIMARY KEY,

@@ -545,26 +545,35 @@ class TestGateCobroDentroDelBrain:
 @_requiere_main
 class TestGateEnvioTCPADentroDelBrain:
     """envío/TCPA · un mensaje web que intenta un envío de correo sigue pasando
-    por la tool de envío gateada (confirmar_envio_correo → gmail.enviar_correo),
-    no por un atajo. Probamos que el envío llega a la función de envío real (el
-    punto donde vive el gate), disparado por el mensaje web."""
+    por la tool de envío gateada (confirmar_envio_correo → dominio persistente),
+    no por un atajo. Desde el PR 1 del Action Center de correo el gate es aún
+    más fuerte: la confirmación válida mantiene needs_approval y gmail.
+    enviar_correo NUNCA se llama (fail-closed, sin rama de materialización)."""
 
     @pytest.mark.asyncio
-    async def test_envio_web_llega_a_funcion_de_envio_gateada(self, monkeypatch):
+    async def test_envio_web_pasa_por_dominio_y_no_llega_a_gmail(
+        self, tmp_path, monkeypatch
+    ):
         import agent.brain as brain
+        from tests.helpers_email_pr1 import (
+            fila_por_id,
+            preparar,
+            preparar_db_email,
+        )
 
-        # Sembrar un borrador pendiente para este telefono (como si 'preparar'
-        # ya hubiera corrido) para que confirmar tenga qué enviar.
+        await preparar_db_email(tmp_path, monkeypatch, nombre_db="chat_email.db")
+
+        # Sembrar un borrador PERSISTIDO para este telefono (como si
+        # 'preparar' ya hubiera corrido) con su token de confirmación.
         tel = "15551119001"
-        brain._borradores_pendientes[tel] = {
-            "destinatario": "cliente@example.com",
-            "asunto": "Hola",
-            "cuerpo": "Cuerpo",
-        }
+        r_prep = await preparar(tel, "wamid-chat-1")
 
         secuencia = [
-            _Resp("tool_use", [_BlkTool("confirmar_envio_correo")]),
-            _Resp("end_turn", [_BlkText("enviado")]),
+            _Resp("tool_use", [_BlkTool(
+                "confirmar_envio_correo",
+                input={"confirmation_reference": r_prep["token"]},
+            )]),
+            _Resp("end_turn", [_BlkText("entendido")]),
         ]
         llamadas = {"n": 0}
 
@@ -576,15 +585,12 @@ class TestGateEnvioTCPADentroDelBrain:
         monkeypatch.setattr(brain.client.messages, "create", _fake_create)
         monkeypatch.setattr(brain, "seleccionar_tools", lambda m, t: [])
 
-        envio = {"llamado": False, "telefono": None}
+        envio = {"llamado": False}
 
         import agent.gmail as gmail
 
-        async def _fake_enviar_correo(telefono, destinatario, asunto, cuerpo, thread_id="", reply_message_id=""):
-            # Este es el punto de envío real (la tool gateada). Que el mensaje
-            # web llegue AQUÍ prueba que el envío NO se puentea.
+        async def _fake_enviar_correo(*args, **kwargs):
             envio["llamado"] = True
-            envio["telefono"] = telefono
             return True
 
         monkeypatch.setattr(gmail, "enviar_correo", _fake_enviar_correo)
@@ -593,10 +599,12 @@ class TestGateEnvioTCPADentroDelBrain:
             "envía el correo", [], telefono=tel,
         )
 
-        assert envio["llamado"] is True, "el envío DEBE pasar por la tool gateada"
-        assert envio["telefono"] == tel  # bajo el telefono correcto
+        # PR 1: el flujo pasó por la tool gateada pero el gate NO materializa:
+        # gmail jamás se toca y la acción sigue esperando habilitación.
+        assert envio["llamado"] is False, "PR 1 no debe llamar gmail.enviar_correo"
+        fila = await fila_por_id(r_prep["action_id"])
+        assert fila.estado == "needs_approval"
         assert isinstance(resp, str) and resp
-        brain._borradores_pendientes.pop(tel, None)
 
 
 @_requiere_main
