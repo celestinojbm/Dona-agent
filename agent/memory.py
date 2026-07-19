@@ -2737,6 +2737,22 @@ async def borrar_datos_usuario(telefono: str) -> dict:
         except ImportError as e:
             conteos["business"] = f"módulo no disponible: {e}"
 
+        # Acciones de automatización del usuario (incluye borradores de
+        # correo cifrados del PR 1). DELETE de la fila completa: no queda
+        # ciphertext huérfano. El audit log (telefono_short, sin PII) se
+        # conserva — mismo criterio que el resto del audit trail.
+        try:
+            from agent.automation.models import AccionAutomatizacion
+            r_acc = await session.execute(
+                delete(AccionAutomatizacion).where(
+                    AccionAutomatizacion.telefono == telefono
+                )
+            )
+            conteos["acciones_automatizacion"] = r_acc.rowcount
+        except Exception as e:
+            conteos["acciones_automatizacion"] = f"error: {e}"
+            logger.error(f"[BORRAR] Error borrando acciones_automatizacion para {telefono}: {e}")
+
         # Caché de recordatorios GCal enviados — la clave tiene la forma
         # `gcal_reminder_{telefono}_{evento_id}` (ver scheduler.py). CCPA 7.3:
         # el match debe ser ANCLADO al prefijo exacto del usuario, nunca por
@@ -2831,6 +2847,50 @@ async def exportar_datos_usuario(telefono: str) -> dict:
                 export["google_auth"] = []
         except Exception as e:
             export["google_auth"] = {"error": str(e)}
+
+        # Acciones de automatización del usuario (owner-scoped). Para las de
+        # correo (PR 1) el export del propietario incluye su contenido
+        # DESCIFRADO mientras siga retenido, distinguiendo payload purgado;
+        # el ciphertext crudo no se exporta (no es útil para portabilidad).
+        try:
+            from agent.automation import email_crypto as _email_crypto
+            from agent.automation.models import AccionAutomatizacion
+            res_acc = await session.execute(
+                select(AccionAutomatizacion).where(
+                    AccionAutomatizacion.telefono == telefono
+                )
+            )
+            filas_acc = []
+            for f in res_acc.scalars().all():
+                fila = {}
+                for c in f.__table__.columns:
+                    if c.name == "payload_json":
+                        continue  # se reemplaza abajo por la vista descifrada
+                    val = getattr(f, c.name, None)
+                    if isinstance(val, datetime):
+                        fila[c.name] = val.isoformat()
+                    elif isinstance(val, (str, int, float, bool)) or val is None:
+                        fila[c.name] = val
+                    else:
+                        fila[c.name] = str(val)
+                if f.tipo_accion == "enviar_correo_gmail":
+                    try:
+                        fila["payload"] = _email_crypto.descifrar_payload_email(
+                            f.payload_json
+                        )
+                    except _email_crypto.EmailPayloadPurgadoError:
+                        fila["payload"] = {"purgado": True}
+                    except _email_crypto.EmailCryptoError as _e_dec:
+                        fila["payload"] = {
+                            "error": f"no descifrable: {type(_e_dec).__name__}"
+                        }
+                else:
+                    fila["payload_json"] = f.payload_json
+                filas_acc.append(fila)
+            export["acciones_automatizacion"] = filas_acc
+            total += len(filas_acc)
+        except Exception as e:
+            export["acciones_automatizacion"] = {"error": str(e)}
 
         # Tablas business (si existen)
         try:

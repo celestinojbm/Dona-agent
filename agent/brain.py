@@ -45,9 +45,10 @@ if _ANTHROPIC_KEY:
     _haiku_client = AsyncAnthropic(api_key=_ANTHROPIC_KEY)
     logger.info("[BRAIN] Fallback Haiku configurado")
 
-# Borradores de correo pendientes de confirmación — keyed by telefono
-# (en memoria: válido para Render single-worker free tier)
-_borradores_pendientes: dict[str, dict] = {}
+# Los borradores de correo pendientes viven ahora en la acción persistente
+# `enviar_correo_gmail` (agent/automation/email_actions.py) — sobreviven
+# reinicios y quedan cifrados. El dict en memoria `_borradores_pendientes`
+# fue eliminado como fuente de verdad (PR 1 del Action Center de correo).
 
 # Cap de tamaño de entrada del usuario (Fable5 · 4.1): trunca mensajes
 # desmesurados antes de construir el request LLM, para que un input gigante no
@@ -245,11 +246,10 @@ def seleccionar_tools(texto: str, telefono: str = "") -> list[dict]:
     """
     nombres = _clasificar_mensaje(texto)
 
-    # Si hay borrador pendiente de este usuario, siempre incluir gmail
-    if telefono and telefono in _borradores_pendientes:
-        if nombres is None:
-            nombres = set()
-        nombres.update(_CATEGORIA_TOOLS["gmail"])
+    # Nota: el "hay borrador pendiente" ya no se decide aquí (era el dict en
+    # memoria). generar_respuesta hace una consulta persistente focalizada
+    # (tiene_accion_confirmable) y agrega las tools de gmail si corresponde.
+    _ = telefono  # conservado por compatibilidad de firma
 
     # None = no clasificable → enviar todas
     if nombres is None:
@@ -464,13 +464,13 @@ TOOLS = [
     {
         "name": "preparar_borrador_correo",
         "description": (
-            "PREPARA un borrador de correo. NO lo envía — solo lo deja pendiente de confirmación. "
-            "El envío real ocurre SOLAMENTE al llamar confirmar_envio_correo después de que el "
-            "usuario diga 'sí'. "
+            "PREPARA un borrador de correo. NO lo envía — lo guarda pendiente de "
+            "confirmación con un código único. "
             "Úsala cuando el usuario diga 'manda un correo a X', 'escríbele a Y', "
             "'envíale un email a Z diciendo que...'. "
-            "Flujo OBLIGATORIO: 1) llama esta tool → 2) muestra el borrador → 3) pregunta "
-            "'¿Lo envío?' → 4) espera 'sí' del usuario → 5) llama confirmar_envio_correo. "
+            "Flujo OBLIGATORIO: 1) llama esta tool → 2) muestra el borrador y el "
+            "código → 3) dile al usuario que confirme respondiendo ENVIAR <código> "
+            "(o CANCELAR <código>). "
             "PROHIBIDO decir 'listo, envié el correo' después de esta tool — todavía no se envió."
         ),
         "input_schema": {
@@ -501,15 +501,26 @@ TOOLS = [
     {
         "name": "confirmar_envio_correo",
         "description": (
-            "Envía el borrador de correo que está pendiente de confirmación. "
-            "Úsala ÚNICAMENTE cuando el usuario confirme explícitamente con 'sí', "
-            "'envíalo', 'dale', 'ok envíalo', 'mándalo' después de haber visto el borrador. "
-            "No la uses si no hay borrador pendiente."
+            "Confirma el borrador de correo pendiente usando su código de "
+            "confirmación. Úsala ÚNICAMENTE si el usuario te dio explícitamente "
+            "el código (ej: 'ENVIAR AB2K7 9XM4T' o 'confirma con AB2K79XM4T'). "
+            "Si el usuario solo dice 'sí' o 'envíalo' sin código, pídele que "
+            "responda 'ENVIAR <código>' con el código que aparece en el borrador. "
+            "NUNCA inventes el código. Esta tool NO envía el correo por sí sola: "
+            "el sistema valida el código y responde el estado real."
         ),
         "input_schema": {
             "type": "object",
-            "properties": {},
-            "required": []
+            "properties": {
+                "confirmation_reference": {
+                    "type": "string",
+                    "description": (
+                        "Código de confirmación de 10 caracteres que el usuario "
+                        "escribió (tal cual, con o sin espacios/guiones)."
+                    )
+                }
+            },
+            "required": ["confirmation_reference"]
         }
     },
     {
@@ -518,7 +529,8 @@ TOOLS = [
             "Responde a un correo existente manteniendo el hilo (thread). "
             "Úsala cuando el usuario diga 'respóndele', 'contéstale a X', "
             "'dile que sí al correo de Y'. "
-            "Mismo flujo de confirmación que redactar_y_enviar_correo."
+            "Mismo flujo de confirmación que preparar_borrador_correo: el "
+            "borrador queda pendiente y el usuario confirma con ENVIAR <código>."
         ),
         "input_schema": {
             "type": "object",
@@ -1366,7 +1378,7 @@ async def _invocar_claude_gateado(api_kwargs: dict, telefono: str):
     return response
 
 
-async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str = "", timestamp_mensaje: int = 0, proveedor=None) -> str:
+async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str = "", timestamp_mensaje: int = 0, proveedor=None, mensaje_id: str = "") -> str:
     """
     Genera una respuesta usando Claude API.
     Si Claude detecta un recordatorio, llama la herramienta crear_recordatorio
@@ -1376,6 +1388,9 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         mensaje: El mensaje nuevo del usuario
         historial: Lista de mensajes anteriores
         telefono: Número del usuario (necesario para guardar recordatorios)
+        mensaje_id: ID estable del mensaje entrante (dedup del proveedor).
+            Base de la preparation_request_key del flujo de correo persistente
+            — un retry del MISMO request nunca genera una key nueva.
 
     Returns:
         La respuesta de texto de Dona
@@ -1511,6 +1526,37 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     # Seleccionar solo las herramientas relevantes para este mensaje
     tools_para_request = seleccionar_tools(mensaje, telefono)
 
+    # ── Preparation request key del flujo de correo persistente (PR 1) ──
+    # 1) ID estable del mensaje entrante cuando existe; 2) fallback
+    # determinístico por turno (telefono + timestamp + contenido) para
+    # invocaciones internas. NUNCA un UUID nuevo por retry.
+    if mensaje_id:
+        _prep_key_correo = str(mensaje_id)[:80]
+    else:
+        import hashlib as _hashlib
+        _base_turno = f"{telefono}|{timestamp_mensaje}|{mensaje}"
+        _prep_key_correo = (
+            "fb-" + _hashlib.sha256(_base_turno.encode("utf-8")).hexdigest()[:40]
+        )
+
+    # Si hay un borrador de correo confirmable PERSISTIDO, incluir las tools
+    # de gmail. Consulta focalizada SOLO donde hace falta (reemplaza el dict
+    # en memoria): se salta si la selección ya trae las tools de gmail.
+    _ya = {t["name"] for t in tools_para_request}
+    if telefono and "confirmar_envio_correo" not in _ya:
+        try:
+            from agent.automation.email_actions import tiene_accion_confirmable
+            if await tiene_accion_confirmable(telefono):
+                _nombres_gmail = _CATEGORIA_TOOLS["gmail"]
+                tools_para_request = tools_para_request + [
+                    t for t in TOOLS
+                    if t["name"] in _nombres_gmail and t["name"] not in _ya
+                ]
+        except Exception as _e_conf_mail:
+            logger.error(
+                f"[BRAIN] tiene_accion_confirmable falló (no fatal): {_e_conf_mail}"
+            )
+
     # Construir kwargs — omitir tools si lista vacía (conversación pura)
     _api_kwargs = dict(
         model="claude-sonnet-4-5",
@@ -1559,7 +1605,11 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
 
             # Si Claude quiere usar una herramienta
             if response.stop_reason == "tool_use":
-                return await _manejar_tool_use(response, mensajes, system_prompt, telefono, offset_guardado, proveedor)
+                return await _manejar_tool_use(
+                    response, mensajes, system_prompt, telefono,
+                    offset_guardado, proveedor,
+                    preparation_request_key=_prep_key_correo,
+                )
 
             # Respuesta de texto normal
             return _extraer_texto(response)
@@ -1664,7 +1714,41 @@ async def _responder_con_fallback(system_prompt: str, mensajes: list, telefono: 
     return None
 
 
-async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str, offset_guardado: int | None, proveedor=None) -> str:
+def _render_preview_correo(res: dict) -> str:
+    """Convierte el resultado del dominio de correo persistente en el
+    tool_result que ve el LLM. En éxito incluye preview + código de
+    confirmación; en cualquier otro estado, el mensaje honesto del dominio."""
+    if res.get("estado") in ("ok", "rerender"):
+        from agent.automation.email_actions import formatear_token
+        payload = res.get("payload", {})
+        codigo = formatear_token(res["token"])
+        return (
+            f"⚠️ BORRADOR GUARDADO — EL CORREO *NO* SE HA ENVIADO.\n"
+            f"(el envío SOLO puede confirmarlo el usuario con el código de abajo)\n\n"
+            f"Para: {payload.get('destinatario', '')}\n"
+            f"Asunto: {payload.get('asunto', '')}\n"
+            f"---\n"
+            f"{payload.get('cuerpo', '')}\n"
+            f"---\n"
+            f"Código de confirmación: {codigo}\n"
+            f"INSTRUCCIÓN CRÍTICA (OBLIGATORIA):\n"
+            f"1) PROHIBIDO decirle al usuario 'envié el correo' o 'listo, lo mandé'. "
+            f"El correo NO se ha enviado.\n"
+            f"2) Muestra el borrador al usuario en formato claro.\n"
+            f"3) Dile que para enviarlo responda exactamente: ENVIAR {codigo}\n"
+            f"   y que para cancelarlo responda: CANCELAR {codigo}\n"
+            f"4) El borrador expira en 24 horas.\n"
+            f"5) PROHIBIDO llamar confirmar_envio_correo sin que el usuario te dé "
+            f"explícitamente ese código."
+        )
+    return (
+        f"{res.get('mensaje', 'No se pudo preparar el borrador.')}\n"
+        f"INSTRUCCIÓN: Transmite esto al usuario tal cual. "
+        f"PROHIBIDO decir que el correo se envió."
+    )
+
+
+async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str, offset_guardado: int | None, proveedor=None, preparation_request_key: str = "") -> str:
     """
     Ejecuta las herramientas que Claude solicitó y obtiene la respuesta final.
     Soporta: guardar_zona_horaria, crear_recordatorio, listar_recordatorios,
@@ -2240,35 +2324,21 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 if not cuerpo:
                     cuerpo = "(No se pudo generar el borrador)"
 
-                # Guardar borrador pendiente
-                _borradores_pendientes[telefono] = {
-                    "destinatario": destinatario,
-                    "asunto": asunto,
-                    "cuerpo": cuerpo,
-                    "thread_id": "",
-                    "reply_message_id": "",
-                }
-
-                resultado = (
-                    f"⚠️ BORRADOR PENDIENTE — EL CORREO *NO* SE HA ENVIADO TODAVÍA.\n"
-                    f"(solo se enviará cuando llames a confirmar_envio_correo después de "
-                    f"que el usuario diga 'sí')\n\n"
-                    f"Para: {destinatario}\n"
-                    f"Asunto: {asunto}\n"
-                    f"---\n"
-                    f"{cuerpo}\n"
-                    f"---\n"
-                    f"INSTRUCCIÓN CRÍTICA (OBLIGATORIA):\n"
-                    f"1) PROHIBIDO decirle al usuario 'envié el correo' o 'listo, lo mandé'. "
-                    f"El correo NO se ha enviado.\n"
-                    f"2) Muestra el borrador al usuario en formato claro.\n"
-                    f"3) Pregunta EXACTAMENTE: '¿Lo envío así o quieres cambiar algo?'\n"
-                    f"4) Espera respuesta del usuario.\n"
-                    f"5) Cuando el usuario confirme con 'sí' / 'dale' / 'envíalo' / 'ok', "
-                    f"llama a confirmar_envio_correo — ÚNICA forma de enviar realmente.\n"
-                    f"6) PROHIBIDO llamar confirmar_envio_correo sin confirmación del usuario."
+                # Persistir el borrador como acción cifrada (PR 1) — el dict
+                # en memoria fue eliminado.
+                from agent.automation.email_actions import preparar_envio_correo
+                _res_prep = await preparar_envio_correo(
+                    telefono,
+                    destinatario=destinatario,
+                    asunto=asunto,
+                    cuerpo=cuerpo,
+                    preparation_request_key=preparation_request_key,
                 )
-                logger.info(f"Borrador preparado para {telefono} → {destinatario} (PENDIENTE confirmación)")
+                resultado = _render_preview_correo(_res_prep)
+                logger.info(
+                    f"Borrador preparado para {telefono} "
+                    f"(estado={_res_prep.get('estado')} accion={_res_prep.get('action_id')})"
+                )
 
             except Exception as e:
                 resultado = f"Error redactando correo: {e}"
@@ -2280,45 +2350,37 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                 "content": resultado
             })
 
-        # ── confirmar_envio_correo ────────────────────────────────────
+        # ── confirmar_envio_correo (compat · delega al dominio persistente) ──
+        # NUNCA llama Gmail: el gate real es el dominio (owner + token + TTL),
+        # no el LLM. En PR 1 la confirmación válida solo informa que el envío
+        # no está habilitado y la acción sigue en needs_approval.
         elif bloque.name == "confirmar_envio_correo":
             try:
-                import agent.gmail as gmail
-
-                borrador = _borradores_pendientes.get(telefono)
-                if not borrador:
+                referencia = str(bloque.input.get("confirmation_reference", "") or "")
+                if not referencia.strip():
                     resultado = (
-                        "No hay ningún borrador pendiente para enviar. "
-                        "INSTRUCCIÓN: Dile al usuario que no hay un correo pendiente de confirmación."
+                        "Falta el código de confirmación. "
+                        "INSTRUCCIÓN: Pide al usuario el código que aparece en el "
+                        "borrador y dile que puede confirmar él mismo respondiendo "
+                        "ENVIAR <código>."
                     )
                 else:
-                    exito = await gmail.enviar_correo(
-                        telefono=telefono,
-                        destinatario=borrador["destinatario"],
-                        asunto=borrador["asunto"],
-                        cuerpo=borrador["cuerpo"],
-                        thread_id=borrador.get("thread_id", ""),
-                        reply_message_id=borrador.get("reply_message_id", ""),
+                    from agent.automation.email_actions import (
+                        confirmar_envio_correo as _confirmar_correo_dominio,
                     )
-                    if exito:
-                        del _borradores_pendientes[telefono]
-                        dest = borrador['destinatario']
-                        resultado = (
-                            f"ÉXITO: Correo enviado a {dest}. "
-                            f"INSTRUCCIÓN: Confirma con '✓ Listo, envié el correo a {dest}'"
-                        )
-                    else:
-                        resultado = (
-                            "Error al enviar el correo. "
-                            "INSTRUCCIÓN: Dile que hubo un problema y que lo intente de nuevo."
-                        )
-                    logger.info(f"confirmar_envio para {telefono}: exito={exito}")
-
-            except gmail.GmailScopeError:
-                resultado = _resultado_reauth_google(telefono)
+                    _res_conf = await _confirmar_correo_dominio(telefono, referencia)
+                    resultado = (
+                        f"{_res_conf['mensaje']}\n"
+                        "INSTRUCCIÓN: Transmite este resultado al usuario tal cual. "
+                        "PROHIBIDO decir que el correo se envió."
+                    )
+                    logger.info(
+                        f"confirmar_envio_correo (tool) para {telefono}: "
+                        f"estado={_res_conf['estado']}"
+                    )
             except Exception as e:
-                resultado = f"Error enviando correo: {e}"
                 logger.error(f"confirmar_envio_correo error: {e}")
+                resultado = "Error procesando la confirmación. Intenta de nuevo."
 
             resultados_herramientas.append({
                 "type": "tool_result",
@@ -2361,28 +2423,26 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
                     if not cuerpo:
                         cuerpo = "(No se pudo generar el borrador)"
 
-                    # Guardar borrador con info del thread
+                    # Persistir el borrador de respuesta (mismo dominio que
+                    # preparar_borrador_correo) conservando thread/reply.
                     remitente_original = original["from"]
-                    _borradores_pendientes[telefono] = {
-                        "destinatario": remitente_original,
-                        "asunto": f"Re: {original['subject']}",
-                        "cuerpo": cuerpo,
-                        "thread_id": original["thread_id"],
-                        "reply_message_id": original["message_id_header"],
-                    }
-
-                    resultado = (
-                        f"BORRADOR DE RESPUESTA — esperando confirmación:\n\n"
-                        f"Para: {remitente_original}\n"
-                        f"Asunto: Re: {original['subject']}\n"
-                        f"---\n"
-                        f"{cuerpo}\n"
-                        f"---\n"
-                        f"INSTRUCCIÓN CRÍTICA: Muestra este borrador. "
-                        f"Pregunta: '¿Lo envío así o quieres cambiar algo?' "
-                        f"NO llames confirmar_envio_correo todavía."
+                    from agent.automation.email_actions import (
+                        preparar_envio_correo as _preparar_correo_dominio,
                     )
-                    logger.info(f"Borrador de respuesta para {telefono} → {remitente_original}")
+                    _res_prep = await _preparar_correo_dominio(
+                        telefono,
+                        destinatario=remitente_original,
+                        asunto=f"Re: {original['subject']}",
+                        cuerpo=cuerpo,
+                        thread_id=original["thread_id"],
+                        reply_message_id=original["message_id_header"],
+                        preparation_request_key=preparation_request_key,
+                    )
+                    resultado = _render_preview_correo(_res_prep)
+                    logger.info(
+                        f"Borrador de respuesta para {telefono} "
+                        f"(estado={_res_prep.get('estado')} accion={_res_prep.get('action_id')})"
+                    )
 
             except gmail.GmailScopeError:
                 resultado = _resultado_reauth_google(telefono)
@@ -3270,7 +3330,8 @@ async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefo
     if respuesta_final.stop_reason == "tool_use":
         return await _manejar_tool_use(
             respuesta_final, mensajes_con_tool, system_prompt,
-            telefono, offset_guardado, proveedor
+            telefono, offset_guardado, proveedor,
+            preparation_request_key=preparation_request_key,
         )
 
     return _extraer_texto(respuesta_final)

@@ -29,6 +29,10 @@ COSTO_POR_TIPO_ACCION: dict[str, int] = {
     "preparar_email_seguimiento": 5,
     "borrador_copy_oferta": 10,
     # HIGH · sumamos costo del envío real
+    # enviar_correo_gmail: 0 en PR 1 — es preparación del contrato; no se
+    # reserva, confirma ni libera crédito y no pasa por el pipeline de
+    # execution hasta que exista la materialización (PR 2).
+    "enviar_correo_gmail": 0,
     "enviar_mensaje_whatsapp": 6,
     "enviar_campana_masiva": 50,
     "publicar_red_social": 10,

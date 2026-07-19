@@ -1371,6 +1371,45 @@ async def procesar_webhook(request: Request):
             metricas.registrar_mensaje()
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto[:120]}")
 
+            # ── Confirmación/cancelación de correo (ENVIAR/CANCELAR <token>) ──
+            # Determinístico, después de STOP/START y ANTES del LLM (CLAUDE.md
+            # §3.2): el LLM nunca es el gate. Parseo EXACTO — acepta el prefijo
+            # opcional "dona" pero ninguna palabra extra; si no matchea, el
+            # mensaje sigue su flujo normal.
+            try:
+                from agent.automation.email_actions import (
+                    cancelar_envio_correo as _cancelar_correo,
+                )
+                from agent.automation.email_actions import (
+                    confirmar_envio_correo as _confirmar_correo,
+                )
+                from agent.automation.email_actions import (
+                    parsear_comando_confirmacion as _parsear_conf_correo,
+                )
+                _cmd_correo = _parsear_conf_correo(msg.texto)
+            except Exception as _e_pc:
+                logger.error(f"[CMD] Error parseando confirmación de correo: {_e_pc}")
+                _cmd_correo = None
+            if _cmd_correo:
+                _verbo_correo, _token_correo = _cmd_correo
+                try:
+                    if _verbo_correo == "enviar":
+                        _res_correo = await _confirmar_correo(msg.telefono, _token_correo)
+                    else:
+                        _res_correo = await _cancelar_correo(msg.telefono, _token_correo)
+                    await proveedor.enviar_mensaje(msg.telefono, _res_correo["mensaje"])
+                    logger.info(
+                        f"[CMD] {_verbo_correo}_correo → {msg.telefono} "
+                        f"estado={_res_correo['estado']}"
+                    )
+                except Exception as _e_cc:
+                    logger.error(f"[CMD] Error en confirmación de correo: {_e_cc}")
+                    await proveedor.enviar_mensaje(
+                        msg.telefono,
+                        "Hubo un problema procesando ese código. Intenta de nuevo.",
+                    )
+                continue
+
             # ── Auto-popular nombre desde Google Contacts (best-effort, una vez) ──
             # Si el usuario no tiene nombre aún, intentar resolverlo desde sus propios
             # contactos (algunos tienen una entrada "Me" / "Yo"). Silencioso si no hay
@@ -2334,6 +2373,9 @@ async def procesar_webhook(request: Request):
                         telefono=msg.telefono,
                         timestamp_mensaje=msg.timestamp,
                         proveedor=proveedor,
+                        # ID estable del mensaje entrante → preparation_request_key
+                        # del flujo de correo persistente (idempotencia real).
+                        mensaje_id=msg.mensaje_id or "",
                     ),
                     timeout=90.0,
                 )

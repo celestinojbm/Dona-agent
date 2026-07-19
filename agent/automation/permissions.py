@@ -47,6 +47,10 @@ RIESGO_POR_TIPO_ACCION: dict[str, NivelRiesgo] = {
     "preparar_email_seguimiento": NivelRiesgo.MEDIUM,
     "borrador_copy_oferta": NivelRiesgo.MEDIUM,
     # HIGH · efecto externo real (no se ejecuta en T2.1.A)
+    # enviar_correo_gmail: acción persistente del PR 1 de correo. Metadata y
+    # contrato solamente — NO está registrada en EJECUTORES_T21A y en PR 1 la
+    # confirmación mantiene needs_approval (fail-closed, sin materialización).
+    "enviar_correo_gmail": NivelRiesgo.HIGH,
     "enviar_mensaje_whatsapp": NivelRiesgo.HIGH,
     "enviar_campana_masiva": NivelRiesgo.HIGH,
     "publicar_red_social": NivelRiesgo.HIGH,

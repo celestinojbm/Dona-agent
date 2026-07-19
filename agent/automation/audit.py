@@ -72,6 +72,18 @@ EVENTOS_VALIDOS = {
     "mission_recover_lead_action_linked",
     "mission_recover_lead_completed",
     "mission_recover_lead_reconciled",
+    # PR 1 · Action Center de correo persistente. Toda la metadata de estos
+    # eventos se construye con metadata_audit_email (whitelist cerrada de
+    # agent/automation/email_audit.py) — nunca dicts literales arbitrarios.
+    "email_action_prepared",
+    "email_action_rerendered",
+    "email_action_superseded",
+    "email_prep_key_conflict",
+    "email_confirmation_hold",
+    "email_confirmation_rejected",
+    "email_action_cancelled",
+    "email_action_expired",
+    "email_payload_corrupted",
 }
 
 
@@ -101,6 +113,12 @@ _CLAVES_PROHIBIDAS = {
     "mensaje_preview",
     "destino",
     "destino_completo",
+    # Email persistente (PR 1) · defensa ADICIONAL, no control principal:
+    # el flujo email construye su metadata con la whitelist cerrada de
+    # email_audit.metadata_audit_email, que ya no admite estos campos.
+    "destinatario",
+    "asunto",
+    "cuerpo",
     # Campos de texto libre del onboarding extendido (T2.0.E.1) ·
     # pueden contener PII de clientes del usuario
     "oferta_principal",
