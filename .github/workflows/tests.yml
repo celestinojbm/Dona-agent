@@ -26,7 +26,7 @@ jobs:
           fetch-depth: 0  # diff-cover necesita historia para comparar con origin/main
 
       - name: Configurar Python 3.11
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
