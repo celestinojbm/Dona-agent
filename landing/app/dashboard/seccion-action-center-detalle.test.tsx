@@ -454,6 +454,203 @@ describe("Centro de acción · estados del panel (error, éxito, vacío)", () =>
     ).toBeInTheDocument();
   });
 
+  it("POST exitoso + GET fallido: decisión registrada, estado sin verificar y sin repetir la decisión", async () => {
+    const spy = stubFetchCola([
+      jsonResponse({ acciones: [accionBase()], count: 1 }),
+      jsonResponse({ accion: accionBase({ estado: "approved" }) }),
+      // El GET posterior a la decisión falla.
+      jsonResponse({ error: "backend_unavailable" }, 502),
+      // "Actualizar estado" ya responde con el estado real.
+      jsonResponse({
+        acciones: [
+          accionBase({
+            estado: "approved",
+            approved_at: "2026-05-09T02:00:00Z",
+            next_required_action: "execute_available",
+          }),
+        ],
+        count: 1,
+      }),
+    ]);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Plan semanal del negocio/);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Aprobar$/i }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Sí, aprobar/i }),
+    );
+
+    // Distingue "decisión registrada" de "estado actualizado".
+    const aviso = await within(dialog).findByText(/Acción aprobada\./i);
+    expect(aviso).toHaveAttribute("role", "status");
+    expect(aviso).toHaveTextContent(/No pudimos cargar su estado actualizado/i);
+    expect(aviso).not.toHaveTextContent(/ya muestra su nuevo estado/i);
+    expect(within(dialog).getByText(/Detalle de la acción/)).toHaveTextContent(
+      /sin verificar/i,
+    );
+
+    // El snapshot sigue diciendo "needs_approval", pero no se ofrecen
+    // controles basados en él.
+    expect(
+      within(dialog).queryByRole("button", { name: /^Aprobar$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: /^Rechazar$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: /Ejecutar/i }),
+    ).not.toBeInTheDocument();
+    const llamadasAprobar = () =>
+      spy.mock.calls.filter(([url]) => url === "/api/automation/acciones/9/aprobar")
+        .length;
+    expect(llamadasAprobar()).toBe(1);
+
+    // Actualizar estado recarga la lista y ofrece solo lo que permite el
+    // estado real.
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Actualizar estado/i }),
+    );
+    expect(
+      await within(dialog).findByRole("button", { name: /Ejecutar \(dry-run\)/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: /^Aprobar$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByText(/No pudimos confirmar el estado actual/i),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Acción aprobada\./i)).not.toBeInTheDocument();
+    expect(llamadasAprobar()).toBe(1);
+  });
+
+  it("si Actualizar estado vuelve a fallar, las decisiones siguen en pausa", async () => {
+    stubFetchCola([
+      jsonResponse({ acciones: [accionBase()], count: 1 }),
+      jsonResponse({ accion: accionBase({ estado: "rejected" }) }),
+      jsonResponse({ error: "backend_unavailable" }, 502),
+      jsonResponse({ error: "backend_timeout" }, 504),
+    ]);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Plan semanal del negocio/);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Rechazar$/i }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Sí, rechazar/i }),
+    );
+    await within(dialog).findByText(/Acción rechazada\./i);
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Actualizar estado/i }),
+    );
+    const alerta = await within(dialog).findByRole("alert");
+    expect(alerta).toHaveTextContent(/Seguimos sin poder cargar el estado/i);
+    expect(
+      within(dialog).queryByRole("button", { name: /^Rechazar$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: /Actualizar estado/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("HIGH confirmada + GET fallido no afirma estado ni reofrece la confirmación", async () => {
+    const accion = accionBase({
+      id: 55,
+      titulo: "Enviar mensaje WhatsApp real",
+      riesgo: "high",
+      estado: "approved",
+      next_required_action: "dedicated_confirmation_required",
+    });
+    const spy = stubFetchCola([
+      jsonResponse({ acciones: [accion], count: 1 }),
+      jsonResponse({
+        accion_id: 55,
+        destino_short: "+5****4567",
+        mensaje_preview: "Hola",
+        costo_creditos_estimado: 0,
+        riesgo: "high",
+        confirmacion_requerida: "ENVIAR",
+      }),
+      jsonResponse({ accion: { ...accion, estado: "completed" } }),
+      jsonResponse({ error: "backend_unavailable" }, 502),
+    ]);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Enviar mensaje WhatsApp real/);
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Confirmar envío HIGH/i }),
+    );
+    const input = await within(dialog).findByLabelText(
+      /Escribe ENVIAR para confirmar/i,
+    );
+    fireEvent.change(input, { target: { value: "ENVIAR" } });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Confirmar y enviar/i }),
+    );
+
+    const aviso = await within(dialog).findByText(/Confirmación HIGH registrada\./i);
+    expect(aviso).toHaveTextContent(/No pudimos cargar su estado actualizado/i);
+    expect(
+      within(dialog).queryByRole("button", { name: /Confirmar envío HIGH/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      spy.mock.calls.filter(
+        ([url]) => url === "/api/automation/acciones/55/high-confirmar",
+      ).length,
+    ).toBe(1);
+  });
+
+  it("POST sin respuesta: avisa que la decisión es incierta y no la reofrece", async () => {
+    const spy = vi.fn();
+    spy.mockResolvedValueOnce(jsonResponse({ acciones: [accionBase()], count: 1 }));
+    spy.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    spy.mockResolvedValueOnce(jsonResponse({ error: "backend_unavailable" }, 502));
+    vi.stubGlobal("fetch", spy);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Plan semanal del negocio/);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Aprobar$/i }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Sí, aprobar/i }),
+    );
+
+    const alerta = await within(dialog).findByRole("alert");
+    expect(alerta).toHaveTextContent(/no sabemos si se registró/i);
+    expect(
+      within(dialog).queryByRole("button", { name: /^Aprobar$/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("desde la tarjeta: POST exitoso + GET fallido no anuncia la lista como actualizada", async () => {
+    stubFetchCola([
+      jsonResponse({ acciones: [accionBase()], count: 1 }),
+      jsonResponse({ accion: accionBase({ estado: "approved" }) }),
+      jsonResponse({ error: "backend_unavailable" }, 502),
+    ]);
+
+    render(<SeccionActionCenter />);
+    const card = (await screen.findByText(/Plan semanal del negocio/)).closest(
+      "div.surface-card",
+    ) as HTMLElement;
+    fireEvent.click(within(card).getByRole("button", { name: /^Aprobar$/i }));
+    fireEvent.click(within(card).getByRole("button", { name: /Sí, aprobar/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(/Acción aprobada\./i),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /No pudimos cargar su estado actualizado/i,
+    );
+    // Sin lista fresca no quedan tarjetas con controles del estado viejo.
+    expect(screen.getByText(/No pudimos cargar tus acciones/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Aprobar$/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("dice explícitamente cuando una acción cerrada no registró resultado", async () => {
     const accion = accionBase({
       estado: "completed",

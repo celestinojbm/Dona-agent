@@ -43,7 +43,10 @@ import {
   resolverNextRequiredAction,
 } from "@/lib/accion-decision";
 import { lineaTiempoAccion, resumenResultado } from "@/lib/accion-formato";
-import type { ResultadoDecision } from "@/lib/accion-errores";
+import {
+  mensajeDecision,
+  type ResultadoDecision,
+} from "@/lib/accion-errores";
 import { PanelPreviewHigh, useConfirmacionHigh } from "./confirmacion-high";
 
 type Decision = "aprobar" | "rechazar" | "ejecutar";
@@ -51,11 +54,19 @@ type Decision = "aprobar" | "rechazar" | "ejecutar";
 interface AccionDetalleProps {
   accion: AccionAutomatizacion | null;
   abierto: boolean;
+  /**
+   * false cuando `accion` es un snapshot (la lista no se pudo recargar o
+   * ya no trae la acción). Con false no se ofrecen decisiones: repetir
+   * una decisión sobre un estado viejo puede duplicarla o chocar con el
+   * estado real.
+   */
+  estadoVerificado: boolean;
   onOpenChange: (abierto: boolean) => void;
   onAprobar: (id: number) => Promise<ResultadoDecision>;
   onRechazar: (id: number) => Promise<ResultadoDecision>;
   onEjecutar: (id: number) => Promise<ResultadoDecision>;
-  onRefrescar: () => Promise<void> | void;
+  /** Recarga la lista · true si respondió bien. */
+  onRefrescar: () => Promise<boolean>;
 }
 
 const COPY_CONFIRMACION: Record<Decision, { titulo: string; cuerpo: string }> = {
@@ -76,12 +87,13 @@ const COPY_CONFIRMACION: Record<Decision, { titulo: string; cuerpo: string }> = 
   },
 };
 
-const COPY_HIGH_CONFIRMADA =
-  "Confirmación HIGH registrada. La lista se actualizó con el nuevo estado.";
+const COPY_ACTUALIZAR_FALLIDO =
+  "Seguimos sin poder cargar el estado de la acción. Intenta de nuevo en unos segundos.";
 
 export default function AccionDetalle({
   accion,
   abierto,
+  estadoVerificado,
   onOpenChange,
   onAprobar,
   onRechazar,
@@ -93,10 +105,12 @@ export default function AccionDetalle({
   // que su decisión se está enviando.
   const [procesando, setProcesando] = useState(false);
   // Resultado de la última decisión tomada en este panel.
+  // "aviso": la decisión se registró pero el estado no se pudo recargar.
   const [retro, setRetro] = useState<{
-    tipo: "exito" | "error";
+    tipo: "exito" | "aviso" | "error";
     mensaje: string;
   } | null>(null);
+  const [actualizando, setActualizando] = useState(false);
   // Foco: al abrir la confirmación el botón que la abrió desaparece, así
   // que movemos el foco al bloque; al cancelar vuelve al disparador.
   const bloqueConfirmRef = useRef<HTMLDivElement | null>(null);
@@ -109,8 +123,11 @@ export default function AccionDetalle({
   const [focoPendiente, setFocoPendiente] = useState<Decision | null>(null);
   const idAccion = accion?.id ?? 0;
   const high = useConfirmacionHigh(idAccion, async () => {
-    setRetro({ tipo: "exito", mensaje: COPY_HIGH_CONFIRMADA });
-    await onRefrescar();
+    const estadoActualizado = await onRefrescar();
+    setRetro({
+      tipo: estadoActualizado ? "exito" : "aviso",
+      mensaje: mensajeDecision("high", estadoActualizado),
+    });
   });
 
   const decision = accion
@@ -155,17 +172,24 @@ export default function AccionDetalle({
     return null;
   }
 
+  // Con un snapshot no se ofrece ninguna decisión: primero hay que
+  // verificar el estado real.
   const puedeAprobar =
-    decision.next === "approval_required" && accion.riesgo !== "critical";
-  const puedeEjecutar = decision.next === "execute_available";
-  const puedeConfirmarHigh = decision.next === "dedicated_confirmation_required";
+    estadoVerificado &&
+    decision.next === "approval_required" &&
+    accion.riesgo !== "critical";
+  const puedeEjecutar =
+    estadoVerificado && decision.next === "execute_available";
+  const puedeConfirmarHigh =
+    estadoVerificado && decision.next === "dedicated_confirmation_required";
   const bloqueoCritical =
     decision.next === "reinforced_approval_required"
       ? decision.motivo || COPY_CRITICAL_FALLBACK
       : "";
-  const bloqueoHigh = puedeConfirmarHigh
-    ? decision.motivo || COPY_HIGH_APROBADA_FALLBACK
-    : "";
+  const bloqueoHigh =
+    decision.next === "dedicated_confirmation_required"
+      ? decision.motivo || COPY_HIGH_APROBADA_FALLBACK
+      : "";
   const terminal = esTerminal(accion.estado);
   const confirmacion = decisionPendiente
     ? COPY_CONFIRMACION[decisionPendiente]
@@ -188,11 +212,26 @@ export default function AccionDetalle({
         d === "aprobar" ? onAprobar : d === "rechazar" ? onRechazar : onEjecutar;
       const respuesta = await fn(idAccion);
       setRetro({
-        tipo: respuesta.ok ? "exito" : "error",
+        tipo: !respuesta.ok
+          ? "error"
+          : respuesta.estadoActualizado
+            ? "exito"
+            : "aviso",
         mensaje: respuesta.mensaje,
       });
     } finally {
       setProcesando(false);
+    }
+  }
+
+  async function actualizarEstado() {
+    setActualizando(true);
+    try {
+      const ok = await onRefrescar();
+      // Con la lista recargada, el aviso anterior ya no es cierto.
+      setRetro(ok ? null : { tipo: "error", mensaje: COPY_ACTUALIZAR_FALLIDO });
+    } finally {
+      setActualizando(false);
     }
   }
 
@@ -211,6 +250,7 @@ export default function AccionDetalle({
           </SheetTitle>
           <SheetDescription className="text-sm text-[color:var(--ink-2)] mt-1 pr-12">
             Detalle de la acción · {etiquetaEstado}
+            {!estadoVerificado && " (sin verificar)"}
           </SheetDescription>
 
           <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -353,11 +393,13 @@ export default function AccionDetalle({
               error con rol alert (interrumpe), éxito con rol status. */}
           {retro && (
             <p
-              role={retro.tipo === "exito" ? "status" : "alert"}
+              role={retro.tipo === "error" ? "alert" : "status"}
               className={
                 retro.tipo === "exito"
                   ? "text-xs text-emerald-700 p-3 rounded-lg bg-emerald-600/10 border border-emerald-600/40"
-                  : "text-xs text-[color:var(--dato-neg)] p-3 rounded-lg bg-[#e64263]/10 border border-[#e64263]/40"
+                  : retro.tipo === "aviso"
+                    ? "text-xs text-amber-800 p-3 rounded-lg bg-amber-500/10 border border-amber-500/40"
+                    : "text-xs text-[color:var(--dato-neg)] p-3 rounded-lg bg-[#e64263]/10 border border-[#e64263]/40"
               }
             >
               {retro.mensaje}
@@ -371,7 +413,24 @@ export default function AccionDetalle({
             </p>
           )}
 
-          {terminal ? (
+          {!estadoVerificado ? (
+            <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/40">
+              <p className="text-xs text-amber-800 leading-relaxed">
+                No pudimos confirmar el estado actual de esta acción. Lo que
+                ves es la última versión cargada y puede estar desactualizada:
+                las decisiones quedan en pausa hasta actualizarla.
+              </p>
+              <button
+                type="button"
+                onClick={() => void actualizarEstado()}
+                disabled={actualizando}
+                className="btn-ghost mt-3 px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {actualizando && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Actualizar estado
+              </button>
+            </div>
+          ) : terminal ? (
             <p className="text-xs text-[color:var(--muted)] mt-3">
               Acción cerrada · ya no admite decisiones.
             </p>

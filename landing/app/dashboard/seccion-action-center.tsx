@@ -53,7 +53,8 @@ import {
 } from "@/lib/accion-decision";
 import { resumenResultado } from "@/lib/accion-formato";
 import {
-  MENSAJE_EXITO,
+  MENSAJE_DECISION_INCIERTA,
+  mensajeDecision,
   mensajeDeErrorAccion,
   type ResultadoDecision,
 } from "@/lib/accion-errores";
@@ -130,7 +131,9 @@ export default function SeccionActionCenter() {
   // Texto que anuncia un lector de pantalla tras una decisión.
   const [aviso, setAviso] = useState("");
 
-  const fetchAcciones = useCallback(async () => {
+  // Devuelve true solo si la lista se recargó · quien acaba de decidir
+  // lo usa para no afirmar que el estado mostrado está al día.
+  const fetchAcciones = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch("/api/automation/acciones", {
         cache: "no-store",
@@ -143,12 +146,14 @@ export default function SeccionActionCenter() {
       if (!res.ok) {
         const code = `error_${res.status}`;
         setLoad({ status: "error", code });
-        return;
+        return false;
       }
       const data = (await res.json()) as AccionesData;
       setLoad({ status: "ready", data });
+      return true;
     } catch {
       setLoad({ status: "error", code: "network_error" });
+      return false;
     }
   }, []);
 
@@ -228,19 +233,24 @@ export default function SeccionActionCenter() {
           const mensaje = mensajeDeErrorAccion(res.status, cuerpo);
           toast.error(mensaje);
           if (!silenciarAviso) setAviso(mensaje);
-          await fetchAcciones();
-          return { ok: false, mensaje };
+          const estadoActualizado = await fetchAcciones();
+          return { ok: false, mensaje, estadoActualizado };
         }
-        const mensaje = MENSAJE_EXITO[op];
+        // Decisión registrada ≠ estado actualizado: el mensaje depende de
+        // si el GET posterior respondió.
+        const estadoActualizado = await fetchAcciones();
+        const mensaje = mensajeDecision(op, estadoActualizado);
+        if (!estadoActualizado && !silenciarAviso) toast.warning(mensaje);
         if (!silenciarAviso) setAviso(mensaje);
-        await fetchAcciones();
-        return { ok: true, mensaje };
+        return { ok: true, mensaje, estadoActualizado };
       } catch {
-        const mensaje =
-          "Sin conexión con el servidor. Revisa tu red e intenta de nuevo.";
+        // El POST no respondió: la decisión pudo registrarse o no. Se
+        // intenta leer el estado real en vez de invitar a repetirla.
+        const mensaje = MENSAJE_DECISION_INCIERTA;
         toast.error(mensaje);
         if (!silenciarAviso) setAviso(mensaje);
-        return { ok: false, mensaje };
+        const estadoActualizado = await fetchAcciones();
+        return { ok: false, mensaje, estadoActualizado };
       } finally {
         setAccionEnCurso(null);
       }
@@ -274,6 +284,14 @@ export default function SeccionActionCenter() {
   useEffect(() => {
     if (accionEnLista) setSnapshotDetalle(accionEnLista);
   }, [accionEnLista]);
+
+  // HIGH confirmada desde la tarjeta · mismo criterio que handleAccion.
+  const refrescarTrasHighEnTarjeta = useCallback(async () => {
+    const estadoActualizado = await fetchAcciones();
+    const mensaje = mensajeDecision("high", estadoActualizado);
+    if (!estadoActualizado) toast.warning(mensaje);
+    setAviso(mensaje);
+  }, [fetchAcciones]);
 
   const cerrarDetalle = useCallback(() => {
     setDetalleId(null);
@@ -433,7 +451,7 @@ export default function SeccionActionCenter() {
                 onAprobar={() => handleAccion(a.id, "aprobar")}
                 onRechazar={() => handleAccion(a.id, "rechazar")}
                 onEjecutar={() => handleAccion(a.id, "ejecutar")}
-                onConfirmada={fetchAcciones}
+                onConfirmada={refrescarTrasHighEnTarjeta}
                 onVerDetalle={() => setDetalleId(a.id)}
               />
           ))}
@@ -502,6 +520,9 @@ export default function SeccionActionCenter() {
       <AccionDetalle
         accion={accionEnDetalle}
         abierto={accionEnDetalle !== null}
+        // Sin la acción en una lista recién cargada, el panel muestra un
+        // snapshot: sirve para leer, no para decidir otra vez.
+        estadoVerificado={accionEnLista !== null}
         onOpenChange={(abierto) => {
           if (!abierto) cerrarDetalle();
         }}

@@ -40,6 +40,12 @@ const MENSAJE_POR_DEFECTO_4XX =
 export interface ResultadoDecision {
   ok: boolean;
   mensaje: string;
+  /**
+   * true solo si el GET de la lista posterior a la decisión respondió
+   * bien. Con false, lo que muestra la UI es un snapshot anterior y no
+   * sirve para ofrecer otra decisión sobre la misma acción.
+   */
+  estadoActualizado: boolean;
 }
 
 function codigoDe(cuerpo: unknown): string | null {
@@ -62,10 +68,42 @@ export function mensajeDeErrorAccion(status: number, cuerpo: unknown): string {
   return MENSAJE_POR_DEFECTO_5XX;
 }
 
-/** Mensaje de éxito por operación · describe lo que realmente ocurrió. */
-export const MENSAJE_EXITO: Record<"aprobar" | "rechazar" | "ejecutar", string> =
-  {
-    aprobar: "Acción aprobada. La lista se actualizó con su nuevo estado.",
-    rechazar: "Acción rechazada. Ya está en el historial.",
-    ejecutar: "Ejecución dry-run registrada. Revisa el resultado en el detalle.",
-  };
+export type OperacionDecision = "aprobar" | "rechazar" | "ejecutar" | "high";
+
+/** Lo que el backend aceptó · no dice nada sobre el estado mostrado. */
+export const MENSAJE_DECISION_REGISTRADA: Record<OperacionDecision, string> = {
+  aprobar: "Acción aprobada.",
+  rechazar: "Acción rechazada.",
+  ejecutar: "Ejecución dry-run registrada.",
+  high: "Confirmación HIGH registrada.",
+};
+
+// Solo se añade cuando la lista se recargó bien después de la decisión.
+const MENSAJE_ESTADO_ACTUALIZADO: Record<OperacionDecision, string> = {
+  aprobar: "La lista ya muestra su nuevo estado.",
+  rechazar: "Ya está en el historial.",
+  ejecutar: "Revisa el resultado en el detalle.",
+  high: "La lista ya muestra su nuevo estado.",
+};
+
+export const MENSAJE_ESTADO_SIN_ACTUALIZAR =
+  "No pudimos cargar su estado actualizado: actualiza antes de tomar otra decisión sobre esta acción.";
+
+/** El POST no respondió · no sabemos si la decisión llegó al backend. */
+export const MENSAJE_DECISION_INCIERTA =
+  "Perdimos la conexión al enviar la decisión y no sabemos si se registró. Revisa el estado actual antes de intentarlo de nuevo.";
+
+/**
+ * Mensaje tras una decisión aceptada por el backend · separa "decisión
+ * registrada" de "estado actualizado" para no afirmar que la lista se
+ * refrescó cuando el GET posterior falló.
+ */
+export function mensajeDecision(
+  op: OperacionDecision,
+  estadoActualizado: boolean,
+): string {
+  const sufijo = estadoActualizado
+    ? MENSAJE_ESTADO_ACTUALIZADO[op]
+    : MENSAJE_ESTADO_SIN_ACTUALIZAR;
+  return `${MENSAJE_DECISION_REGISTRADA[op]} ${sufijo}`;
+}

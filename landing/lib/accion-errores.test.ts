@@ -4,7 +4,7 @@
 // códigos que realmente emiten las rutas y los fallbacks por status.
 
 import { describe, it, expect } from "vitest";
-import { mensajeDeErrorAccion, MENSAJE_EXITO } from "./accion-errores";
+import { mensajeDecision, mensajeDeErrorAccion } from "./accion-errores";
 
 describe("mensajeDeErrorAccion", () => {
   it("traduce los códigos reales de las rutas de acciones", () => {
@@ -59,10 +59,19 @@ describe("mensajeDeErrorAccion", () => {
   });
 });
 
-describe("MENSAJE_EXITO", () => {
+describe("mensajeDecision", () => {
   it("describe cada operación sin prometer efectos externos", () => {
-    expect(MENSAJE_EXITO.aprobar).toMatch(/aprobada/i);
-    expect(MENSAJE_EXITO.rechazar).toMatch(/historial/i);
-    expect(MENSAJE_EXITO.ejecutar).toMatch(/dry-run/i);
+    expect(mensajeDecision("aprobar", true)).toMatch(/aprobada/i);
+    expect(mensajeDecision("rechazar", true)).toMatch(/historial/i);
+    expect(mensajeDecision("ejecutar", true)).toMatch(/dry-run/i);
+    expect(mensajeDecision("high", true)).toMatch(/HIGH registrada/i);
+  });
+
+  it("no afirma que el estado se actualizó si el GET posterior falló", () => {
+    for (const op of ["aprobar", "rechazar", "ejecutar", "high"] as const) {
+      const mensaje = mensajeDecision(op, false);
+      expect(mensaje).toMatch(/No pudimos cargar su estado actualizado/i);
+      expect(mensaje).not.toMatch(/ya muestra|Ya está en el historial|Revisa el resultado/i);
+    }
   });
 });

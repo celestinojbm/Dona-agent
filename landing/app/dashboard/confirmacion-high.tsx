@@ -31,7 +31,7 @@ export interface ConfirmacionHighApi {
  */
 export function useConfirmacionHigh(
   accionId: number,
-  onConfirmada?: () => Promise<void> | void,
+  onConfirmada?: () => Promise<unknown> | void,
 ): ConfirmacionHighApi {
   const [preview, setPreview] = useState<HighPreviewResponse | null>(null);
   const [confirmacion, setConfirmacion] = useState("");
