@@ -76,6 +76,61 @@ Ejecutada en `landing/` dentro del worktree aislado:
   por `<img>`).
 - `npm run typecheck` → limpio.
 
+## Incremento 2 · estados, móvil y accesibilidad
+
+Segundo commit de la misma rama, sobre la entrega anterior.
+
+Defectos cerrados (verificables, dentro del alcance):
+
+- **Error sin mensaje real**: las decisiones fallaban con un toast genérico
+  y la UI ignoraba el cuerpo `{ error }` de las rutas. Ahora
+  `lib/accion-errores.ts` traduce los códigos que las rutas SÍ emiten
+  (`accion_not_found`, `high_confirmation_not_available`, `backend_timeout`,
+  `backend_unavailable`, `unauthenticated`, `no_subscription_in_session`,
+  `invalid_accion_id`, `confirmacion_invalida`) y el panel muestra el
+  motivo inline con `role="alert"`.
+- **Sin estado de éxito visible**: tras aprobar/rechazar/ejecutar el panel
+  solo cambiaba de estado en la lista. Ahora muestra confirmación inline
+  con `role="status"` y anuncia una sola vez (el contenedor deja de
+  anunciar cuando la decisión se tomó en el panel).
+- **Sin estado de carga en el panel**: ahora `procesando` bloquea los
+  controles, marca `aria-busy` y muestra "Enviando la decisión…".
+- **Vacío mudo**: una acción `completed`/`failed` sin resultado no decía
+  nada; ahora explica que quedó en ese estado sin resultado en el payload.
+- **Panel que desaparecía**: si el refresco de la lista fallaba, la acción
+  salía del payload y el panel se cerraba de golpe en medio de una
+  decisión. Ahora se conserva el último snapshot de la acción abierta.
+- **Historial que se cerraba solo**: el `<details>` estaba atado al filtro
+  y se cerraba en cada re-render. Ahora su apertura es estado de React y
+  filtrar lo mantiene abierto.
+- **Foco perdido en el teclado**: al abrir la confirmación, el botón que
+  la abría desaparecía y el foco caía al contenedor; al cancelar no
+  volvía. Ahora el foco va al bloque de confirmación y regresa al
+  disparador (por referencia viva, porque el botón se re-monta).
+- **Nombres accesibles repetidos**: cada tarjeta exponía "Ver detalle"
+  sin distinguirse. Ahora es "Ver detalle de <título>".
+- **Móvil**: cabecera fija del panel (el contexto se perdía al hacer
+  scroll), `overscroll-contain` y filas de decisión/chips con `flex-wrap`.
+
+Verificación del incremento (desde `landing/`):
+
+- `npm test` → 237 pasan / 7 fallan. Los 7 fallos siguen siendo los
+  preexistentes de `dashboard-shell.test.tsx`; **no cambió ninguno y no
+  apareció un fallo nuevo**.
+- `npm run lint` → 0 errores (mismo warning preexistente).
+- `npm run typecheck` → limpio.
+- `npm run build` → correcto.
+
+Tests añadidos en el incremento: 5 en `lib/accion-errores.test.ts` y 7 en
+`app/dashboard/seccion-action-center-detalle.test.tsx` (error real inline
+sin duplicar el anuncio, éxito inline, panel que sobrevive a un refresco
+fallido, resultado vacío explícito, foco de ida y vuelta, nombres
+accesibles únicos, historial abierto tras filtrar y re-renderizar).
+
+Límites de backend: sin cambios respecto al incremento 1 (siguen
+faltando `GET /api/automation/acciones/:id` y el historial de eventos por
+acción).
+
 ## Nota de entorno
 
 Los agentes de código externos no estuvieron disponibles en esta sesión:

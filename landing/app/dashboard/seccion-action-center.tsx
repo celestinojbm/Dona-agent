@@ -22,7 +22,7 @@
 //   - Acciones rejected/failed/cancelled aparecen en una sección
 //     colapsada "Historial".
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Sparkles,
@@ -52,6 +52,11 @@ import {
   resolverNextRequiredAction,
 } from "@/lib/accion-decision";
 import { resumenResultado } from "@/lib/accion-formato";
+import {
+  MENSAJE_EXITO,
+  mensajeDeErrorAccion,
+  type ResultadoDecision,
+} from "@/lib/accion-errores";
 import { PanelPreviewHigh, useConfirmacionHigh } from "./confirmacion-high";
 import AccionDetalle from "./accion-detalle";
 
@@ -111,10 +116,17 @@ export default function SeccionActionCenter() {
   const [perfilDiag, setPerfilDiag] = useState<PerfilDiagInfo | null>(null);
   // Acción abierta en el panel de detalle (null = panel cerrado).
   const [detalleId, setDetalleId] = useState<number | null>(null);
+  // Snapshot de la acción abierta · evita que el panel desaparezca de
+  // golpe cuando la lista falla o la acción deja de venir en el payload.
+  const [snapshotDetalle, setSnapshotDetalle] =
+    useState<AccionAutomatizacion | null>(null);
   // Filtro del historial · "todas" muestra los estados terminales.
   const [filtroHistorial, setFiltroHistorial] = useState<EstadoAccion | "todas">(
     "todas",
   );
+  // El historial se controla desde React para que no se cierre solo cada
+  // vez que la sección se vuelve a renderizar.
+  const [historialAbierto, setHistorialAbierto] = useState(false);
   // Texto que anuncia un lector de pantalla tras una decisión.
   const [aviso, setAviso] = useState("");
 
@@ -193,31 +205,48 @@ export default function SeccionActionCenter() {
     setGenerando(false);
   }
 
-  async function handleAccion(
-    accionId: number,
-    op: "aprobar" | "rechazar" | "ejecutar",
-  ) {
-    setAccionEnCurso(accionId);
-    try {
-      const res = await fetch(
-        `/api/automation/acciones/${accionId}/${op}`,
-        { method: "POST" },
-      );
-      if (!res.ok) {
-        toast.error(`No pudimos ${op} esta acción. Intenta de nuevo.`);
-        setAviso(
-          `No pudimos ${op} la acción #${accionId}. Revisa su estado e intenta de nuevo.`,
+  const handleAccion = useCallback(
+    async (
+      accionId: number,
+      op: "aprobar" | "rechazar" | "ejecutar",
+      silenciarAviso = false,
+    ): Promise<ResultadoDecision> => {
+      setAccionEnCurso(accionId);
+      try {
+        const res = await fetch(
+          `/api/automation/acciones/${accionId}/${op}`,
+          { method: "POST" },
         );
-      } else {
-        setAviso(`Acción #${accionId}: ${op} registrada correctamente.`);
+        let cuerpo: unknown = null;
+        try {
+          cuerpo = await res.json();
+        } catch {
+          // Rutas de error pueden responder sin cuerpo JSON.
+          cuerpo = null;
+        }
+        if (!res.ok) {
+          const mensaje = mensajeDeErrorAccion(res.status, cuerpo);
+          toast.error(mensaje);
+          if (!silenciarAviso) setAviso(mensaje);
+          await fetchAcciones();
+          return { ok: false, mensaje };
+        }
+        const mensaje = MENSAJE_EXITO[op];
+        if (!silenciarAviso) setAviso(mensaje);
+        await fetchAcciones();
+        return { ok: true, mensaje };
+      } catch {
+        const mensaje =
+          "Sin conexión con el servidor. Revisa tu red e intenta de nuevo.";
+        toast.error(mensaje);
+        if (!silenciarAviso) setAviso(mensaje);
+        return { ok: false, mensaje };
+      } finally {
+        setAccionEnCurso(null);
       }
-      await fetchAcciones();
-    } catch {
-      toast.error("Error de conexión.");
-      setAviso(`Error de conexión al ${op} la acción #${accionId}.`);
-    }
-    setAccionEnCurso(null);
-  }
+    },
+    [fetchAcciones],
+  );
 
   const acciones = load.status === "ready" ? load.data.acciones : [];
   const activas = acciones.filter((a) => esActiva(a.estado));
@@ -235,8 +264,21 @@ export default function SeccionActionCenter() {
       : historial.filter((a) => a.estado === filtroHistorial);
   // El panel busca la acción en la lista ya cargada: no existe endpoint
   // de detalle por id, así que el detalle sale del payload de la lista.
-  const accionEnDetalle =
+  // Si la lista falla o la acción deja de venir, mantenemos el último
+  // snapshot para no cerrar el panel de golpe en medio de una decisión.
+  const accionEnLista =
     detalleId === null ? null : acciones.find((a) => a.id === detalleId) ?? null;
+  const accionEnDetalle =
+    accionEnLista ?? (snapshotDetalle?.id === detalleId ? snapshotDetalle : null);
+
+  useEffect(() => {
+    if (accionEnLista) setSnapshotDetalle(accionEnLista);
+  }, [accionEnLista]);
+
+  const cerrarDetalle = useCallback(() => {
+    setDetalleId(null);
+    setSnapshotDetalle(null);
+  }, []);
 
   return (
     <section>
@@ -401,7 +443,11 @@ export default function SeccionActionCenter() {
       {/* Historial · solo con estados terminales. El filtro usa los
           estados realmente presentes en los datos. */}
       {historial.length > 0 && (
-        <details className="mt-8" open={filtroHistorial !== "todas"}>
+        <details
+          className="mt-8"
+          open={historialAbierto}
+          onToggle={(ev) => setHistorialAbierto(ev.currentTarget.open)}
+        >
           <summary className="cursor-pointer eyebrow mb-3">
             Historial ({historialFiltrado.length}
             {filtroHistorial !== "todas" ? ` de ${historial.length}` : ""})
@@ -409,7 +455,10 @@ export default function SeccionActionCenter() {
           <div className="flex flex-wrap items-center gap-2 mt-3 mb-4">
             <FiltroHistorial
               activo={filtroHistorial === "todas"}
-              onClick={() => setFiltroHistorial("todas")}
+              onClick={() => {
+                setFiltroHistorial("todas");
+                setHistorialAbierto(true);
+              }}
             >
               Todas
             </FiltroHistorial>
@@ -417,7 +466,10 @@ export default function SeccionActionCenter() {
               <FiltroHistorial
                 key={estado}
                 activo={filtroHistorial === estado}
-                onClick={() => setFiltroHistorial(estado)}
+                onClick={() => {
+                  setFiltroHistorial(estado);
+                  setHistorialAbierto(true);
+                }}
               >
                 {ESTADO_LABEL_FILTRO[estado] ?? estado}
               </FiltroHistorial>
@@ -451,18 +503,11 @@ export default function SeccionActionCenter() {
         accion={accionEnDetalle}
         abierto={accionEnDetalle !== null}
         onOpenChange={(abierto) => {
-          if (!abierto) setDetalleId(null);
+          if (!abierto) cerrarDetalle();
         }}
-        enCurso={accionEnCurso === accionEnDetalle?.id}
-        onAprobar={(id) => {
-          void handleAccion(id, "aprobar");
-        }}
-        onRechazar={(id) => {
-          void handleAccion(id, "rechazar");
-        }}
-        onEjecutar={(id) => {
-          void handleAccion(id, "ejecutar");
-        }}
+        onAprobar={(id) => handleAccion(id, "aprobar", true)}
+        onRechazar={(id) => handleAccion(id, "rechazar", true)}
+        onEjecutar={(id) => handleAccion(id, "ejecutar", true)}
         onRefrescar={fetchAcciones}
       />
     </section>
@@ -507,9 +552,9 @@ function FiltroHistorial({
 interface CardAccionProps {
   accion: AccionAutomatizacion;
   enCurso: boolean;
-  onAprobar: () => void;
-  onRechazar: () => void;
-  onEjecutar: () => void;
+  onAprobar: () => Promise<ResultadoDecision> | void;
+  onRechazar: () => Promise<ResultadoDecision> | void;
+  onEjecutar: () => Promise<ResultadoDecision> | void;
   onConfirmada?: () => Promise<void> | void;
   /** Abre el panel de detalle de esta acción. */
   onVerDetalle?: () => void;
@@ -529,6 +574,20 @@ function CardAccion({
   // Decisiones irreversibles piden confirmación explícita antes de
   // llamar al backend · mismo patrón en la tarjeta y en el panel.
   const [decisionPendiente, setDecisionPendiente] = useState<
+    "aprobar" | "rechazar" | "ejecutar" | null
+  >(null);
+  // Estado ocupado propio · la tarjeta puede ser la superficie donde se
+  // tomó la decisión y necesita decir que está trabajando.
+  const [procesando, setProcesando] = useState(false);
+  // Foco: al abrir la confirmación el botón que la abrió desaparece, así
+  // que movemos el foco al bloque; al cancelar vuelve al disparador.
+  const bloqueConfirmRef = useRef<HTMLDivElement | null>(null);
+  // Referencias vivas a los disparadores · el botón se re-monta al
+  // cerrar la confirmación, así que no se guarda el nodo anterior.
+  const refAprobar = useRef<HTMLButtonElement | null>(null);
+  const refRechazar = useRef<HTMLButtonElement | null>(null);
+  const refEjecutar = useRef<HTMLButtonElement | null>(null);
+  const [focoPendiente, setFocoPendiente] = useState<
     "aprobar" | "rechazar" | "ejecutar" | null
   >(null);
   const high = useConfirmacionHigh(accion.id, onConfirmada);
@@ -561,10 +620,36 @@ function CardAccion({
 
   function ejecutarDecision(d: "aprobar" | "rechazar" | "ejecutar") {
     setDecisionPendiente(null);
-    if (d === "aprobar") onAprobar();
-    if (d === "rechazar") onRechazar();
-    if (d === "ejecutar") onEjecutar();
+    const accion_fn =
+      d === "aprobar" ? onAprobar : d === "rechazar" ? onRechazar : onEjecutar;
+    void (async () => {
+      setProcesando(true);
+      try {
+        await accion_fn();
+      } finally {
+        setProcesando(false);
+      }
+    })();
   }
+
+  // Al abrir la confirmación, el foco va al bloque nuevo · si el usuario
+  // cancela, vuelve al botón que la abrió.
+  useEffect(() => {
+    if (decisionPendiente) bloqueConfirmRef.current?.focus();
+  }, [decisionPendiente]);
+
+  // Devuelve el foco al disparador después de volver a montarse.
+  useEffect(() => {
+    if (!focoPendiente) return;
+    const ref =
+      focoPendiente === "aprobar"
+        ? refAprobar
+        : focoPendiente === "rechazar"
+          ? refRechazar
+          : refEjecutar;
+    ref.current?.focus();
+    setFocoPendiente(null);
+  }, [focoPendiente]);
 
   return (
     <div className="surface-card px-6 py-5">
@@ -688,6 +773,7 @@ function CardAccion({
             type="button"
             onClick={onVerDetalle}
             aria-haspopup="dialog"
+            aria-label={`Ver detalle de ${accion.titulo}`}
             className="btn-ghost px-4 py-2 rounded-full text-xs"
           >
             Ver detalle
@@ -698,19 +784,21 @@ function CardAccion({
             {showAprobar && (
               <>
                 <button
+                  ref={refRechazar}
                   onClick={() => setDecisionPendiente("rechazar")}
-                  disabled={enCurso}
+                  disabled={enCurso || procesando}
                   className="btn-ghost px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <XCircle className="w-3.5 h-3.5" />
                   Rechazar
                 </button>
                 <button
+                  ref={refAprobar}
                   onClick={() => setDecisionPendiente("aprobar")}
-                  disabled={enCurso}
+                  disabled={enCurso || procesando}
                   className="btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  {enCurso ? (
+                  {enCurso || procesando ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
                     <CheckCircle2 className="w-3.5 h-3.5" />
@@ -721,11 +809,12 @@ function CardAccion({
             )}
             {showEjecutar && (
               <button
+                ref={refEjecutar}
                 onClick={() => setDecisionPendiente("ejecutar")}
-                disabled={enCurso}
+                disabled={enCurso || procesando}
                 className="btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
               >
-                {enCurso ? (
+                {enCurso || procesando ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <Play className="w-3.5 h-3.5" />
@@ -751,13 +840,24 @@ function CardAccion({
         )}
       </div>
 
+      {/* Ocupado · evita que una decisión parezca no haber hecho nada
+          mientras el backend responde. */}
+      {procesando && (
+        <p className="mt-3 text-xs text-[color:var(--muted)] flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Procesando la decisión…
+        </p>
+      )}
+
       {/* Confirmación de la decisión elegida · el backend solo se llama
           cuando el usuario confirma. */}
       {confirmacion && decisionPendiente && (
         <div
+          ref={bloqueConfirmRef}
           role="group"
           aria-label={confirmacion.titulo}
-          className="mt-3 p-4 rounded-xl bg-[color:var(--bg-soft)] border border-[color:var(--line)]"
+          tabIndex={-1}
+          className="mt-3 p-4 rounded-xl bg-[color:var(--bg-soft)] border border-[color:var(--line)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]"
         >
           <p className="text-sm font-medium text-[color:var(--ink)]">
             {confirmacion.titulo}
@@ -767,7 +867,10 @@ function CardAccion({
           </p>
           <div className="flex items-center justify-end gap-2 mt-3">
             <button
-              onClick={() => setDecisionPendiente(null)}
+              onClick={() => {
+                setFocoPendiente(decisionPendiente);
+                setDecisionPendiente(null);
+              }}
               className="btn-ghost px-4 py-2 rounded-full text-xs"
             >
               Cancelar

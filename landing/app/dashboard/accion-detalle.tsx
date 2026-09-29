@@ -15,7 +15,7 @@
 // acción. Todo el detalle se arma con el payload de la lista y con los
 // timestamps que ese payload ya trae.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -43,6 +43,7 @@ import {
   resolverNextRequiredAction,
 } from "@/lib/accion-decision";
 import { lineaTiempoAccion, resumenResultado } from "@/lib/accion-formato";
+import type { ResultadoDecision } from "@/lib/accion-errores";
 import { PanelPreviewHigh, useConfirmacionHigh } from "./confirmacion-high";
 
 type Decision = "aprobar" | "rechazar" | "ejecutar";
@@ -51,10 +52,9 @@ interface AccionDetalleProps {
   accion: AccionAutomatizacion | null;
   abierto: boolean;
   onOpenChange: (abierto: boolean) => void;
-  enCurso: boolean;
-  onAprobar: (id: number) => void;
-  onRechazar: (id: number) => void;
-  onEjecutar: (id: number) => void;
+  onAprobar: (id: number) => Promise<ResultadoDecision>;
+  onRechazar: (id: number) => Promise<ResultadoDecision>;
+  onEjecutar: (id: number) => Promise<ResultadoDecision>;
   onRefrescar: () => Promise<void> | void;
 }
 
@@ -76,20 +76,40 @@ const COPY_CONFIRMACION: Record<Decision, { titulo: string; cuerpo: string }> = 
   },
 };
 
+const COPY_HIGH_CONFIRMADA =
+  "Confirmación HIGH registrada. La lista se actualizó con el nuevo estado.";
+
 export default function AccionDetalle({
   accion,
   abierto,
   onOpenChange,
-  enCurso,
   onAprobar,
   onRechazar,
   onEjecutar,
   onRefrescar,
 }: AccionDetalleProps) {
   const [decisionPendiente, setDecisionPendiente] = useState<Decision | null>(null);
+  // Estado ocupado del panel · el backend tarda y el usuario debe ver
+  // que su decisión se está enviando.
+  const [procesando, setProcesando] = useState(false);
+  // Resultado de la última decisión tomada en este panel.
+  const [retro, setRetro] = useState<{
+    tipo: "exito" | "error";
+    mensaje: string;
+  } | null>(null);
+  // Foco: al abrir la confirmación el botón que la abrió desaparece, así
+  // que movemos el foco al bloque; al cancelar vuelve al disparador.
+  const bloqueConfirmRef = useRef<HTMLDivElement | null>(null);
+  // Referencias a los disparadores · se re-montan al cerrar la
+  // confirmación, así que se enfocan por referencia viva y no guardando
+  // el nodo anterior.
+  const refAprobar = useRef<HTMLButtonElement | null>(null);
+  const refRechazar = useRef<HTMLButtonElement | null>(null);
+  const refEjecutar = useRef<HTMLButtonElement | null>(null);
+  const [focoPendiente, setFocoPendiente] = useState<Decision | null>(null);
   const idAccion = accion?.id ?? 0;
   const high = useConfirmacionHigh(idAccion, async () => {
-    setDecisionPendiente(null);
+    setRetro({ tipo: "exito", mensaje: COPY_HIGH_CONFIRMADA });
     await onRefrescar();
   });
 
@@ -104,6 +124,31 @@ export default function AccionDetalle({
     () => (accion ? resumenResultado(accion.result_json) : null),
     [accion],
   );
+
+  useEffect(() => {
+    if (decisionPendiente) bloqueConfirmRef.current?.focus();
+  }, [decisionPendiente]);
+
+  // Devuelve el foco al botón que abrió la confirmación una vez que ese
+  // botón volvió a montarse.
+  useEffect(() => {
+    if (!focoPendiente) return;
+    const ref =
+      focoPendiente === "aprobar"
+        ? refAprobar
+        : focoPendiente === "rechazar"
+          ? refRechazar
+          : refEjecutar;
+    ref.current?.focus();
+    setFocoPendiente(null);
+  }, [focoPendiente]);
+
+  // Estado efímero del panel · se limpia al cambiar de acción o de
+  // apertura para no arrastrar mensajes de otra acción.
+  useEffect(() => {
+    setDecisionPendiente(null);
+    setRetro(null);
+  }, [idAccion, abierto]);
 
   if (!accion) {
     // Radix exige un Root montado · sin acción no hay panel que mostrar.
@@ -125,63 +170,86 @@ export default function AccionDetalle({
   const confirmacion = decisionPendiente
     ? COPY_CONFIRMACION[decisionPendiente]
     : null;
+  const etiquetaEstado = etiquetaEstadoMostrado(accion.estado, decision.next);
+  // El resultado se muestra cuando existe o cuando el estado ya cerró la
+  // acción · así un `completed` sin resultado no queda mudo.
+  const mostrarResultado =
+    resultado !== null &&
+    (!resultado.vacio ||
+      accion.estado === "completed" ||
+      accion.estado === "failed");
 
-  function ejecutarDecision(d: Decision) {
+  async function ejecutarDecision(d: Decision) {
     setDecisionPendiente(null);
-    if (d === "aprobar") onAprobar(idAccion);
-    if (d === "rechazar") onRechazar(idAccion);
-    if (d === "ejecutar") onEjecutar(idAccion);
+    setRetro(null);
+    setProcesando(true);
+    try {
+      const fn =
+        d === "aprobar" ? onAprobar : d === "rechazar" ? onRechazar : onEjecutar;
+      const respuesta = await fn(idAccion);
+      setRetro({
+        tipo: respuesta.ok ? "exito" : "error",
+        mensaje: respuesta.mensaje,
+      });
+    } finally {
+      setProcesando(false);
+    }
   }
 
   return (
     <Sheet open={abierto} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-2xl overflow-y-auto px-6 py-6 gap-0"
+        className="w-full sm:max-w-2xl overflow-y-auto overscroll-contain px-6 py-6 gap-0"
       >
-        <SheetTitle className="text-lg font-semibold text-[color:var(--ink)] pr-10">
-          {accion.titulo}
-        </SheetTitle>
-        <SheetDescription className="text-sm text-[color:var(--ink-2)] mt-1">
-          Detalle de la acción ·{" "}
-          {etiquetaEstadoMostrado(accion.estado, decision.next)}
-        </SheetDescription>
+        {/* Cabecera fija · el panel es largo y en móvil se pierde el
+            contexto al hacer scroll. Sin z-index: el botón de cierre de
+            SheetContent (posicionado después en el DOM) queda encima. */}
+        <div className="sticky top-0 -mx-6 px-6 pb-3 bg-[color:var(--bg)] border-b border-[color:var(--line)]">
+          <SheetTitle className="text-lg font-semibold text-[color:var(--ink)] pr-12">
+            {accion.titulo}
+          </SheetTitle>
+          <SheetDescription className="text-sm text-[color:var(--ink-2)] mt-1 pr-12">
+            Detalle de la acción · {etiquetaEstado}
+          </SheetDescription>
 
-        <div className="flex flex-wrap items-center gap-2 mt-3">
-          <span
-            className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${RIESGO_COLOR[accion.riesgo]}`}
-          >
-            Riesgo {RIESGO_LABEL[accion.riesgo]}
-          </span>
-          <span
-            className={`text-xs flex items-center gap-1.5 ${ESTADO_COLOR[accion.estado]}`}
-          >
-            <IconoEstado estado={accion.estado} />
-            {etiquetaEstadoMostrado(accion.estado, decision.next)}
-          </span>
-          {accion.costo_creditos_estimado > 0 && (
-            <span className="text-xs text-[color:var(--muted)] tabular-nums">
-              ~{accion.costo_creditos_estimado} créditos
+          <div className="flex flex-wrap items-center gap-2 mt-3">
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${RIESGO_COLOR[accion.riesgo]}`}
+            >
+              Riesgo {RIESGO_LABEL[accion.riesgo]}
             </span>
-          )}
+            <span
+              className={`text-xs flex items-center gap-1.5 ${ESTADO_COLOR[accion.estado]}`}
+            >
+              <IconoEstado estado={accion.estado} />
+              {etiquetaEstado}
+            </span>
+            {accion.costo_creditos_estimado > 0 && (
+              <span className="text-xs text-[color:var(--muted)] tabular-nums">
+                ~{accion.costo_creditos_estimado} créditos
+              </span>
+            )}
+          </div>
         </div>
 
-        {bloqueoCritical && (
-          <div className="mt-4 p-3 rounded-lg bg-[#e64263]/10 border border-[#e64263]/40">
-            <p className="text-xs text-[color:var(--dato-neg)] flex items-start gap-2">
-              <Lock className="w-4 h-4 mt-0.5 shrink-0" />
-              {bloqueoCritical}
-            </p>
-          </div>
-        )}
-        {bloqueoHigh && (
-          <div className="mt-4 p-3 rounded-lg bg-orange-500/10 border border-orange-500/40">
-            <p className="text-xs text-orange-700 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              {bloqueoHigh}
-            </p>
-          </div>
-        )}
+        <div aria-busy={procesando} className="pt-4">
+          {bloqueoCritical && (
+            <div className="p-3 rounded-lg bg-[#e64263]/10 border border-[#e64263]/40">
+              <p className="text-xs text-[color:var(--dato-neg)] flex items-start gap-2">
+                <Lock className="w-4 h-4 mt-0.5 shrink-0" />
+                {bloqueoCritical}
+              </p>
+            </div>
+          )}
+          {bloqueoHigh && (
+            <div className="mt-3 p-3 rounded-lg bg-orange-500/10 border border-orange-500/40">
+              <p className="text-xs text-orange-700 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                {bloqueoHigh}
+              </p>
+            </div>
+          )}
 
         <section className="mt-6" aria-labelledby={`detalle-${accion.id}`}>
           <h3 id={`detalle-${accion.id}`} className="eyebrow mb-3">
@@ -232,10 +300,15 @@ export default function AccionDetalle({
           </p>
         </section>
 
-        {resultado && !resultado.vacio && (
+        {mostrarResultado && resultado && (
           <section className="mt-6">
             <h3 className="eyebrow mb-3">Resultado</h3>
-            {resultado.filas.length > 0 ? (
+            {resultado.vacio ? (
+              <p className="text-xs text-[color:var(--muted)]">
+                La acción quedó en {etiquetaEstado.toLowerCase()} y no registró
+                resultado en el payload.
+              </p>
+            ) : resultado.filas.length > 0 ? (
               <dl className="rounded-lg bg-[color:var(--bg-soft)] border border-[color:var(--line)] divide-y divide-[color:var(--line)]">
                 {resultado.filas.map((fila) => (
                   <div
@@ -275,14 +348,37 @@ export default function AccionDetalle({
 
         <section className="mt-6">
           <h3 className="eyebrow mb-3">Decisión</h3>
+
+          {/* Resultado de la última decisión tomada EN este panel ·
+              error con rol alert (interrumpe), éxito con rol status. */}
+          {retro && (
+            <p
+              role={retro.tipo === "exito" ? "status" : "alert"}
+              className={
+                retro.tipo === "exito"
+                  ? "text-xs text-emerald-700 p-3 rounded-lg bg-emerald-600/10 border border-emerald-600/40"
+                  : "text-xs text-[color:var(--dato-neg)] p-3 rounded-lg bg-[#e64263]/10 border border-[#e64263]/40"
+              }
+            >
+              {retro.mensaje}
+            </p>
+          )}
+
+          {procesando && (
+            <p className="text-xs text-[color:var(--muted)] flex items-center gap-2 mt-3">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Enviando la decisión y actualizando el estado…
+            </p>
+          )}
+
           {terminal ? (
-            <p className="text-xs text-[color:var(--muted)]">
+            <p className="text-xs text-[color:var(--muted)] mt-3">
               Acción cerrada · ya no admite decisiones.
             </p>
           ) : (
             <>
               {!puedeAprobar && !puedeEjecutar && !puedeConfirmarHigh && (
-                <p className="text-xs text-[color:var(--muted)]">
+                <p className="text-xs text-[color:var(--muted)] mt-3">
                   No hay una decisión disponible desde este control para el
                   estado actual de la acción.
                 </p>
@@ -292,9 +388,11 @@ export default function AccionDetalle({
 
               {confirmacion && decisionPendiente && (
                 <div
+                  ref={bloqueConfirmRef}
                   role="group"
                   aria-label={confirmacion.titulo}
-                  className="mt-3 p-4 rounded-xl bg-[color:var(--bg-soft)] border border-[color:var(--line)]"
+                  tabIndex={-1}
+                  className="mt-3 p-4 rounded-xl bg-[color:var(--bg-soft)] border border-[color:var(--line)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]"
                 >
                   <p className="text-sm font-medium text-[color:var(--ink)]">
                     {confirmacion.titulo}
@@ -302,19 +400,23 @@ export default function AccionDetalle({
                   <p className="text-xs text-[color:var(--ink-2)] mt-1 leading-relaxed">
                     {confirmacion.cuerpo}
                   </p>
-                  <div className="flex items-center justify-end gap-2 mt-3">
+                  <div className="flex flex-wrap items-center justify-end gap-2 mt-3">
                     <button
-                      onClick={() => setDecisionPendiente(null)}
+                      onClick={() => {
+                        setFocoPendiente(decisionPendiente);
+                        setDecisionPendiente(null);
+                      }}
                       className="btn-ghost px-4 py-2 rounded-full text-xs"
                     >
                       Cancelar
                     </button>
                     <button
-                      onClick={() => ejecutarDecision(decisionPendiente)}
+                      onClick={() => void ejecutarDecision(decisionPendiente)}
+                      disabled={procesando}
                       className={
                         decisionPendiente === "rechazar"
-                          ? "px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-[#e64263]/10 border border-[#e64263]/40 text-[color:var(--dato-neg)] font-medium"
-                          : "btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5"
+                          ? "px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-[#e64263]/10 border border-[#e64263]/40 text-[color:var(--dato-neg)] font-medium disabled:opacity-50"
+                          : "btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
                       }
                     >
                       {decisionPendiente === "aprobar" && "Sí, aprobar"}
@@ -326,23 +428,25 @@ export default function AccionDetalle({
               )}
 
               {!confirmacion && (
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 mt-3">
                   {puedeAprobar && (
                     <>
                       <button
+                        ref={refRechazar}
                         onClick={() => setDecisionPendiente("rechazar")}
-                        disabled={enCurso}
+                        disabled={procesando}
                         className="btn-ghost px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <XCircle className="w-3.5 h-3.5" />
                         Rechazar
                       </button>
                       <button
+                        ref={refAprobar}
                         onClick={() => setDecisionPendiente("aprobar")}
-                        disabled={enCurso}
+                        disabled={procesando}
                         className="btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
                       >
-                        {enCurso ? (
+                        {procesando ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
                           <CheckCircle2 className="w-3.5 h-3.5" />
@@ -353,11 +457,12 @@ export default function AccionDetalle({
                   )}
                   {puedeEjecutar && (
                     <button
+                      ref={refEjecutar}
                       onClick={() => setDecisionPendiente("ejecutar")}
-                      disabled={enCurso}
+                      disabled={procesando}
                       className="btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
                     >
-                      {enCurso ? (
+                      {procesando ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
                         <Play className="w-3.5 h-3.5" />
@@ -368,7 +473,7 @@ export default function AccionDetalle({
                   {puedeConfirmarHigh && !high.preview && (
                     <button
                       onClick={high.cargarPreview}
-                      disabled={enCurso || high.busy}
+                      disabled={procesando || high.busy}
                       className="px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-orange-500/10 border border-orange-500/40 text-orange-700 font-medium disabled:opacity-50"
                     >
                       {high.busy ? (
@@ -384,6 +489,7 @@ export default function AccionDetalle({
             </>
           )}
         </section>
+        </div>
       </SheetContent>
     </Sheet>
   );

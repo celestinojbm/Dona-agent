@@ -239,7 +239,7 @@ describe("Centro de acción · panel de detalle", () => {
     );
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent(
-        /ejecutar registrada correctamente/i,
+        /Ejecución dry-run registrada/i,
       ),
     );
   });
@@ -368,5 +368,183 @@ describe("Centro de acción · confirmación HIGH desde el panel", () => {
         }),
       ),
     );
+  });
+});
+
+describe("Centro de acción · estados del panel (error, éxito, vacío)", () => {
+  it("muestra el error real del backend en el panel y no duplica el anuncio global", async () => {
+    const spy = stubFetchCola([
+      jsonResponse({ acciones: [accionBase()], count: 1 }),
+      // 409 real de la ruta high-confirmar/alta confirmación
+      jsonResponse({ error: "high_confirmation_not_available" }, 409),
+      jsonResponse({ acciones: [accionBase()], count: 1 }),
+    ]);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Plan semanal del negocio/);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Aprobar$/i }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Sí, aprobar/i }),
+    );
+
+    const alerta = await within(dialog).findByRole("alert");
+    expect(alerta).toHaveTextContent(/ya no admite esta confirmación/i);
+    expect(spy).toHaveBeenCalledWith(
+      "/api/automation/acciones/9/aprobar",
+      expect.objectContaining({ method: "POST" }),
+    );
+    // El panel es la superficie que decide: la región global de la
+    // sección queda vacía para no anunciar lo mismo dos veces.
+    expect(screen.getByRole("status")).toHaveTextContent("");
+  });
+
+  it("muestra el éxito de la decisión en el panel", async () => {
+    const spy = stubFetchCola([
+      jsonResponse({ acciones: [accionBase()], count: 1 }),
+      jsonResponse({ accion: accionBase({ estado: "approved" }) }),
+      jsonResponse({
+        acciones: [accionBase({ estado: "approved" })],
+        count: 1,
+      }),
+    ]);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Plan semanal del negocio/);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Aprobar$/i }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Sí, aprobar/i }),
+    );
+
+    const exito = await within(dialog).findByRole("status");
+    expect(exito).toHaveTextContent(/Acción aprobada/i);
+    expect(spy).toHaveBeenCalledWith(
+      "/api/automation/acciones/9/aprobar",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("mantiene el panel abierto si el refresco de la lista falla", async () => {
+    const spy = stubFetchCola([
+      jsonResponse({ acciones: [accionBase()], count: 1 }),
+      jsonResponse({ accion: accionBase({ estado: "approved" }) }),
+      // El refresco posterior falla: el panel conserva el último snapshot.
+      jsonResponse({ error: "backend_unavailable" }, 502),
+    ]);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Plan semanal del negocio/);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Aprobar$/i }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Sí, aprobar/i }),
+    );
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith(
+        "/api/automation/acciones/9/aprobar",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    // El panel sigue montado con la acción aunque la lista no se pudo leer.
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("dialog")).getByText("Plan semanal del negocio"),
+    ).toBeInTheDocument();
+  });
+
+  it("dice explícitamente cuando una acción cerrada no registró resultado", async () => {
+    const accion = accionBase({
+      estado: "completed",
+      completed_at: "2026-05-10T14:00:00Z",
+      result_json: "{}",
+    });
+    stubFetchCola([jsonResponse({ acciones: [accion], count: 1 })]);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Plan semanal del negocio/);
+    expect(
+      within(dialog).getByText(/no\s+registró\s+resultado en el payload/i),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("Centro de acción · teclado y accesibilidad", () => {
+  it("mueve el foco al bloque de confirmación y lo devuelve al cancelar", async () => {
+    stubFetchCola([jsonResponse({ acciones: [accionBase()], count: 1 })]);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Plan semanal del negocio/);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Aprobar$/i }));
+    await waitFor(() =>
+      expect(document.activeElement).toHaveTextContent(/¿Aprobar esta acción\?/i),
+    );
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /^Cancelar$/i }),
+    );
+    // El botón se vuelve a montar al cerrar la confirmación, así que se
+    // compara contra el nodo vivo del DOM.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(dialog).getByRole("button", { name: /^Aprobar$/i }),
+      ),
+    );
+  });
+
+  it("da un nombre accesible distinto a cada botón Ver detalle", async () => {
+    const otra = accionBase({ id: 30, titulo: "Otra acción distinta" });
+    stubFetchCola([jsonResponse({ acciones: [accionBase(), otra], count: 2 })]);
+
+    render(<SeccionActionCenter />);
+    expect(
+      await screen.findByRole("button", {
+        name: /Ver detalle de Plan semanal del negocio/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /Ver detalle de Otra acción distinta/i,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("mantiene abierto el historial al filtrar y tras re-renderizar", async () => {
+    const completada = accionBase({
+      id: 21,
+      titulo: "Acción completada",
+      estado: "completed",
+      completed_at: "2026-05-11T10:00:00Z",
+    });
+    const rechazada = accionBase({
+      id: 22,
+      titulo: "Acción rechazada",
+      estado: "rejected",
+      rejected_at: "2026-05-11T11:00:00Z",
+    });
+    stubFetchCola([
+      jsonResponse({ acciones: [completada, rechazada], count: 2 }),
+    ]);
+
+    render(<SeccionActionCenter />);
+    await screen.findByText(/Historial \(2\)/i);
+
+    fireEvent.click(screen.getByRole("button", { name: /Rechazadas/i }));
+    const detalles = document.querySelector("details");
+    expect(detalles).not.toBeNull();
+    expect((detalles as HTMLDetailsElement).open).toBe(true);
+
+    // Abrir el detalle de una acción re-renderiza la sección: el
+    // historial sigue abierto y con el filtro aplicado.
+    fireEvent.click(
+      screen.getByRole("button", { name: /Ver detalle de Acción rechazada/i }),
+    );
+    await screen.findByRole("dialog");
+    expect((document.querySelector("details") as HTMLDetailsElement).open).toBe(
+      true,
+    );
+    expect(screen.getByText(/Historial \(1 de 2\)/i)).toBeInTheDocument();
   });
 });
