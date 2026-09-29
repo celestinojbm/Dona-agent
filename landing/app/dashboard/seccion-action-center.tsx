@@ -22,7 +22,7 @@
 //   - Acciones rejected/failed/cancelled aparecen en una sección
 //     colapsada "Historial".
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Sparkles,
@@ -38,11 +38,22 @@ import {
 import type {
   AccionAutomatizacion,
   EstadoAccion,
-  HighPreviewResponse,
-  NextRequiredAction,
-  NivelRiesgo,
   PerfilEstado,
 } from "@/lib/automation-types";
+import {
+  COPY_CRITICAL_FALLBACK,
+  COPY_HIGH_APROBADA_FALLBACK,
+  esActiva,
+  esTerminal,
+  ESTADO_COLOR,
+  etiquetaEstadoMostrado,
+  RIESGO_COLOR,
+  RIESGO_LABEL,
+  resolverNextRequiredAction,
+} from "@/lib/accion-decision";
+import { resumenResultado } from "@/lib/accion-formato";
+import { PanelPreviewHigh, useConfirmacionHigh } from "./confirmacion-high";
+import AccionDetalle from "./accion-detalle";
 
 interface AccionesData {
   acciones: AccionAutomatizacion[];
@@ -63,133 +74,32 @@ type LoadState =
   | { status: "ready"; data: AccionesData }
   | { status: "error"; code: string };
 
-const RIESGO_LABEL: Record<NivelRiesgo, string> = {
-  low: "Bajo",
-  medium: "Medio",
-  high: "Alto",
-  critical: "Crítico",
+// Etiquetas, colores y matriz de decisión (estado × riesgo) viven en
+// `lib/accion-decision.ts` · las comparten la tarjeta y el panel de
+// detalle para no desincronizarse.
+
+// Copy de las confirmaciones de decisión en la tarjeta · deja claro qué
+// pasa y qué no pasa antes de llamar al backend.
+const COPY_CONFIRMACION_CARD: Record<
+  "aprobar" | "rechazar" | "ejecutar",
+  { titulo: string; cuerpo: string }
+> = {
+  aprobar: {
+    titulo: "¿Aprobar esta acción?",
+    cuerpo:
+      "Aprobar habilita el siguiente paso de la acción. No envía nada al exterior por sí solo.",
+  },
+  rechazar: {
+    titulo: "¿Rechazar esta acción?",
+    cuerpo:
+      "Rechazar es definitivo: la acción pasa al historial y no se puede volver atrás desde aquí.",
+  },
+  ejecutar: {
+    titulo: "¿Ejecutar la acción?",
+    cuerpo:
+      "La ejecución de este control es dry-run: registra el resultado sin efecto externo real.",
+  },
 };
-
-const RIESGO_COLOR: Record<NivelRiesgo, string> = {
-  low: "bg-emerald-600/10 text-emerald-700 border-emerald-600/40",
-  medium: "bg-amber-500/15 text-amber-700 border-amber-500/40",
-  high: "bg-orange-500/10 text-orange-700 border-orange-500/40",
-  critical: "bg-[#e64263]/10 text-[#e64263] border-[#e64263]/40",
-};
-
-const ESTADO_LABEL: Record<EstadoAccion, string> = {
-  pending: "Lista para ejecutar",
-  needs_approval: "Esperando tu aprobación",
-  approved: "Aprobada · lista para ejecutar",
-  running: "Ejecutando…",
-  completed: "Completada",
-  rejected: "Rechazada",
-  failed: "Falló",
-  cancelled: "Cancelada",
-};
-
-const ESTADO_COLOR: Record<EstadoAccion, string> = {
-  pending: "text-emerald-700",
-  needs_approval: "text-amber-700",
-  approved: "text-sky-700",
-  running: "text-sky-700",
-  completed: "text-emerald-700",
-  rejected: "text-[color:var(--muted)]",
-  failed: "text-[color:var(--dato-neg)]",
-  cancelled: "text-[color:var(--muted)]",
-};
-
-function esTerminal(estado: EstadoAccion): boolean {
-  return ["completed", "rejected", "failed", "cancelled"].includes(estado);
-}
-
-function esActiva(estado: EstadoAccion): boolean {
-  return !esTerminal(estado);
-}
-
-// Copy local por defecto cuando el backend NO envía
-// execution_block_reason (payloads legacy previos al contrato). Mantiene
-// la UX anterior intacta para clientes que aún no leen el contrato.
-const COPY_HIGH_APROBADA_FALLBACK =
-  "Esta acción es de alto impacto. Está aprobada, pero necesita " +
-  "confirmación dedicada antes de ejecutar un efecto externo real.";
-const COPY_CRITICAL_FALLBACK =
-  "Esta acción es crítica. Requiere confirmación reforzada y aún no " +
-  "puede ejecutarse automáticamente.";
-
-// Fallback local que reimplementa el mismo contrato de
-// `agent.automation.permissions.calcular_next_required_action`. Solo se
-// usa cuando el payload viene sin el contrato (acciones serializadas por
-// versiones previas del backend). Mientras backend mande
-// next_required_action, este helper no se ejecuta.
-function calcularNextRequiredActionLocal(
-  estado: EstadoAccion,
-  riesgo: NivelRiesgo,
-): { next: NextRequiredAction; motivo: string } {
-  if (
-    estado === "completed" ||
-    estado === "rejected" ||
-    estado === "failed" ||
-    estado === "cancelled" ||
-    estado === "running"
-  ) {
-    return { next: "none", motivo: "" };
-  }
-  if (riesgo === "critical") {
-    return { next: "reinforced_approval_required", motivo: COPY_CRITICAL_FALLBACK };
-  }
-  if (riesgo === "high") {
-    if (estado === "approved") {
-      return {
-        next: "dedicated_confirmation_required",
-        motivo: COPY_HIGH_APROBADA_FALLBACK,
-      };
-    }
-    if (estado === "needs_approval") {
-      return { next: "approval_required", motivo: "" };
-    }
-    return { next: "none", motivo: "" };
-  }
-  // low / medium · cada riesgo abre ejecución solo si su estado lo
-  // justifica. LOW puede auto-ejecutar desde pending; MEDIUM exige
-  // aprobación humana primero · pending/medium aquí solo ocurre por
-  // datos legacy o un bug, y NO se debe ofrecer ningún control genérico
-  // (TRANSICIONES backend sólo permite pending → running/cancelled/
-  // rejected, así que aprobar desde pending sería transición inválida).
-  if (estado === "needs_approval") {
-    return { next: "approval_required", motivo: "" };
-  }
-  if (riesgo === "low" && (estado === "pending" || estado === "approved")) {
-    return { next: "execute_available", motivo: "" };
-  }
-  if (riesgo === "medium" && estado === "approved") {
-    return { next: "execute_available", motivo: "" };
-  }
-  return { next: "none", motivo: "" };
-}
-
-function resolverNextRequiredAction(
-  accion: AccionAutomatizacion,
-): { next: NextRequiredAction; motivo: string } {
-  const fromApi = accion.next_required_action;
-  if (fromApi) {
-    return {
-      next: fromApi,
-      motivo: accion.execution_block_reason ?? "",
-    };
-  }
-  return calcularNextRequiredActionLocal(accion.estado, accion.riesgo);
-}
-
-function safeParseJson(s: string): Record<string, unknown> | null {
-  try {
-    const v = JSON.parse(s);
-    if (v && typeof v === "object") return v as Record<string, unknown>;
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 export default function SeccionActionCenter() {
   const [load, setLoad] = useState<LoadState>({ status: "idle" });
@@ -199,6 +109,14 @@ export default function SeccionActionCenter() {
   // ahora reporta perfil_estado · usamos esto para mostrar al usuario
   // POR QUÉ no se generaron y QUÉ hacer.
   const [perfilDiag, setPerfilDiag] = useState<PerfilDiagInfo | null>(null);
+  // Acción abierta en el panel de detalle (null = panel cerrado).
+  const [detalleId, setDetalleId] = useState<number | null>(null);
+  // Filtro del historial · "todas" muestra los estados terminales.
+  const [filtroHistorial, setFiltroHistorial] = useState<EstadoAccion | "todas">(
+    "todas",
+  );
+  // Texto que anuncia un lector de pantalla tras una decisión.
+  const [aviso, setAviso] = useState("");
 
   const fetchAcciones = useCallback(async () => {
     try {
@@ -287,10 +205,16 @@ export default function SeccionActionCenter() {
       );
       if (!res.ok) {
         toast.error(`No pudimos ${op} esta acción. Intenta de nuevo.`);
+        setAviso(
+          `No pudimos ${op} la acción #${accionId}. Revisa su estado e intenta de nuevo.`,
+        );
+      } else {
+        setAviso(`Acción #${accionId}: ${op} registrada correctamente.`);
       }
       await fetchAcciones();
     } catch {
       toast.error("Error de conexión.");
+      setAviso(`Error de conexión al ${op} la acción #${accionId}.`);
     }
     setAccionEnCurso(null);
   }
@@ -298,6 +222,21 @@ export default function SeccionActionCenter() {
   const acciones = load.status === "ready" ? load.data.acciones : [];
   const activas = acciones.filter((a) => esActiva(a.estado));
   const historial = acciones.filter((a) => esTerminal(a.estado));
+  // Estados terminales realmente presentes · solo se ofrecen filtros con
+  // datos, para no llenar la UI de chips vacíos.
+  const estadosHistorial = useMemo(
+    () =>
+      Array.from(new Set(historial.map((a) => a.estado))) as EstadoAccion[],
+    [historial],
+  );
+  const historialFiltrado =
+    filtroHistorial === "todas"
+      ? historial
+      : historial.filter((a) => a.estado === filtroHistorial);
+  // El panel busca la acción en la lista ya cargada: no existe endpoint
+  // de detalle por id, así que el detalle sale del payload de la lista.
+  const accionEnDetalle =
+    detalleId === null ? null : acciones.find((a) => a.id === detalleId) ?? null;
 
   return (
     <section>
@@ -305,6 +244,13 @@ export default function SeccionActionCenter() {
         <Sparkles className="w-4 h-4" />
         Centro de acción
       </h2>
+
+      {/* Anuncio para lectores de pantalla de la última decisión.
+          aria-live="polite" · no interrumpe lo que el usuario esté
+          leyendo. */}
+      <p aria-live="polite" role="status" className="sr-only">
+        {aviso}
+      </p>
 
       {/* Aviso UX general */}
       <div className="surface-card px-6 py-5 mb-4">
@@ -446,32 +392,114 @@ export default function SeccionActionCenter() {
                 onRechazar={() => handleAccion(a.id, "rechazar")}
                 onEjecutar={() => handleAccion(a.id, "ejecutar")}
                 onConfirmada={fetchAcciones}
+                onVerDetalle={() => setDetalleId(a.id)}
               />
           ))}
         </div>
       )}
 
-      {/* Historial */}
+      {/* Historial · solo con estados terminales. El filtro usa los
+          estados realmente presentes en los datos. */}
       {historial.length > 0 && (
-        <details className="mt-8">
+        <details className="mt-8" open={filtroHistorial !== "todas"}>
           <summary className="cursor-pointer eyebrow mb-3">
-            Historial ({historial.length})
+            Historial ({historialFiltrado.length}
+            {filtroHistorial !== "todas" ? ` de ${historial.length}` : ""})
           </summary>
-          <div className="space-y-3 mt-3">
-            {historial.map((a) => (
-              <CardAccion
-                key={a.id}
-                accion={a}
-                enCurso={false}
-                onAprobar={() => {}}
-                onRechazar={() => {}}
-                onEjecutar={() => {}}
-              />
+          <div className="flex flex-wrap items-center gap-2 mt-3 mb-4">
+            <FiltroHistorial
+              activo={filtroHistorial === "todas"}
+              onClick={() => setFiltroHistorial("todas")}
+            >
+              Todas
+            </FiltroHistorial>
+            {estadosHistorial.map((estado) => (
+              <FiltroHistorial
+                key={estado}
+                activo={filtroHistorial === estado}
+                onClick={() => setFiltroHistorial(estado)}
+              >
+                {ESTADO_LABEL_FILTRO[estado] ?? estado}
+              </FiltroHistorial>
             ))}
           </div>
+          {historialFiltrado.length === 0 ? (
+            <p className="text-xs text-[color:var(--muted)]">
+              No hay acciones en el historial con ese estado.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {historialFiltrado.map((a) => (
+                <CardAccion
+                  key={a.id}
+                  accion={a}
+                  enCurso={accionEnCurso === a.id}
+                  onAprobar={() => {}}
+                  onRechazar={() => {}}
+                  onEjecutar={() => {}}
+                  onVerDetalle={() => setDetalleId(a.id)}
+                />
+              ))}
+            </div>
+          )}
         </details>
       )}
+
+      {/* Panel de detalle · revisar estado y detalle, decidir y consultar
+          resultado/historial de una acción concreta. */}
+      <AccionDetalle
+        accion={accionEnDetalle}
+        abierto={accionEnDetalle !== null}
+        onOpenChange={(abierto) => {
+          if (!abierto) setDetalleId(null);
+        }}
+        enCurso={accionEnCurso === accionEnDetalle?.id}
+        onAprobar={(id) => {
+          void handleAccion(id, "aprobar");
+        }}
+        onRechazar={(id) => {
+          void handleAccion(id, "rechazar");
+        }}
+        onEjecutar={(id) => {
+          void handleAccion(id, "ejecutar");
+        }}
+        onRefrescar={fetchAcciones}
+      />
     </section>
+  );
+}
+
+// Etiquetas cortas para los filtros del historial · reusan el estado
+// real de la acción, sin inventar categorías.
+const ESTADO_LABEL_FILTRO: Partial<Record<EstadoAccion, string>> = {
+  completed: "Completadas",
+  rejected: "Rechazadas",
+  failed: "Fallidas",
+  cancelled: "Canceladas",
+};
+
+function FiltroHistorial({
+  activo,
+  onClick,
+  children,
+}: {
+  activo: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={activo}
+      className={
+        activo
+          ? "px-3 py-1 rounded-full text-xs border border-[color:var(--brand)] text-[color:var(--ink)] font-medium"
+          : "px-3 py-1 rounded-full text-xs border border-[color:var(--line)] text-[color:var(--muted)]"
+      }
+    >
+      {children}
+    </button>
   );
 }
 
@@ -483,6 +511,8 @@ interface CardAccionProps {
   onRechazar: () => void;
   onEjecutar: () => void;
   onConfirmada?: () => Promise<void> | void;
+  /** Abre el panel de detalle de esta acción. */
+  onVerDetalle?: () => void;
 }
 
 function CardAccion({
@@ -492,13 +522,17 @@ function CardAccion({
   onRechazar,
   onEjecutar,
   onConfirmada,
+  onVerDetalle,
 }: CardAccionProps) {
   const r = accion.riesgo;
   const e = accion.estado;
-  const [highPreview, setHighPreview] = useState<HighPreviewResponse | null>(null);
-  const [highConfirmacion, setHighConfirmacion] = useState("");
-  const [highBusy, setHighBusy] = useState(false);
-  const result = safeParseJson(accion.result_json);
+  // Decisiones irreversibles piden confirmación explícita antes de
+  // llamar al backend · mismo patrón en la tarjeta y en el panel.
+  const [decisionPendiente, setDecisionPendiente] = useState<
+    "aprobar" | "rechazar" | "ejecutar" | null
+  >(null);
+  const high = useConfirmacionHigh(accion.id, onConfirmada);
+  const result = resumenResultado(accion.result_json);
   // Contrato T2.1.B: preferimos el next_required_action que viene del
   // backend · solo caemos al cálculo local cuando el payload es legacy.
   // Esto evita que la UI reimplemente la matriz (estado × riesgo) y se
@@ -511,9 +545,7 @@ function CardAccion({
   // las LOW pending o MEDIUM aprobadas.
   const highAprobadaPendienteConfirmacion =
     nextRequired === "dedicated_confirmation_required";
-  const estadoLabelMostrado = highAprobadaPendienteConfirmacion
-    ? "Aprobada · requiere confirmación dedicada"
-    : ESTADO_LABEL[e];
+  const estadoLabelMostrado = etiquetaEstadoMostrado(e, nextRequired);
   const estadoColorMostrado = highAprobadaPendienteConfirmacion
     ? "text-orange-700"
     : ESTADO_COLOR[e];
@@ -523,48 +555,15 @@ function CardAccion({
   const showCriticalBlock = nextRequired === "reinforced_approval_required";
   const criticalBlockText = blockReason || COPY_CRITICAL_FALLBACK;
   const dedicatedBlockText = blockReason || COPY_HIGH_APROBADA_FALLBACK;
+  const confirmacion = decisionPendiente
+    ? COPY_CONFIRMACION_CARD[decisionPendiente]
+    : null;
 
-  async function cargarPreviewHigh() {
-    setHighBusy(true);
-    try {
-      const res = await fetch(`/api/automation/acciones/${accion.id}/high-preview`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        toast.error("No pudimos cargar el preview HIGH. Intenta de nuevo.");
-        return;
-      }
-      const data = (await res.json()) as HighPreviewResponse;
-      setHighPreview(data);
-      setHighConfirmacion("");
-    } catch {
-      toast.error("Error de conexión al cargar preview HIGH.");
-    } finally {
-      setHighBusy(false);
-    }
-  }
-
-  async function confirmarHigh() {
-    if (highConfirmacion !== "ENVIAR") return;
-    setHighBusy(true);
-    try {
-      const res = await fetch(`/api/automation/acciones/${accion.id}/high-confirmar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmacion: highConfirmacion }),
-      });
-      if (!res.ok) {
-        toast.error("No pudimos confirmar esta acción HIGH. Revisa su estado e intenta de nuevo.");
-        return;
-      }
-      setHighPreview(null);
-      setHighConfirmacion("");
-      await onConfirmada?.();
-    } catch {
-      toast.error("Error de conexión al confirmar acción HIGH.");
-    } finally {
-      setHighBusy(false);
-    }
+  function ejecutarDecision(d: "aprobar" | "rechazar" | "ejecutar") {
+    setDecisionPendiente(null);
+    if (d === "aprobar") onAprobar();
+    if (d === "rechazar") onRechazar();
+    if (d === "ejecutar") onEjecutar();
   }
 
   return (
@@ -633,15 +632,36 @@ function CardAccion({
         </div>
       )}
 
-      {/* Resultado dry-run */}
-      {result && e === "completed" && (
+      {/* Resultado · filas legibles cuando el JSON es plano; el crudo
+          queda accesible si no lo es. */}
+      {!result.vacio && (e === "completed" || e === "failed") && (
         <div className="mt-3 p-3 rounded-lg bg-[color:var(--bg-soft)] border border-[color:var(--line)]">
           <p className="eyebrow mb-2">
             Resultado
           </p>
-          <pre className="text-xs text-[color:var(--ink-2)] font-mono whitespace-pre-wrap break-words leading-relaxed">
-            {JSON.stringify(result, null, 2)}
-          </pre>
+          {result.filas.length > 0 ? (
+            <dl className="grid gap-1.5">
+              {result.filas.map((fila) => (
+                <div key={fila.clave} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
+                  <dt className="text-xs text-[color:var(--muted)] sm:w-40 sm:shrink-0">
+                    {fila.clave}
+                  </dt>
+                  <dd className="text-xs text-[color:var(--ink-2)] break-words">
+                    {fila.valor}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <details>
+              <summary className="cursor-pointer text-xs text-[color:var(--muted)]">
+                Ver resultado sin formato
+              </summary>
+              <pre className="text-xs text-[color:var(--ink-2)] font-mono whitespace-pre-wrap break-words leading-relaxed mt-2">
+                {result.crudo}
+              </pre>
+            </details>
+          )}
         </div>
       )}
 
@@ -654,116 +674,118 @@ function CardAccion({
         </div>
       )}
 
-      {/* Preview y confirmación HIGH dedicada */}
-      {highPreview && highAprobadaPendienteConfirmacion && (
-        <div className="mt-3 p-4 rounded-xl bg-orange-500/10 border border-orange-500/40">
-          <p className="text-xs uppercase tracking-widest text-orange-700 font-semibold mb-3">
-            Preview de envío HIGH
-          </p>
-          <div className="grid gap-2 text-xs text-[color:var(--ink-2)]">
-            <p>
-              <span className="text-[color:var(--muted)]">Destino:</span> {highPreview.destino_short}
-            </p>
-            <p>
-              <span className="text-[color:var(--muted)]">Costo estimado:</span>{" "}
-              {highPreview.costo_creditos_estimado} créditos
-            </p>
-            <p>
-              <span className="text-[color:var(--muted)]">Riesgo:</span> HIGH
-            </p>
-            <p className="whitespace-pre-wrap break-words">
-              <span className="text-[color:var(--muted)]">Mensaje:</span>{" "}
-              {highPreview.mensaje_preview}
-            </p>
-          </div>
-          <label className="block text-xs text-[color:var(--muted)] mt-4 mb-2" htmlFor={`confirm-high-${accion.id}`}>
-            Escribe ENVIAR para confirmar
-          </label>
-          <input
-            id={`confirm-high-${accion.id}`}
-            value={highConfirmacion}
-            onChange={(ev) => setHighConfirmacion(ev.target.value)}
-            className="w-full rounded-lg bg-[color:var(--surface)] border border-[color:var(--line)] px-3 py-2 text-sm text-[color:var(--ink)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--brand)]"
-            autoComplete="off"
-          />
-          <div className="flex items-center justify-end gap-2 mt-3">
-            <button
-              onClick={() => {
-                setHighPreview(null);
-                setHighConfirmacion("");
-              }}
-              disabled={highBusy}
-              className="btn-ghost px-4 py-2 rounded-full text-xs disabled:opacity-50"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={confirmarHigh}
-              disabled={highBusy || highConfirmacion !== "ENVIAR"}
-              className="btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {highBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-              Confirmar y enviar
-            </button>
-          </div>
-        </div>
+      {/* Preview y confirmación HIGH dedicada · bloque compartido con el
+          panel de detalle (mismo contrato con el backend). */}
+      {highAprobadaPendienteConfirmacion && (
+        <PanelPreviewHigh api={high} accionId={accion.id} />
       )}
 
-      {/* Botones */}
-      {!esTerminal(e) && (
-        <div className="flex items-center justify-end gap-2 mt-4">
-          {showAprobar && (
-            <>
+      {/* Pie · acceso al detalle para cualquier estado + decisiones
+          (con confirmación explícita) para las acciones no terminales. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mt-4">
+        {onVerDetalle && (
+          <button
+            type="button"
+            onClick={onVerDetalle}
+            aria-haspopup="dialog"
+            className="btn-ghost px-4 py-2 rounded-full text-xs"
+          >
+            Ver detalle
+          </button>
+        )}
+        {!esTerminal(e) && !confirmacion && (
+          <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
+            {showAprobar && (
+              <>
+                <button
+                  onClick={() => setDecisionPendiente("rechazar")}
+                  disabled={enCurso}
+                  className="btn-ghost px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  Rechazar
+                </button>
+                <button
+                  onClick={() => setDecisionPendiente("aprobar")}
+                  disabled={enCurso}
+                  className="btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {enCurso ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  Aprobar
+                </button>
+              </>
+            )}
+            {showEjecutar && (
               <button
-                onClick={onRechazar}
-                disabled={enCurso}
-                className="btn-ghost px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                Rechazar
-              </button>
-              <button
-                onClick={onAprobar}
+                onClick={() => setDecisionPendiente("ejecutar")}
                 disabled={enCurso}
                 className="btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
               >
                 {enCurso ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <Play className="w-3.5 h-3.5" />
                 )}
-                Aprobar
+                Ejecutar (dry-run)
               </button>
-            </>
-          )}
-          {showEjecutar && (
+            )}
+            {highAprobadaPendienteConfirmacion && !high.preview && (
+              <button
+                onClick={high.cargarPreview}
+                disabled={enCurso || high.busy}
+                className="px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-orange-500/10 border border-orange-500/40 text-orange-700 font-medium disabled:opacity-50"
+              >
+                {high.busy ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Lock className="w-3.5 h-3.5" />
+                )}
+                Confirmar envío HIGH
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Confirmación de la decisión elegida · el backend solo se llama
+          cuando el usuario confirma. */}
+      {confirmacion && decisionPendiente && (
+        <div
+          role="group"
+          aria-label={confirmacion.titulo}
+          className="mt-3 p-4 rounded-xl bg-[color:var(--bg-soft)] border border-[color:var(--line)]"
+        >
+          <p className="text-sm font-medium text-[color:var(--ink)]">
+            {confirmacion.titulo}
+          </p>
+          <p className="text-xs text-[color:var(--ink-2)] mt-1 leading-relaxed">
+            {confirmacion.cuerpo}
+          </p>
+          <div className="flex items-center justify-end gap-2 mt-3">
             <button
-              onClick={onEjecutar}
+              onClick={() => setDecisionPendiente(null)}
+              className="btn-ghost px-4 py-2 rounded-full text-xs"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => ejecutarDecision(decisionPendiente)}
               disabled={enCurso}
-              className="btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
+              className={
+                decisionPendiente === "rechazar"
+                  ? "px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-[#e64263]/10 border border-[#e64263]/40 text-[color:var(--dato-neg)] font-medium disabled:opacity-50"
+                  : "btn-primary px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"
+              }
             >
-              {enCurso ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Play className="w-3.5 h-3.5" />
-              )}
-              Ejecutar (dry-run)
+              {decisionPendiente === "aprobar" && "Sí, aprobar"}
+              {decisionPendiente === "rechazar" && "Sí, rechazar"}
+              {decisionPendiente === "ejecutar" && "Sí, ejecutar"}
             </button>
-          )}
-          {highAprobadaPendienteConfirmacion && (
-            <button
-              onClick={cargarPreviewHigh}
-              disabled={enCurso || highBusy}
-              className="px-4 py-2 rounded-full text-xs flex items-center gap-1.5 bg-orange-500/10 border border-orange-500/40 text-orange-700 font-medium disabled:opacity-50"
-            >
-              {highBusy && !highPreview ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Lock className="w-3.5 h-3.5" />
-              )}
-              Confirmar envío HIGH
-            </button>
-          )}
+          </div>
         </div>
       )}
     </div>
