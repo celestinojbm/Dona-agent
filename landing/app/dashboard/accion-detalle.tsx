@@ -23,10 +23,12 @@ import {
   Loader2,
   Lock,
   Play,
+  X,
   XCircle,
 } from "lucide-react";
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetTitle,
@@ -122,13 +124,17 @@ export default function AccionDetalle({
   const refEjecutar = useRef<HTMLButtonElement | null>(null);
   const [focoPendiente, setFocoPendiente] = useState<Decision | null>(null);
   const idAccion = accion?.id ?? 0;
-  const high = useConfirmacionHigh(idAccion, async () => {
-    const estadoActualizado = await onRefrescar();
-    setRetro({
-      tipo: estadoActualizado ? "exito" : "aviso",
-      mensaje: mensajeDecision("high", estadoActualizado),
-    });
-  });
+  const high = useConfirmacionHigh(
+    idAccion,
+    async () => {
+      const estadoActualizado = await onRefrescar();
+      setRetro({
+        tipo: estadoActualizado ? "exito" : "aviso",
+        mensaje: mensajeDecision("high", estadoActualizado),
+      });
+    },
+    onRefrescar,
+  );
 
   const decision = accion
     ? resolverNextRequiredAction(accion)
@@ -240,11 +246,21 @@ export default function AccionDetalle({
       <SheetContent
         side="right"
         className="w-full sm:max-w-2xl overflow-y-auto overscroll-contain px-6 py-6 gap-0"
+        showClose={false}
       >
         {/* Cabecera fija · el panel es largo y en móvil se pierde el
-            contexto al hacer scroll. Sin z-index: el botón de cierre de
-            SheetContent (posicionado después en el DOM) queda encima. */}
-        <div className="sticky top-0 -mx-6 px-6 pb-3 bg-[color:var(--bg)] border-b border-[color:var(--line)]">
+            contexto al hacer scroll. `-top-6 -mt-6 pt-6` anula el padding
+            del contenedor para que no se vea contenido pasando por encima.
+            El cierre vive dentro de la cabecera: el de SheetContent es
+            absoluto dentro del contenedor con scroll y se iba con él, y a
+            ancho completo (móvil) no hay overlay donde tocar para salir. */}
+        <div className="sticky -top-6 z-10 -mx-6 -mt-6 px-6 pt-6 pb-3 bg-[color:var(--bg)] border-b border-[color:var(--line)]">
+          <SheetClose
+            className="absolute right-4 top-4 grid h-9 w-9 cursor-pointer place-items-center rounded-full border border-[color:var(--line)] bg-white text-[color:var(--ink-2)] transition-colors hover:text-[color:var(--ink)]"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" />
+          </SheetClose>
           <SheetTitle className="text-lg font-semibold text-[color:var(--ink)] pr-12">
             {accion.titulo}
           </SheetTitle>

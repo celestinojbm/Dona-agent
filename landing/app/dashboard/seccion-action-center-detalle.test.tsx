@@ -651,6 +651,154 @@ describe("Centro de acción · estados del panel (error, éxito, vacío)", () =>
     ).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["aprobar", /^Aprobar$/i, /Sí, aprobar/i, /Acción aprobada\./i, {}],
+    ["rechazar", /^Rechazar$/i, /Sí, rechazar/i, /Acción rechazada\./i, {}],
+    [
+      "ejecutar",
+      /Ejecutar \(dry-run\)/i,
+      /Sí, ejecutar/i,
+      /Ejecución dry-run registrada\./i,
+      { riesgo: "low", estado: "pending", next_required_action: "execute_available" },
+    ],
+  ] as const)(
+    "panel · %s con GET fallido: no afirma actualización ni deja controles",
+    async (op, boton, confirmar, registrado, overrides) => {
+      const spy = stubFetchCola([
+        jsonResponse({ acciones: [accionBase(overrides)], count: 1 }),
+        jsonResponse({ accion: accionBase(overrides) }),
+        jsonResponse({ error: "backend_unavailable" }, 502),
+      ]);
+
+      render(<SeccionActionCenter />);
+      const dialog = await abrirDetalle(/Plan semanal del negocio/);
+      fireEvent.click(within(dialog).getByRole("button", { name: boton }));
+      fireEvent.click(within(dialog).getByRole("button", { name: confirmar }));
+
+      const aviso = await within(dialog).findByText(registrado);
+      expect(aviso).toHaveTextContent(/No pudimos cargar su estado actualizado/i);
+      expect(dialog).not.toHaveTextContent(
+        /ya muestra su nuevo estado|Ya está en el historial|Revisa el resultado en el detalle/i,
+      );
+      expect(within(dialog).getByText(/las decisiones quedan en pausa/i)).toBeInTheDocument();
+      // Solo quedan "Actualizar estado" y el cierre del panel.
+      const botones = within(dialog)
+        .getAllByRole("button")
+        .map((b) => b.textContent?.trim() || b.getAttribute("aria-label"));
+      expect(botones.sort()).toEqual(["Actualizar estado", "Cerrar"]);
+      expect(
+        spy.mock.calls.filter(([url]) => url === `/api/automation/acciones/9/${op}`),
+      ).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    ["sin respuesta", () => Promise.reject(new TypeError("Failed to fetch"))],
+    ["504", () => Promise.resolve(jsonResponse({ error: "backend_timeout" }, 504))],
+  ] as const)(
+    "HIGH con confirmación %s: no deja reconfirmar sobre el estado sin verificar",
+    async (_caso, respuestaConfirmar) => {
+      const accion = accionBase({
+        id: 55,
+        titulo: "Enviar mensaje WhatsApp real",
+        riesgo: "high",
+        estado: "approved",
+        next_required_action: "dedicated_confirmation_required",
+      });
+      const spy = vi.fn();
+      spy.mockResolvedValueOnce(jsonResponse({ acciones: [accion], count: 1 }));
+      spy.mockResolvedValueOnce(
+        jsonResponse({
+          accion_id: 55,
+          destino_short: "+5****4567",
+          mensaje_preview: "Hola",
+          costo_creditos_estimado: 0,
+          riesgo: "high",
+          confirmacion_requerida: "ENVIAR",
+        }),
+      );
+      spy.mockImplementationOnce(respuestaConfirmar);
+      spy.mockResolvedValue(jsonResponse({ error: "backend_unavailable" }, 502));
+      vi.stubGlobal("fetch", spy);
+
+      render(<SeccionActionCenter />);
+      const dialog = await abrirDetalle(/Enviar mensaje WhatsApp real/);
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: /Confirmar envío HIGH/i }),
+      );
+      const input = await within(dialog).findByLabelText(
+        /Escribe ENVIAR para confirmar/i,
+      );
+      fireEvent.change(input, { target: { value: "ENVIAR" } });
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: /Confirmar y enviar/i }),
+      );
+
+      // El resultado del envío es incierto: se intenta leer el estado y,
+      // como falla, el panel queda sin verificar y sin controles HIGH.
+      await within(dialog).findByText(/las decisiones quedan en pausa/i);
+      expect(
+        within(dialog).queryByRole("button", { name: /Confirmar y enviar/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(dialog).queryByRole("button", { name: /Confirmar envío HIGH/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        spy.mock.calls.filter(
+          ([url]) => url === "/api/automation/acciones/55/high-confirmar",
+        ),
+      ).toHaveLength(1);
+    },
+  );
+
+  it("tarjeta · HIGH con confirmación 504: relee el estado en vez de dejar reconfirmar", async () => {
+    const accion = accionBase({
+      id: 55,
+      titulo: "Enviar mensaje WhatsApp real",
+      riesgo: "high",
+      estado: "approved",
+      next_required_action: "dedicated_confirmation_required",
+    });
+    stubFetchCola([
+      jsonResponse({ acciones: [accion], count: 1 }),
+      jsonResponse({
+        accion_id: 55,
+        destino_short: "+5****4567",
+        mensaje_preview: "Hola",
+        costo_creditos_estimado: 0,
+        riesgo: "high",
+        confirmacion_requerida: "ENVIAR",
+      }),
+      jsonResponse({ error: "backend_timeout" }, 504),
+      // El envío sí se completó en el backend pese al 504.
+      jsonResponse({
+        acciones: [
+          { ...accion, estado: "completed", next_required_action: "none" },
+        ],
+        count: 1,
+      }),
+    ]);
+
+    render(<SeccionActionCenter />);
+    const card = (await screen.findByText(/Enviar mensaje WhatsApp real/)).closest(
+      "div.surface-card",
+    ) as HTMLElement;
+    fireEvent.click(
+      within(card).getByRole("button", { name: /Confirmar envío HIGH/i }),
+    );
+    const input = await within(card).findByLabelText(/Escribe ENVIAR para confirmar/i);
+    fireEvent.change(input, { target: { value: "ENVIAR" } });
+    fireEvent.click(within(card).getByRole("button", { name: /Confirmar y enviar/i }));
+
+    await screen.findByText(/Historial \(1\)/i);
+    expect(
+      screen.queryByRole("button", { name: /Confirmar y enviar/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Confirmar envío HIGH/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("dice explícitamente cuando una acción cerrada no registró resultado", async () => {
     const accion = accionBase({
       estado: "completed",

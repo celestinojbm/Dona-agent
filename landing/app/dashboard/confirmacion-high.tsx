@@ -28,10 +28,13 @@ export interface ConfirmacionHighApi {
 /**
  * Estado + llamadas del flujo HIGH. `onConfirmada` se ejecuta tras un
  * high-confirmar exitoso para que el llamador refresque la acción.
+ * `onFallida` se ejecuta si high-confirmar falla o no responde: el envío
+ * pudo haberse registrado, así que el llamador debe releer el estado.
  */
 export function useConfirmacionHigh(
   accionId: number,
   onConfirmada?: () => Promise<unknown> | void,
+  onFallida?: () => Promise<unknown> | void,
 ): ConfirmacionHighApi {
   const [preview, setPreview] = useState<HighPreviewResponse | null>(null);
   const [confirmacion, setConfirmacion] = useState("");
@@ -66,29 +69,41 @@ export function useConfirmacionHigh(
     if (confirmacion !== "ENVIAR") return;
     setBusy(true);
     try {
-      const res = await fetch(
-        `/api/automation/acciones/${accionId}/high-confirmar`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ confirmacion }),
-        },
-      );
-      if (!res.ok) {
-        toast.error(
-          "No pudimos confirmar esta acción HIGH. Revisa su estado e intenta de nuevo.",
+      let fallo = false;
+      try {
+        const res = await fetch(
+          `/api/automation/acciones/${accionId}/high-confirmar`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confirmacion }),
+          },
         );
-        return;
+        if (!res.ok) {
+          fallo = true;
+          toast.error(
+            "No pudimos confirmar esta acción HIGH. Revisa su estado e intenta de nuevo.",
+          );
+        } else {
+          setPreview(null);
+          setConfirmacion("");
+          await onConfirmada?.();
+        }
+      } catch {
+        fallo = true;
+        toast.error("Error de conexión al confirmar acción HIGH.");
       }
-      setPreview(null);
-      setConfirmacion("");
-      await onConfirmada?.();
-    } catch {
-      toast.error("Error de conexión al confirmar acción HIGH.");
+      if (fallo) {
+        // No se deja "Confirmar y enviar" listo sobre un estado que no
+        // sabemos si cambió: se cierra el preview y se relee la acción.
+        setPreview(null);
+        setConfirmacion("");
+        await onFallida?.();
+      }
     } finally {
       setBusy(false);
     }
-  }, [accionId, confirmacion, onConfirmada]);
+  }, [accionId, confirmacion, onConfirmada, onFallida]);
 
   return {
     preview,

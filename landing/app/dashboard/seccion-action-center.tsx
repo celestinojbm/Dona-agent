@@ -452,6 +452,7 @@ export default function SeccionActionCenter() {
                 onRechazar={() => handleAccion(a.id, "rechazar")}
                 onEjecutar={() => handleAccion(a.id, "ejecutar")}
                 onConfirmada={refrescarTrasHighEnTarjeta}
+                onConfirmacionFallida={fetchAcciones}
                 onVerDetalle={() => setDetalleId(a.id)}
               />
           ))}
@@ -577,6 +578,8 @@ interface CardAccionProps {
   onRechazar: () => Promise<ResultadoDecision> | void;
   onEjecutar: () => Promise<ResultadoDecision> | void;
   onConfirmada?: () => Promise<void> | void;
+  /** Relee la lista si la confirmación HIGH falla o no responde. */
+  onConfirmacionFallida?: () => Promise<unknown> | void;
   /** Abre el panel de detalle de esta acción. */
   onVerDetalle?: () => void;
 }
@@ -588,6 +591,7 @@ function CardAccion({
   onRechazar,
   onEjecutar,
   onConfirmada,
+  onConfirmacionFallida,
   onVerDetalle,
 }: CardAccionProps) {
   const r = accion.riesgo;
@@ -611,7 +615,11 @@ function CardAccion({
   const [focoPendiente, setFocoPendiente] = useState<
     "aprobar" | "rechazar" | "ejecutar" | null
   >(null);
-  const high = useConfirmacionHigh(accion.id, onConfirmada);
+  const high = useConfirmacionHigh(
+    accion.id,
+    onConfirmada,
+    onConfirmacionFallida,
+  );
   const result = resumenResultado(accion.result_json);
   // Contrato T2.1.B: preferimos el next_required_action que viene del
   // backend · solo caemos al cálculo local cuando el payload es legacy.
