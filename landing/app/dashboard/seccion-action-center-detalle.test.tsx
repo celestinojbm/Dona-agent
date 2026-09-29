@@ -799,6 +799,56 @@ describe("Centro de acción · estados del panel (error, éxito, vacío)", () =>
     ).not.toBeInTheDocument();
   });
 
+  it("tras decidir con GET fallido, lleva Actualizar estado a la vista y le da el foco", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    stubFetchCola([
+      jsonResponse({ acciones: [accionBase()], count: 1 }),
+      jsonResponse({ accion: accionBase({ estado: "approved" }) }),
+      jsonResponse({ error: "backend_unavailable" }, 502),
+    ]);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Plan semanal del negocio/);
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Aprobar$/i }));
+    scroll.mockClear();
+    fireEvent.click(within(dialog).getByRole("button", { name: /Sí, aprobar/i }));
+
+    const actualizar = await within(dialog).findByRole("button", {
+      name: /Actualizar estado/i,
+    });
+    await waitFor(() => expect(document.activeElement).toBe(actualizar));
+    expect(scroll.mock.contexts).toContain(actualizar);
+  });
+
+  it("explica que la acción ya no está en la lista si el GET funciona pero no la trae", async () => {
+    stubFetchCola([
+      jsonResponse({ acciones: [accionBase()], count: 1 }),
+      jsonResponse({ accion: accionBase({ estado: "approved" }) }),
+      // GET correcto, pero la acción ya no viene.
+      jsonResponse({ acciones: [], count: 0 }),
+    ]);
+
+    render(<SeccionActionCenter />);
+    const dialog = await abrirDetalle(/Plan semanal del negocio/);
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Aprobar$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /Sí, aprobar/i }));
+
+    expect(
+      await within(dialog).findByText(/Esta acción ya no aparece en tu lista/i),
+    ).toBeInTheDocument();
+    // El GET sí respondió: no se dice que no se pudo cargar.
+    expect(
+      within(dialog).queryByText(/No pudimos confirmar el estado actual/i),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: /^Aprobar$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: /^Rechazar$/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("dice explícitamente cuando una acción cerrada no registró resultado", async () => {
     const accion = accionBase({
       estado: "completed",
@@ -838,6 +888,41 @@ describe("Centro de acción · teclado y accesibilidad", () => {
       ),
     );
   });
+
+  it.each([
+    ["Escape", (dialog: HTMLElement) => fireEvent.keyDown(dialog, { key: "Escape" })],
+    [
+      "botón Cerrar",
+      (dialog: HTMLElement) =>
+        fireEvent.click(within(dialog).getByRole("button", { name: "Cerrar" })),
+    ],
+  ] as const)(
+    "al cerrar con %s el foco vuelve al Ver detalle que abrió el panel",
+    async (_via, cerrar) => {
+      const otra = accionBase({ id: 30, titulo: "Otra acción distinta" });
+      stubFetchCola([jsonResponse({ acciones: [otra, accionBase()], count: 2 })]);
+
+      render(<SeccionActionCenter />);
+      const disparador = await screen.findByRole("button", {
+        name: /Ver detalle de Plan semanal del negocio/i,
+      });
+      disparador.focus();
+      fireEvent.click(disparador);
+      const dialog = await screen.findByRole("dialog");
+
+      cerrar(dialog);
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", {
+            name: /Ver detalle de Plan semanal del negocio/i,
+          }),
+        ),
+      );
+    },
+  );
 
   it("da un nombre accesible distinto a cada botón Ver detalle", async () => {
     const otra = accionBase({ id: 30, titulo: "Otra acción distinta" });

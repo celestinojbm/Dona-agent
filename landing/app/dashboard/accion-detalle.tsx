@@ -15,7 +15,7 @@
 // acción. Todo el detalle se arma con el payload de la lista y con los
 // timestamps que ese payload ya trae.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -63,6 +63,11 @@ interface AccionDetalleProps {
    * estado real.
    */
   estadoVerificado: boolean;
+  /**
+   * true cuando la lista se recargó bien pero ya no trae esta acción ·
+   * precisa el motivo de `estadoVerificado = false`.
+   */
+  accionFueraDeLista?: boolean;
   onOpenChange: (abierto: boolean) => void;
   onAprobar: (id: number) => Promise<ResultadoDecision>;
   onRechazar: (id: number) => Promise<ResultadoDecision>;
@@ -96,6 +101,7 @@ export default function AccionDetalle({
   accion,
   abierto,
   estadoVerificado,
+  accionFueraDeLista = false,
   onOpenChange,
   onAprobar,
   onRechazar,
@@ -124,6 +130,30 @@ export default function AccionDetalle({
   const refEjecutar = useRef<HTMLButtonElement | null>(null);
   const [focoPendiente, setFocoPendiente] = useState<Decision | null>(null);
   const idAccion = accion?.id ?? 0;
+  // Control que tenía el foco al abrir el panel ("Ver detalle"). El
+  // Dialog modal de Radix devuelve el foco a su Trigger, pero aquí el
+  // panel se abre por código y no hay Trigger: sin esto el foco cae en
+  // body. Layout effect para leerlo antes de que Radix mueva el foco
+  // dentro del panel (eso ocurre en un effect normal).
+  const focoAlAbrirRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (abierto && document.activeElement instanceof HTMLElement) {
+      focoAlAbrirRef.current = document.activeElement;
+    }
+  }, [abierto]);
+  // Al pasar de verificado a sin verificar (tras una decisión), el botón
+  // "Actualizar estado" queda bajo el pliegue en móvil: se lleva a la
+  // vista y recibe el foco, porque es el único paso posible.
+  const refActualizar = useRef<HTMLButtonElement | null>(null);
+  const verificadoAntesRef = useRef(estadoVerificado);
+  useEffect(() => {
+    const antes = verificadoAntesRef.current;
+    verificadoAntesRef.current = estadoVerificado;
+    if (abierto && antes && !estadoVerificado && refActualizar.current) {
+      refActualizar.current.scrollIntoView({ block: "center" });
+      refActualizar.current.focus({ preventScroll: true });
+    }
+  }, [abierto, estadoVerificado]);
   const high = useConfirmacionHigh(
     idAccion,
     async () => {
@@ -247,6 +277,13 @@ export default function AccionDetalle({
         side="right"
         className="w-full sm:max-w-2xl overflow-y-auto overscroll-contain px-6 py-6 gap-0"
         showClose={false}
+        onCloseAutoFocus={(ev) => {
+          const destino = focoAlAbrirRef.current;
+          if (destino?.isConnected) {
+            ev.preventDefault();
+            destino.focus();
+          }
+        }}
       >
         {/* Cabecera fija · el panel es largo y en móvil se pierde el
             contexto al hacer scroll. `-top-6 -mt-6 pt-6` anula el padding
@@ -407,7 +444,9 @@ export default function AccionDetalle({
 
           {/* Resultado de la última decisión tomada EN este panel ·
               error con rol alert (interrumpe), éxito con rol status. */}
-          {retro && (
+          {/* Con la acción fuera de la lista, "la lista ya muestra su
+              nuevo estado" sería falso: el aviso de abajo lo sustituye. */}
+          {retro && !(accionFueraDeLista && retro.tipo === "exito") && (
             <p
               role={retro.tipo === "error" ? "alert" : "status"}
               className={
@@ -431,13 +470,25 @@ export default function AccionDetalle({
 
           {!estadoVerificado ? (
             <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/40">
-              <p className="text-xs text-amber-800 leading-relaxed">
-                No pudimos confirmar el estado actual de esta acción. Lo que
-                ves es la última versión cargada y puede estar desactualizada:
-                las decisiones quedan en pausa hasta actualizarla.
-              </p>
+              {accionFueraDeLista ? (
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  Esta acción ya no aparece en tu lista: pudo eliminarse o
+                  dejar de estar asociada a tu negocio.
+                  {retro?.tipo === "exito" &&
+                    " Tu última decisión sí quedó registrada antes de eso."}{" "}
+                  Lo que ves es su última versión cargada, así que no se
+                  ofrecen decisiones sobre ella.
+                </p>
+              ) : (
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  No pudimos confirmar el estado actual de esta acción. Lo que
+                  ves es la última versión cargada y puede estar desactualizada:
+                  las decisiones quedan en pausa hasta actualizarla.
+                </p>
+              )}
               <button
                 type="button"
+                ref={refActualizar}
                 onClick={() => void actualizarEstado()}
                 disabled={actualizando}
                 className="btn-ghost mt-3 px-4 py-2 rounded-full text-xs flex items-center gap-1.5 disabled:opacity-50"

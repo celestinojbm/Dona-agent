@@ -524,6 +524,7 @@ export default function SeccionActionCenter() {
         // Sin la acción en una lista recién cargada, el panel muestra un
         // snapshot: sirve para leer, no para decidir otra vez.
         estadoVerificado={accionEnLista !== null}
+        accionFueraDeLista={load.status === "ready" && accionEnLista === null}
         onOpenChange={(abierto) => {
           if (!abierto) cerrarDetalle();
         }}
