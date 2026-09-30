@@ -19,15 +19,92 @@ const FORMATO_FECHA_HORA = new Intl.DateTimeFormat("es-ES", {
   minute: "2-digit",
 });
 
+const FORMATO_FECHA_HORA_SEGUNDOS = new Intl.DateTimeFormat("es-ES", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+// El backend escribe todos los timestamps con datetime.utcnow() y los
+// serializa sin zona ("2026-05-09T00:00:00"). `new Date` leería esa forma
+// como hora LOCAL del navegador y la desplazaría; se marca como UTC.
+const ISO_SIN_ZONA = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+function parsearIsoUtc(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const fecha = new Date(ISO_SIN_ZONA.test(iso) ? `${iso}Z` : iso);
+  return Number.isNaN(fecha.getTime()) ? null : fecha;
+}
+
 /**
- * ISO → "28 sept 2026, 21:04". Devuelve "" si el valor es null, vacío o
- * no es una fecha válida · el llamador decide qué mostrar en ese caso.
+ * ISO → "28 sept 2026, 21:04" en la hora local del navegador. Devuelve ""
+ * si el valor es null, vacío o no es una fecha válida · el llamador decide
+ * qué mostrar en ese caso. Un ISO sin zona se interpreta como UTC.
  */
 export function formatearFechaHora(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const fecha = new Date(iso);
-  if (Number.isNaN(fecha.getTime())) return "";
-  return FORMATO_FECHA_HORA.format(fecha);
+  const fecha = parsearIsoUtc(iso);
+  return fecha ? FORMATO_FECHA_HORA.format(fecha) : "";
+}
+
+/** Igual que formatearFechaHora pero con segundos · para "verificado a las". */
+export function formatearFechaHoraSegundos(iso: string | null | undefined): string {
+  const fecha = parsearIsoUtc(iso);
+  return fecha ? FORMATO_FECHA_HORA_SEGUNDOS.format(fecha) : "";
+}
+
+// Nombres legibles de los eventos de la bitácora
+// (agent/automation/audit.py:EVENTOS_VALIDOS) que pueden llevar accion_id.
+const ETIQUETA_EVENTO: Record<string, string> = {
+  action_created: "Acción creada",
+  action_approved: "Acción aprobada",
+  action_rejected: "Acción rechazada",
+  action_cancelled: "Acción cancelada",
+  action_started: "Ejecución iniciada",
+  action_completed: "Acción completada",
+  action_failed: "La acción falló",
+  action_blocked_critical: "Bloqueada por riesgo crítico",
+  action_blocked_insufficient_credits: "Bloqueada por créditos insuficientes",
+  credits_reserved: "Créditos reservados",
+  credits_confirmed: "Cobro de créditos confirmado",
+  credits_released: "Créditos devueltos",
+  credits_reservation_failed: "No se pudo reservar créditos",
+  credits_reservation_reconciled: "Reserva de créditos conciliada",
+  high_preview_requested: "Preview HIGH solicitado",
+  high_preview_rendered: "Preview HIGH mostrado",
+  high_confirmation_submitted: "Confirmación HIGH enviada",
+  high_confirmation_rejected: "Confirmación HIGH rechazada",
+  high_execution_claimed: "Envío HIGH en curso",
+  high_execution_succeeded: "Envío HIGH completado",
+  high_execution_failed: "Envío HIGH fallido",
+  high_execution_duplicate_blocked: "Envío HIGH duplicado bloqueado",
+  high_consent_registered: "Consentimiento del destino registrado",
+  high_send_blocked_policy: "Envío bloqueado por política de terceros",
+  mission_recover_lead_action_linked: "Enlazada a una misión",
+  mission_recover_lead_completed: "Misión completada",
+  mission_recover_lead_reconciled: "Misión conciliada",
+  email_action_prepared: "Correo preparado",
+  email_action_rerendered: "Correo actualizado",
+  email_action_superseded: "Correo reemplazado por otro",
+  email_confirmation_hold: "Confirmación de correo en espera",
+  email_confirmation_rejected: "Confirmación de correo rechazada",
+  email_action_cancelled: "Correo cancelado",
+  email_action_expired: "Correo expirado",
+  email_payload_corrupted: "Contenido del correo inválido",
+};
+
+/**
+ * Nombre legible de un evento de la bitácora. Un tipo desconocido no se
+ * disfraza: se muestra como "Evento registrado" y el llamador enseña el
+ * código tal cual.
+ */
+export function etiquetaEvento(evento: string): { texto: string; conocido: boolean } {
+  const texto = ETIQUETA_EVENTO[evento];
+  return texto
+    ? { texto, conocido: true }
+    : { texto: "Evento registrado", conocido: false };
 }
 
 export interface HitoTiempo {
@@ -37,9 +114,9 @@ export interface HitoTiempo {
 }
 
 /**
- * Línea de tiempo real de la acción · solo con los timestamps que la API
- * ya devuelve. Cuando el backend agrega el audit log por acción, este
- * helper es el punto único a cambiar.
+ * Marcas de tiempo que trae la propia fila de la acción. Los pasos
+ * intermedios comprobados salen de la bitácora (`eventos` de la lectura
+ * canónica), no de aquí.
  */
 export function lineaTiempoAccion(
   accion: Pick<

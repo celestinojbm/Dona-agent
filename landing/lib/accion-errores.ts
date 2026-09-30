@@ -5,6 +5,7 @@
 // códigos: solo cubre los que esas rutas emiten hoy.
 //
 //  400 invalid_accion_id · json_invalid · confirmacion_invalida
+//      invalid_eventos_cursor · invalid_eventos_limite (GET /acciones/:id)
 //  401 unauthenticated
 //  403 no_subscription_in_session
 //  404 accion_not_found
@@ -18,6 +19,10 @@ const MENSAJES_POR_CODIGO: Record<string, string> = {
   no_subscription_in_session:
     "Tu sesión no tiene una suscripción asociada, así que no podemos operar esta acción.",
   invalid_accion_id: "El identificador de la acción no es válido.",
+  invalid_eventos_cursor:
+    "No pudimos pedir más eventos de esta acción. Vuelve a abrir el detalle.",
+  invalid_eventos_limite:
+    "No pudimos pedir más eventos de esta acción. Vuelve a abrir el detalle.",
   json_invalid: "La solicitud llegó mal formada. Intenta de nuevo.",
   confirmacion_invalida:
     "La confirmación no es válida: debe escribirse exactamente ENVIAR.",
@@ -106,4 +111,34 @@ export function mensajeDecision(
     ? MENSAJE_ESTADO_ACTUALIZADO[op]
     : MENSAJE_ESTADO_SIN_ACTUALIZAR;
   return `${MENSAJE_DECISION_REGISTRADA[op]} ${sufijo}`;
+}
+
+/**
+ * Mensaje tras una decisión tomada en el panel de detalle. Ahí el estado
+ * se relee con la lectura canónica de la acción, no con la lista.
+ */
+export function mensajeDecisionPanel(
+  op: OperacionDecision,
+  estadoVerificado: boolean,
+): string {
+  const sufijo = estadoVerificado
+    ? "El panel ya muestra su estado verificado."
+    : MENSAJE_ESTADO_SIN_ACTUALIZAR;
+  return `${MENSAJE_DECISION_REGISTRADA[op]} ${sufijo}`;
+}
+
+/** La re-lectura previa al envío falló: la decisión NO se envió. */
+export const MENSAJE_NO_VERIFICADO_ANTES_DE_ENVIAR =
+  "No pudimos verificar el estado actual de la acción justo antes de enviar, así que tu decisión no se envió. Actualiza el estado e intenta de nuevo.";
+
+/** La re-lectura previa al envío mostró otro estado: la decisión NO se envió. */
+export const MENSAJE_ESTADO_CAMBIO_ANTES_DE_ENVIAR =
+  "La acción cambió mientras la revisabas, así que tu decisión no se envió. Revisa su estado actual antes de decidir.";
+
+/**
+ * El backend respondió 200 pero la lectura verificada no refleja la
+ * decisión (p. ej. una transición que el backend ignoró).
+ */
+export function mensajeDecisionSinEfecto(etiquetaEstado: string): string {
+  return `El servidor respondió, pero la acción sigue en «${etiquetaEstado}». Revisa su estado antes de decidir de nuevo.`;
 }

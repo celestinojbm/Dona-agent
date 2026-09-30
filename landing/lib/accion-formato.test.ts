@@ -4,9 +4,11 @@
 // acción. Se prueban los bordes que importan para no inventar datos:
 // nulls, JSON inválido y JSON vacío.
 
-import { describe, it, expect } from "vitest";
+import { afterAll, beforeAll, describe, it, expect } from "vitest";
 import {
+  etiquetaEvento,
   formatearFechaHora,
+  formatearFechaHoraSegundos,
   lineaTiempoAccion,
   resumenResultado,
 } from "./accion-formato";
@@ -101,5 +103,43 @@ describe("resumenResultado", () => {
     expect(resumen.vacio).toBe(false);
     expect(resumen.filas).toEqual([]);
     expect(resumen.crudo).toBe("{no-json");
+  });
+});
+
+describe("fechas del backend sin zona", () => {
+  // Huso fijo distinto de UTC: en CI (UTC) el bug no se vería.
+  const tzOriginal = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/Los_Angeles";
+  });
+  afterAll(() => {
+    process.env.TZ = tzOriginal;
+  });
+
+  it("interpreta un ISO sin zona como UTC, igual que su forma con Z", () => {
+    // datetime.utcnow().isoformat() no lleva zona: leerlo como hora local
+    // desplazaría la fecha según el huso del navegador.
+    expect(formatearFechaHora("2026-05-09T12:30:00")).toBe(
+      formatearFechaHora("2026-05-09T12:30:00Z"),
+    );
+    expect(formatearFechaHora("2026-05-09T12:30:00.123456")).toBe(
+      formatearFechaHora("2026-05-09T12:30:00.123Z"),
+    );
+    expect(formatearFechaHoraSegundos("2026-05-09T12:30:07")).toBe(
+      formatearFechaHoraSegundos("2026-05-09T12:30:07Z"),
+    );
+  });
+});
+
+describe("etiquetaEvento", () => {
+  it("traduce eventos conocidos y no disfraza los desconocidos", () => {
+    expect(etiquetaEvento("action_approved")).toEqual({
+      texto: "Acción aprobada",
+      conocido: true,
+    });
+    expect(etiquetaEvento("evento_nuevo_x")).toEqual({
+      texto: "Evento registrado",
+      conocido: false,
+    });
   });
 });
