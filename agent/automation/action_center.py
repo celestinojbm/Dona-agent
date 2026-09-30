@@ -159,6 +159,90 @@ async def listar_acciones(
     return [_a_dict(r) for r in rows]
 
 
+# Página de eventos del detalle · acotada para que la línea de tiempo nunca
+# arrastre la bitácora completa de una acción.
+EVENTOS_LIMITE_DEFAULT = 20
+EVENTOS_LIMITE_MAX = 50
+
+
+def _iso_utc(valor: datetime | None) -> str | None:
+    """Los timestamps de audit se escriben con utcnow() (naive): se marcan
+    explícitamente como UTC para que el cliente no los lea como hora local."""
+    if valor is None:
+        return None
+    return valor.isoformat() + "Z"
+
+
+async def obtener_detalle_accion(
+    accion_id: int,
+    telefono: str,
+    *,
+    eventos_antes_de: int | None = None,
+    eventos_limite: int = EVENTOS_LIMITE_DEFAULT,
+) -> dict[str, Any] | None:
+    """Lectura canónica de UNA acción del owner + página de su bitácora.
+
+    Owner-scoped: si la acción no existe o es de otro teléfono → None (el
+    llamador responde 404 en ambos casos, sin distinguir, anti-IDOR).
+
+    Eventos: filas de audit_log_automatizacion con ese accion_id, del mismo
+    telefono_short y no anteriores a la creación de la acción (defensa ante
+    ids reutilizados tras un pruning en SQLite). Solo se exponen id, tipo de
+    evento y fecha; payload_summary NO sale de aquí. Orden: más reciente
+    primero, paginado por cursor `eventos_antes_de` (id de audit).
+
+    Límite conocido: registrar_evento corre DESPUÉS del commit del cambio de
+    estado, así que la bitácora puede omitir un evento si su escritura
+    falló. El estado vigente es el de la fila de la acción, no la bitácora.
+    """
+    from agent.automation.audit import _short_telefono
+    from agent.automation.models import AccionAutomatizacion, AuditLogAutomatizacion
+    from agent.memory import async_session
+
+    limite = max(1, min(int(eventos_limite), EVENTOS_LIMITE_MAX))
+
+    async with async_session() as session:
+        row = (await session.execute(
+            select(AccionAutomatizacion).where(
+                AccionAutomatizacion.id == accion_id,
+                AccionAutomatizacion.telefono == telefono,
+            )
+        )).scalar_one_or_none()
+        if row is None:
+            return None
+        accion = _a_dict(row)
+
+        q = select(
+            AuditLogAutomatizacion.id,
+            AuditLogAutomatizacion.evento,
+            AuditLogAutomatizacion.created_at,
+        ).where(
+            AuditLogAutomatizacion.accion_id == accion_id,
+            AuditLogAutomatizacion.telefono_short == _short_telefono(telefono),
+        )
+        if row.created_at is not None:
+            q = q.where(AuditLogAutomatizacion.created_at >= row.created_at)
+        if eventos_antes_de is not None:
+            q = q.where(AuditLogAutomatizacion.id < eventos_antes_de)
+        q = q.order_by(AuditLogAutomatizacion.id.desc()).limit(limite + 1)
+        filas = (await session.execute(q)).all()
+
+    hay_mas = len(filas) > limite
+    filas = filas[:limite]
+    eventos = [
+        {"id": f.id, "evento": f.evento, "created_at": _iso_utc(f.created_at)}
+        for f in filas
+    ]
+    return {
+        "accion": accion,
+        "eventos": eventos,
+        "eventos_hay_mas": hay_mas,
+        "eventos_siguiente_cursor": eventos[-1]["id"] if hay_mas else None,
+        "eventos_limite": limite,
+        "leido_en": _iso_utc(datetime.utcnow()),
+    }
+
+
 async def _cambiar_estado(
     accion_id: int,
     *,

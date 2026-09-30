@@ -220,3 +220,37 @@ describe("automation-bridge · seguridad · no expone secrets", () => {
     expect(json).not.toContain("INTERNAL_BRIDGE_SECRET");
   });
 });
+
+
+describe("automation-bridge · fetchDetalleAccion", () => {
+  it("firma y envía solo subscription_id, accion_id y cursor/límite", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ accion: { id: 7 }, eventos: [] }), {
+          status: 200,
+        }),
+      );
+    const { fetchDetalleAccion } = await import("./automation-bridge");
+    const r = await fetchDetalleAccion("sub_det", 7, { antesDe: 30, limite: 10 });
+    expect(r.ok).toBe(true);
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://backend.test/internal/automation/acciones/detalle");
+    expect(JSON.parse(init.body as string)).toEqual({
+      subscription_id: "sub_det",
+      accion_id: 7,
+      eventos_antes_de: 30,
+      eventos_limite: 10,
+    });
+    const headers = init.headers as Record<string, string>;
+    expect(headers["X-Internal-Signature"]).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("sin subscription_id o con id no entero no llama a la red", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const { fetchDetalleAccion } = await import("./automation-bridge");
+    expect((await fetchDetalleAccion("", 7)).error).toBe("missing_subscription_id");
+    expect((await fetchDetalleAccion("sub", 1.5)).error).toBe("invalid_accion_id");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});

@@ -142,6 +142,32 @@ export interface HighPreviewResponse {
   confirmacion_requerida: "ENVIAR";
 }
 
+/**
+ * Evento de la bitácora de auditoría de una acción
+ * (`audit_log_automatizacion`). Solo id, tipo y fecha UTC: el backend no
+ * expone el payload del evento.
+ */
+export interface EventoAccion {
+  id: number;
+  evento: string;
+  created_at: string | null;
+}
+
+/**
+ * Lectura canónica de una acción · `GET /api/automation/acciones/:id`.
+ * `eventos` va del más reciente al más antiguo; `eventos_siguiente_cursor`
+ * se pasa como `eventos_antes_de` para pedir la página anterior.
+ */
+export interface DetalleAccionResponse {
+  accion: AccionAutomatizacion;
+  eventos: EventoAccion[];
+  eventos_hay_mas: boolean;
+  eventos_siguiente_cursor: number | null;
+  eventos_limite: number;
+  /** Momento (UTC) en que el backend leyó la acción. */
+  leido_en: string;
+}
+
 export interface AccionApiResult<T> {
   ok: boolean;
   status?: number;
