@@ -786,3 +786,179 @@ class TestEjecutarCriticalBloqueado:
         body = r.json()
         assert body["ejecucion"]["estado_final"] == "failed"
         assert body["accion"]["estado"] == "failed"
+
+
+# ─── /internal/automation/acciones/detalle · lectura canónica ──────────────
+
+
+async def _post_detalle(c, payload: dict):
+    body = json.dumps(payload)
+    return await c.post(
+        "/internal/automation/acciones/detalle",
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Internal-Signature": _hmac_sig(body),
+        },
+    )
+
+
+class TestInternalDetalleAccion:
+    TEL_A = "5215550001111"
+    TEL_B = "5215550002222"
+
+    async def _accion_a(self):
+        await _seed_perfil_y_sub(self.TEL_A, "sub_det_a")
+        from agent.automation.action_center import crear_accion
+        return await crear_accion(
+            telefono=self.TEL_A,
+            tipo_accion="preparar_mensaje_whatsapp",
+            titulo="Plan semanal",
+        )
+
+    @pytest.mark.asyncio
+    async def test_owner_lee_accion_y_eventos_reales(self, app):
+        a = await self._accion_a()
+        from agent.automation.action_center import aprobar_accion
+        aprobada = await aprobar_accion(a["id"])
+        assert aprobada["estado"] == "approved"
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await _post_detalle(c, {"subscription_id": "sub_det_a", "accion_id": a["id"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["accion"]["id"] == a["id"]
+        assert data["accion"]["estado"] == "approved"
+        # Eventos de la bitácora, más reciente primero, solo id/evento/fecha.
+        eventos = [e["evento"] for e in data["eventos"]]
+        assert eventos[0] == "action_approved"
+        assert "action_created" in eventos
+        for e in data["eventos"]:
+            assert set(e) == {"id", "evento", "created_at"}
+            assert e["created_at"].endswith("Z")
+        assert data["eventos_hay_mas"] is False
+        assert data["eventos_siguiente_cursor"] is None
+        assert data["leido_en"].endswith("Z")
+        # Nada interno ni PII en la respuesta.
+        assert self.TEL_A not in r.text
+        assert "payload_summary" not in r.text
+        assert "payload_json" not in r.text
+        assert "idempotency_key" not in r.text
+
+    @pytest.mark.asyncio
+    async def test_otra_suscripcion_404_indistinguible(self, app):
+        a = await self._accion_a()
+        await _seed_perfil_y_sub(self.TEL_B, "sub_det_b")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            ajena = await _post_detalle(c, {"subscription_id": "sub_det_b", "accion_id": a["id"]})
+            ausente = await _post_detalle(c, {"subscription_id": "sub_det_b", "accion_id": 999999})
+        assert ajena.status_code == 404
+        assert ajena.json() == ausente.json() == {"detail": "accion_no_existe"}
+        assert "Plan semanal" not in ajena.text
+
+    @pytest.mark.asyncio
+    async def test_accion_ausente_404(self, app):
+        await _seed_perfil_y_sub(self.TEL_A, "sub_det_a")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await _post_detalle(c, {"subscription_id": "sub_det_a", "accion_id": 424242})
+        assert r.status_code == 404
+        assert r.json()["detail"] == "accion_no_existe"
+
+    @pytest.mark.asyncio
+    async def test_suscripcion_no_persistida_404(self, app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await _post_detalle(c, {"subscription_id": "sub_fantasma", "accion_id": 1})
+        assert r.status_code == 404
+        assert r.json()["detail"] == "subscription_no_persistida"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            {"accion_id": "1"},
+            {"accion_id": 0},
+            {"accion_id": -3},
+            {"accion_id": True},
+            {"accion_id": None},
+            {"accion_id": 1.5},
+            {"accion_id": 1, "eventos_antes_de": 0},
+            {"accion_id": 1, "eventos_antes_de": "5"},
+            {"accion_id": 1, "eventos_limite": 0},
+            {"accion_id": 1, "eventos_limite": False},
+        ],
+    )
+    async def test_parametros_invalidos_400(self, app, extra):
+        await _seed_perfil_y_sub(self.TEL_A, "sub_det_a")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await _post_detalle(c, {"subscription_id": "sub_det_a", **extra})
+        assert r.status_code == 400
+        assert r.json()["detail"] == "parametros_invalidos"
+
+    @pytest.mark.asyncio
+    async def test_sin_firma_401(self, app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.post(
+                "/internal/automation/acciones/detalle",
+                content=json.dumps({"subscription_id": "sub_det_a", "accion_id": 1}),
+                headers={"Content-Type": "application/json"},
+            )
+        assert r.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_eventos_paginados_por_cursor_y_acotados(self, app):
+        a = await self._accion_a()
+        from agent.automation.audit import registrar_evento
+        for _ in range(4):
+            await registrar_evento(
+                evento="high_preview_requested", telefono=self.TEL_A,
+                accion_id=a["id"], riesgo="medium",
+            )
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            p1 = (await _post_detalle(c, {
+                "subscription_id": "sub_det_a", "accion_id": a["id"], "eventos_limite": 2,
+            })).json()
+            p2 = (await _post_detalle(c, {
+                "subscription_id": "sub_det_a", "accion_id": a["id"], "eventos_limite": 2,
+                "eventos_antes_de": p1["eventos_siguiente_cursor"],
+            })).json()
+            p3 = (await _post_detalle(c, {
+                "subscription_id": "sub_det_a", "accion_id": a["id"], "eventos_limite": 2,
+                "eventos_antes_de": p2["eventos_siguiente_cursor"],
+            })).json()
+            grande = (await _post_detalle(c, {
+                "subscription_id": "sub_det_a", "accion_id": a["id"], "eventos_limite": 5000,
+            })).json()
+        # 1 action_created + 4 high_preview_requested = 5 eventos
+        assert len(p1["eventos"]) == 2 and p1["eventos_hay_mas"] is True
+        assert len(p2["eventos"]) == 2 and p2["eventos_hay_mas"] is True
+        assert len(p3["eventos"]) == 1 and p3["eventos_hay_mas"] is False
+        assert p3["eventos_siguiente_cursor"] is None
+        ids = [e["id"] for e in p1["eventos"] + p2["eventos"] + p3["eventos"]]
+        assert ids == sorted(ids, reverse=True)
+        assert len(set(ids)) == 5
+        assert p3["eventos"][0]["evento"] == "action_created"
+        assert grande["eventos_limite"] == 50
+
+    @pytest.mark.asyncio
+    async def test_no_mezcla_eventos_de_otro_owner_ni_previos_a_la_accion(self, app):
+        a = await self._accion_a()
+        from datetime import datetime, timedelta
+
+        from agent.automation.audit import registrar_evento
+        from agent.automation.models import AuditLogAutomatizacion
+        from agent.memory import async_session
+        # Mismo accion_id, otro owner (telefono_short distinto).
+        await registrar_evento(
+            evento="action_rejected", telefono=self.TEL_B, accion_id=a["id"],
+        )
+        # Mismo owner y accion_id pero anterior a la creación (id reutilizado).
+        async with async_session() as session:
+            session.add(AuditLogAutomatizacion(
+                telefono_short="52****1111", evento="action_failed",
+                accion_id=a["id"], riesgo="", payload_summary="{}",
+                created_at=datetime.utcnow() - timedelta(days=400),
+            ))
+            await session.commit()
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await _post_detalle(c, {"subscription_id": "sub_det_a", "accion_id": a["id"]})
+        eventos = [e["evento"] for e in r.json()["eventos"]]
+        assert eventos == ["action_created"]

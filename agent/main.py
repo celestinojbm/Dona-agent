@@ -3537,6 +3537,47 @@ async def _accion_pertenece_a_telefono(accion_id: int, telefono: str) -> bool:
     return row is not None and row.telefono == telefono
 
 
+@app.post("/internal/automation/acciones/detalle")
+async def internal_automation_detalle(request: Request):
+    """Lectura canónica de UNA acción + página de su bitácora de audit.
+
+    Solo lectura. Owner-scoped vía subscription_id → telefono; acción de
+    otro owner o inexistente → 404 accion_no_existe (indistinguibles).
+    Eventos: solo id/evento/created_at, más reciente primero, paginados
+    por `eventos_antes_de` y acotados por `eventos_limite` (máx. 50).
+    """
+    payload = await _verificar_y_parsear_internal(request)
+    sub_id = (payload.get("subscription_id") or "").strip()
+    accion_id = payload.get("accion_id")
+    antes_de = payload.get("eventos_antes_de")
+    limite = payload.get("eventos_limite")
+    # bool es subclase de int en Python · se excluye explícitamente.
+    def _entero_positivo(v) -> bool:
+        return isinstance(v, int) and not isinstance(v, bool) and v > 0
+    if not sub_id or not _entero_positivo(accion_id):
+        raise HTTPException(status_code=400, detail="parametros_invalidos")
+    if antes_de is not None and not _entero_positivo(antes_de):
+        raise HTTPException(status_code=400, detail="parametros_invalidos")
+    if limite is not None and not _entero_positivo(limite):
+        raise HTTPException(status_code=400, detail="parametros_invalidos")
+    telefono = await _resolver_telefono_desde_subscription(sub_id)
+    if not telefono:
+        raise HTTPException(status_code=404, detail="subscription_no_persistida")
+    from agent.automation.action_center import (
+        EVENTOS_LIMITE_DEFAULT,
+        obtener_detalle_accion,
+    )
+    detalle = await obtener_detalle_accion(
+        accion_id,
+        telefono,
+        eventos_antes_de=antes_de,
+        eventos_limite=limite or EVENTOS_LIMITE_DEFAULT,
+    )
+    if detalle is None:
+        raise HTTPException(status_code=404, detail="accion_no_existe")
+    return {**detalle, "accion": _filtrar_accion_para_dashboard(detalle["accion"])}
+
+
 @app.post("/internal/automation/acciones/aprobar")
 async def internal_automation_aprobar(request: Request):
     payload = await _verificar_y_parsear_internal(request)

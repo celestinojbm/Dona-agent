@@ -21,6 +21,7 @@ import type {
   GenerarResponse,
   OportunidadesConEstadoResponse,
   AccionAutomatizacion,
+  DetalleAccionResponse,
   HighPreviewResponse,
 } from "./automation-types";
 
@@ -132,6 +133,28 @@ export async function fetchAcciones(
   if (estado) body.estado = estado;
   return callInternal<AccionesResponse>(
     "/internal/automation/acciones",
+    body,
+  );
+}
+
+
+export async function fetchDetalleAccion(
+  subscriptionId: string,
+  accionId: number,
+  eventos?: { antesDe?: number; limite?: number },
+): Promise<AccionApiResult<DetalleAccionResponse>> {
+  if (!subscriptionId) return { ok: false, error: "missing_subscription_id" };
+  if (!Number.isInteger(accionId)) {
+    return { ok: false, error: "invalid_accion_id" };
+  }
+  const body: Record<string, unknown> = {
+    subscription_id: subscriptionId,
+    accion_id: accionId,
+  };
+  if (eventos?.antesDe !== undefined) body.eventos_antes_de = eventos.antesDe;
+  if (eventos?.limite !== undefined) body.eventos_limite = eventos.limite;
+  return callInternal<DetalleAccionResponse>(
+    "/internal/automation/acciones/detalle",
     body,
   );
 }

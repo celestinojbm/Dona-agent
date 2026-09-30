@@ -59,7 +59,10 @@ import {
   type ResultadoDecision,
 } from "@/lib/accion-errores";
 import { PanelPreviewHigh, useConfirmacionHigh } from "./confirmacion-high";
-import AccionDetalle from "./accion-detalle";
+import AccionDetalle, {
+  type Decision,
+  type ResultadoEnvio,
+} from "./accion-detalle";
 
 interface AccionesData {
   acciones: AccionAutomatizacion[];
@@ -115,12 +118,13 @@ export default function SeccionActionCenter() {
   // ahora reporta perfil_estado · usamos esto para mostrar al usuario
   // POR QUÉ no se generaron y QUÉ hacer.
   const [perfilDiag, setPerfilDiag] = useState<PerfilDiagInfo | null>(null);
-  // Acción abierta en el panel de detalle (null = panel cerrado).
-  const [detalleId, setDetalleId] = useState<number | null>(null);
-  // Snapshot de la acción abierta · evita que el panel desaparezca de
-  // golpe cuando la lista falla o la acción deja de venir en el payload.
-  const [snapshotDetalle, setSnapshotDetalle] =
-    useState<AccionAutomatizacion | null>(null);
+  // Acción abierta en el panel de detalle (null = panel cerrado). Se
+  // inicializa desde `?accion=<id>` para que un enlace directo o una
+  // recarga de la página reabran el mismo detalle.
+  const [detalleId, setDetalleId] = useState<number | null>(leerAccionDeUrl);
+  // Destino del foco al cerrar un panel abierto desde la URL (sin botón
+  // "Ver detalle" que lo abriera).
+  const tituloRef = useRef<HTMLHeadingElement | null>(null);
   // Filtro del historial · "todas" muestra los estados terminales.
   const [filtroHistorial, setFiltroHistorial] = useState<EstadoAccion | "todas">(
     "todas",
@@ -210,12 +214,9 @@ export default function SeccionActionCenter() {
     setGenerando(false);
   }
 
-  const handleAccion = useCallback(
-    async (
-      accionId: number,
-      op: "aprobar" | "rechazar" | "ejecutar",
-      silenciarAviso = false,
-    ): Promise<ResultadoDecision> => {
+  // Solo el POST de una decisión · quien llama decide cómo releer el estado.
+  const postDecision = useCallback(
+    async (accionId: number, op: Decision): Promise<ResultadoEnvio> => {
       setAccionEnCurso(accionId);
       try {
         const res = await fetch(
@@ -232,30 +233,41 @@ export default function SeccionActionCenter() {
         if (!res.ok) {
           const mensaje = mensajeDeErrorAccion(res.status, cuerpo);
           toast.error(mensaje);
-          if (!silenciarAviso) setAviso(mensaje);
-          const estadoActualizado = await fetchAcciones();
-          return { ok: false, mensaje, estadoActualizado };
+          return { tipo: "rechazada", mensaje };
         }
-        // Decisión registrada ≠ estado actualizado: el mensaje depende de
-        // si el GET posterior respondió.
-        const estadoActualizado = await fetchAcciones();
-        const mensaje = mensajeDecision(op, estadoActualizado);
-        if (!estadoActualizado && !silenciarAviso) toast.warning(mensaje);
-        if (!silenciarAviso) setAviso(mensaje);
-        return { ok: true, mensaje, estadoActualizado };
+        return { tipo: "aceptada" };
       } catch {
-        // El POST no respondió: la decisión pudo registrarse o no. Se
-        // intenta leer el estado real en vez de invitar a repetirla.
-        const mensaje = MENSAJE_DECISION_INCIERTA;
-        toast.error(mensaje);
-        if (!silenciarAviso) setAviso(mensaje);
-        const estadoActualizado = await fetchAcciones();
-        return { ok: false, mensaje, estadoActualizado };
+        // El POST no respondió: la decisión pudo registrarse o no.
+        toast.error(MENSAJE_DECISION_INCIERTA);
+        return { tipo: "incierta" };
       } finally {
         setAccionEnCurso(null);
       }
     },
-    [fetchAcciones],
+    [],
+  );
+
+  // Decisión desde la tarjeta · el estado se relee con la lista.
+  const handleAccion = useCallback(
+    async (accionId: number, op: Decision): Promise<ResultadoDecision> => {
+      const envio = await postDecision(accionId, op);
+      const estadoActualizado = await fetchAcciones();
+      if (envio.tipo === "incierta") {
+        setAviso(MENSAJE_DECISION_INCIERTA);
+        return { ok: false, mensaje: MENSAJE_DECISION_INCIERTA, estadoActualizado };
+      }
+      if (envio.tipo === "rechazada") {
+        setAviso(envio.mensaje);
+        return { ok: false, mensaje: envio.mensaje, estadoActualizado };
+      }
+      // Decisión registrada ≠ estado actualizado: el mensaje depende de
+      // si el GET posterior respondió.
+      const mensaje = mensajeDecision(op, estadoActualizado);
+      if (!estadoActualizado) toast.warning(mensaje);
+      setAviso(mensaje);
+      return { ok: true, mensaje, estadoActualizado };
+    },
+    [fetchAcciones, postDecision],
   );
 
   const acciones = load.status === "ready" ? load.data.acciones : [];
@@ -272,18 +284,10 @@ export default function SeccionActionCenter() {
     filtroHistorial === "todas"
       ? historial
       : historial.filter((a) => a.estado === filtroHistorial);
-  // El panel busca la acción en la lista ya cargada: no existe endpoint
-  // de detalle por id, así que el detalle sale del payload de la lista.
-  // Si la lista falla o la acción deja de venir, mantenemos el último
-  // snapshot para no cerrar el panel de golpe en medio de una decisión.
-  const accionEnLista =
+  // Semilla del panel · la acción tal como venía en la lista. El panel la
+  // muestra como snapshot mientras hace su propia lectura canónica.
+  const semillaDetalle =
     detalleId === null ? null : acciones.find((a) => a.id === detalleId) ?? null;
-  const accionEnDetalle =
-    accionEnLista ?? (snapshotDetalle?.id === detalleId ? snapshotDetalle : null);
-
-  useEffect(() => {
-    if (accionEnLista) setSnapshotDetalle(accionEnLista);
-  }, [accionEnLista]);
 
   // HIGH confirmada desde la tarjeta · mismo criterio que handleAccion.
   const refrescarTrasHighEnTarjeta = useCallback(async () => {
@@ -293,14 +297,23 @@ export default function SeccionActionCenter() {
     setAviso(mensaje);
   }, [fetchAcciones]);
 
+  const abrirDetalle = useCallback((id: number) => {
+    setDetalleId(id);
+    escribirAccionEnUrl(id);
+  }, []);
+
   const cerrarDetalle = useCallback(() => {
     setDetalleId(null);
-    setSnapshotDetalle(null);
+    escribirAccionEnUrl(null);
   }, []);
 
   return (
     <section>
-      <h2 className="eyebrow mb-6 flex items-center gap-2">
+      <h2
+        ref={tituloRef}
+        tabIndex={-1}
+        className="eyebrow mb-6 flex items-center gap-2 focus:outline-none"
+      >
         <Sparkles className="w-4 h-4" />
         Centro de acción
       </h2>
@@ -453,7 +466,7 @@ export default function SeccionActionCenter() {
                 onEjecutar={() => handleAccion(a.id, "ejecutar")}
                 onConfirmada={refrescarTrasHighEnTarjeta}
                 onConfirmacionFallida={fetchAcciones}
-                onVerDetalle={() => setDetalleId(a.id)}
+                onVerDetalle={() => abrirDetalle(a.id)}
               />
           ))}
         </div>
@@ -508,7 +521,7 @@ export default function SeccionActionCenter() {
                   onAprobar={() => {}}
                   onRechazar={() => {}}
                   onEjecutar={() => {}}
-                  onVerDetalle={() => setDetalleId(a.id)}
+                  onVerDetalle={() => abrirDetalle(a.id)}
                 />
               ))}
             </div>
@@ -516,25 +529,41 @@ export default function SeccionActionCenter() {
         </details>
       )}
 
-      {/* Panel de detalle · revisar estado y detalle, decidir y consultar
-          resultado/historial de una acción concreta. */}
-      <AccionDetalle
-        accion={accionEnDetalle}
-        abierto={accionEnDetalle !== null}
-        // Sin la acción en una lista recién cargada, el panel muestra un
-        // snapshot: sirve para leer, no para decidir otra vez.
-        estadoVerificado={accionEnLista !== null}
-        accionFueraDeLista={load.status === "ready" && accionEnLista === null}
-        onOpenChange={(abierto) => {
-          if (!abierto) cerrarDetalle();
-        }}
-        onAprobar={(id) => handleAccion(id, "aprobar", true)}
-        onRechazar={(id) => handleAccion(id, "rechazar", true)}
-        onEjecutar={(id) => handleAccion(id, "ejecutar", true)}
-        onRefrescar={fetchAcciones}
-      />
+      {/* Panel de detalle · lectura canónica por id, decisiones solo sobre
+          estado verificado. `key` = una instancia por acción. */}
+      {detalleId !== null && (
+        <AccionDetalle
+          key={detalleId}
+          id={detalleId}
+          semilla={semillaDetalle}
+          onCerrar={cerrarDetalle}
+          enviarDecision={postDecision}
+          onRefrescarLista={fetchAcciones}
+          focoSinOrigenRef={tituloRef}
+        />
+      )}
     </section>
   );
+}
+
+// `?accion=<id>` · solo dígitos; cualquier otra cosa se ignora.
+function leerAccionDeUrl(): number | null {
+  if (typeof window === "undefined") return null;
+  const valor = new URLSearchParams(window.location.search).get("accion");
+  if (!valor || !/^\d{1,12}$/.test(valor)) return null;
+  const id = Number(valor);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function escribirAccionEnUrl(id: number | null) {
+  try {
+    const url = new URL(window.location.href);
+    if (id === null) url.searchParams.delete("accion");
+    else url.searchParams.set("accion", String(id));
+    window.history.replaceState(window.history.state, "", url.toString());
+  } catch {
+    // la URL API está siempre en cliente; guard defensivo
+  }
 }
 
 // Etiquetas cortas para los filtros del historial · reusan el estado

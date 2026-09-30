@@ -75,3 +75,15 @@ describe("mensajeDecision", () => {
     }
   });
 });
+
+describe("mensajes del panel de detalle", () => {
+  it("separa decisión registrada de estado verificado", async () => {
+    const { mensajeDecisionPanel } = await import("./accion-errores");
+    expect(mensajeDecisionPanel("aprobar", true)).toBe(
+      "Acción aprobada. El panel ya muestra su estado verificado.",
+    );
+    expect(mensajeDecisionPanel("rechazar", false)).toMatch(
+      /^Acción rechazada\. No pudimos cargar su estado actualizado/,
+    );
+  });
+});
