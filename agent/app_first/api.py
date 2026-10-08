@@ -30,7 +30,7 @@ import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from agent.app_first import ejecucion as run
@@ -38,7 +38,10 @@ from agent.app_first import repositorio as repo
 
 logger = logging.getLogger("dona")
 
-router = APIRouter(prefix="/internal/app")
+# Ruta plana (app.add_api_route en main.py), no include_router: en FastAPI
+# 0.142 un router incluido aparece en app.routes como _IncludedRouter sin
+# .path y rompe a quien recorre las rutas.
+RUTA = "/internal/app/{accion}"
 
 AGENTES_INICIALES = (
     # (nombre, rol, herramientas, presupuesto en unidades simuladas)
@@ -232,7 +235,6 @@ def _json(status: int, cuerpo: dict[str, Any]) -> JSONResponse:
     return JSONResponse(cuerpo, status_code=status, headers={"Cache-Control": "no-store"})
 
 
-@router.post("/{accion}")
 async def internal_app(accion: str, request: Request) -> JSONResponse:
     if not piloto_habilitado():
         return _json(404, {"error": "not_found"})
@@ -240,7 +242,7 @@ async def internal_app(accion: str, request: Request) -> JSONResponse:
     if manejador is None:
         return _json(404, {"error": "accion_desconocida"})
 
-    from agent.main import _verificar_firma_interna  # import diferido: main incluye este router
+    from agent.main import _verificar_firma_interna  # import diferido: main registra esta ruta
 
     body = await request.body()
     if not _verificar_firma_interna(body, request.headers.get("X-Internal-Signature", "")):

@@ -408,9 +408,9 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # J7.4 · API interna de Dona app-first (/internal/app/*). Apagada salvo
 # DONA_APP_PILOTO_ENABLED=true; firmada con el bridge HMAC existente.
-from agent.app_first.api import router as _router_app_first  # noqa: E402
+from agent.app_first import api as _api_app_first  # noqa: E402
 
-app.include_router(_router_app_first)
+app.add_api_route(_api_app_first.RUTA, _api_app_first.internal_app, methods=["POST"])
 
 
 @app.get("/privacy")
