@@ -15,13 +15,19 @@ from agent.readiness import (
     evaluar_readiness,
     verificar_readiness,
     ReadinessError,
+    _SECRETS_POR_EFECTO,
     _SECRETS_REQUERIDOS,
 )
 
 
 # Set completo de secrets que dejan el readiness en verde (con provider=meta).
+# J4: con los efectos encendidos (tests/conftest.py) también se exigen los
+# secretos de cada efecto, que ahora viven en _SECRETS_POR_EFECTO.
 def _setear_todos(monkeypatch, proveedor="meta"):
-    for var, _ in _SECRETS_REQUERIDOS:
+    secretos = list(_SECRETS_REQUERIDOS)
+    for lista in _SECRETS_POR_EFECTO.values():
+        secretos.extend(lista)
+    for var, _ in secretos:
         monkeypatch.setenv(var, f"valor-{var}")
     monkeypatch.setenv("WHATSAPP_PROVIDER", proveedor)
     secret_provider = {
