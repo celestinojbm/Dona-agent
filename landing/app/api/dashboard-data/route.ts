@@ -17,6 +17,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { bloqueoPausa } from "@/lib/pausa-api";
 import {
   fetchUsuarioResumen,
   type UsuarioResumen,
@@ -79,6 +80,10 @@ async function fetchStripeOverrides(
 }
 
 export async function GET() {
+  // Pausa: sin sesión, backend ni Stripe (ver lib/pausa.ts).
+  const pausa = bloqueoPausa();
+  if (pausa) return pausa;
+
   // 1. Auth: solo usuarios con sesión válida.
   const session = await auth();
   if (!session) {

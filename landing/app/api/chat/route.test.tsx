@@ -7,6 +7,13 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Estos tests ejercitan la lógica de la ruta que sigue DETRÁS del bloqueo
+// de pausa (se reutilizará al reconstruir la app). Por eso simulan la pausa
+// apagada; que la ruta corta en pausa lo cubre app/api/pausa-rutas.test.tsx.
+vi.mock("@/lib/pausa", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/pausa")>()),
+  DONA_EN_PAUSA: false,
+}));
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/chat-bridge", () => ({ enviarMensajeChat: vi.fn() }));
 

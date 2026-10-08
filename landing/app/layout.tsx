@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
+import { DONA_EN_PAUSA, MENSAJE_PAUSA } from "@/lib/pausa";
 
 // Base clara editorial: Plus Jakarta Sans (grotesca suave, la misma de la
 // referencia Merxo) para titulares y lectura; JetBrains Mono para labels
@@ -21,15 +22,14 @@ const mono = JetBrains_Mono({
   display: "swap",
 });
 
+// Pausa: título y descripción describen el estado real (ver lib/pausa.ts).
 export const metadata: Metadata = {
-  title: "Dona — Plataforma-agente de negocio y ejecución",
-  description:
-    "Dona convierte intención en ejecución real: activos, workflows, documentos, campañas y acciones reales — con permisos, créditos, trazabilidad y medición. Empieza desde WhatsApp, web o voz.",
+  title: "Dona — en pausa",
+  description: MENSAJE_PAUSA,
   metadataBase: new URL("https://usadona.com"),
   openGraph: {
-    title: "Dona — Plataforma-agente de negocio y ejecución",
-    description:
-      "Convierte intención en ejecución controlada: activos, workflows, campañas y acciones reales, con permiso y medición.",
+    title: "Dona — en pausa",
+    description: MENSAJE_PAUSA,
     url: "https://usadona.com",
     siteName: "Dona",
     locale: "es_MX",
@@ -37,9 +37,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Dona — Plataforma-agente de negocio y ejecución",
-    description:
-      "Convierte intención en ejecución controlada: activos, workflows, campañas y acciones reales, con permiso y medición.",
+    title: "Dona — en pausa",
+    description: MENSAJE_PAUSA,
   },
 };
 
@@ -55,6 +54,10 @@ export default function RootLayout({
       className={`${sans.variable} ${mono.variable} h-full antialiased`}
     >
       <head>
+        {/* Pausa: sin Facebook Pixel. Dona no hace campañas mientras está en
+            pausa, así que no se recogen datos de visitantes para anuncios. */}
+        {!DONA_EN_PAUSA && (
+          <>
         {/* Facebook Pixel — único script de terceros. El snippet inline se
             permite por 'unsafe-inline' en script-src (ver next.config.ts).
             NO tocar la CSP: el pixel sigue funcionando tal cual. */}
@@ -81,6 +84,8 @@ fbq('track', 'PageView');`,
             alt=""
           />
         </noscript>
+          </>
+        )}
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeProvider

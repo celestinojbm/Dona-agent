@@ -1,13 +1,17 @@
-import { redirect } from "next/navigation";
-import { auth } from "@/auth";
-import DashboardClient from "./dashboard-client";
+// landing/app/dashboard/page.tsx — Dashboard durante la pausa.
+//
+// No lee la sesión ni monta DashboardClient: una sesión anterior (cookie
+// JWT aún válida) no conserva acceso operativo. Las rutas /api/* del
+// dashboard también responden 503 antes de mirar la sesión.
 
-export default async function DashboardPage() {
-  const session = await auth();
+import type { Metadata } from "next";
+import PaginaPausa from "@/components/pagina-pausa";
 
-  if (!session) {
-    redirect("/login");
-  }
+export const metadata: Metadata = {
+  title: "Dona en pausa",
+  robots: { index: false },
+};
 
-  return <DashboardClient session={session} />;
+export default function DashboardPage() {
+  return <PaginaPausa detalle="El acceso a la cuenta está desactivado durante la pausa." />;
 }
