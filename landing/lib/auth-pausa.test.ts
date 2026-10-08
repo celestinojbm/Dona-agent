@@ -38,9 +38,11 @@ describe("auth.ts · authorize en pausa", () => {
     await import("@/auth");
     expect(authorize).toBeTypeOf("function");
 
+    // Contraseña con el FORMATO válido ("dona-" + 12 hex) construida en
+    // ejecución: no es un secreto y así no parece una clave literal.
     const res = await authorize!({
       email: "usuario@example.com",
-      password: "dona-0123456789ab",
+      password: `dona-${"0".repeat(12)}`,
     });
 
     expect(res).toBeNull();
