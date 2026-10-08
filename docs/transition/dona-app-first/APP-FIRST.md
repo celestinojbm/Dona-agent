@@ -18,7 +18,7 @@ se reutiliza del repo y por qué.
 | Pieza existente | Decisión | Por qué |
 |---|---|---|
 | FastAPI `agent/main.py` + bridge HMAC `/internal/*` (`_verificar_y_parsear_internal`) | **Reutilizar** el patrón. Endpoints nuevos en un router propio `agent/app_first/` montado como `/internal/app/*` | El bridge ya resuelve la identidad en el servidor y firma cada llamada. Así se evita meter más código en `main.py` (4.164 líneas) |
-| SQLAlchemy 2 async + Alembic | **Reutilizar**. Tablas nuevas con **migración aditiva** | Ya hay 3 migraciones y una política fail-closed de arranque |
+| SQLAlchemy 2 async + `create_all` | **Reutilizar** la ruta real de creación del esquema: los modelos `app_*` se registran en `inicializar_db` (tablas nuevas, aditivas). | En la práctica el esquema lo crean `create_all` y las migraciones SQL idempotentes del arranque; Alembic solo tiene 3 versiones y está desfasado. Añadir una versión 004 aislada no lo arregla: se deja como deuda conocida (`docs/CURRENT_STATE.md`) |
 | Cola arq + fallback inproc (`agent/jobs/`) | **Reutilizar arq** como transporte. **No** reutilizar `jobs_creativos`: está indexada por teléfono y es de creativos | La ejecución necesita lease, intentos e idempotencia propios |
 | `agent/automation/audit.py` (`sanitizar_payload`, `registrar_evento`) | **Reutilizar el sanitizador**. El registro de actividad es una tabla nueva por workspace | El audit log actual está indexado por teléfono |
 | `agent/automation/permissions.py` (LOW/MEDIUM/HIGH/CRITICAL) | **Reutilizar la taxonomía de riesgo** | Es el contrato de "operación reservada → aprobación" |
@@ -153,7 +153,7 @@ prueba de trabajo.
 
 | PR | Contenido | Verificable por |
 |---|---|---|
-| J7.1 | Modelo + migración aditiva + repositorio con aislamiento por workspace | tests de aislamiento y de migración (upgrade/downgrade en SQLite) |
+| J7.1 | Modelo aditivo + repositorio con aislamiento por workspace | tests de aislamiento y de esquema aditivo (las tablas antiguas siguen intactas) |
 | J7.2 | Runner: encolado idempotente, claim con lease, reaper, cancelación; `ProveedorModelo` simulado | tests de concurrencia, reintento y reinicio |
 | J7.3 | Agentes responsable/ejecutor, aprobaciones, evidencia, actividad | flujo completo con proveedor simulado |
 | J7.4 | Registro/acceso propio + bridge `/internal/app/*` + permisos | tests de auth y de permisos |
