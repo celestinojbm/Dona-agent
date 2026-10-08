@@ -1,28 +1,18 @@
-"use client";
+// landing/app/success/page.tsx — Retorno de Stripe durante la pausa.
+//
+// Esta página NO confirma pagos: llegar aquí no prueba que se haya cobrado
+// nada. La conciliación de cierre se hace contra Stripe, no contra la web.
 
-import { CheckCircle2, ArrowRight } from "lucide-react";
-import Link from "next/link";
+import type { Metadata } from "next";
+import PaginaPausa from "@/components/pagina-pausa";
+
+export const metadata: Metadata = {
+  title: "Dona en pausa",
+  robots: { index: false },
+};
 
 export default function SuccessPage() {
   return (
-    <div className="legacy-shell flex items-center justify-center px-6 relative z-[2]">
-      <div className="glass-card rounded-2xl p-12 max-w-md w-full text-center">
-        <CheckCircle2 className="w-16 h-16 text-white/60 mx-auto mb-6" />
-        <h1 className="text-3xl font-normal text-white mb-4 tracking-tight">
-          Pago exitoso
-        </h1>
-        <p className="text-white/35 font-light mb-8 leading-relaxed">
-          Tu suscripcion a Dona esta activa. Recibiras un mensaje de bienvenida
-          por WhatsApp en los proximos minutos.
-        </p>
-        <Link
-          href="/dashboard"
-          className="btn-primary inline-flex items-center gap-2 px-8 py-4 rounded-full text-sm"
-        >
-          Ir al dashboard
-          <ArrowRight className="w-4 h-4" />
-        </Link>
-      </div>
-    </div>
+    <PaginaPausa detalle="Esta página no confirma pagos ni activa suscripciones." />
   );
 }

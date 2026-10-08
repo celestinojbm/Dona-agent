@@ -1,105 +1,107 @@
-import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+/** @vitest-environment jsdom */
+// landing/app/page.test.tsx — Páginas públicas en pausa.
+//
+// Inicio, checkout, success, cancel, login, dashboard y soporte muestran el
+// estado real; ninguna afirma pagos, ofrece planes, pide credenciales ni
+// publica un contacto aún no verificado. Rutas internas retiradas → 404.
 
-const repoRoot = process.cwd();
-const pageSource = readFileSync(join(repoRoot, "app/page.tsx"), "utf-8");
-const globalCss = readFileSync(join(repoRoot, "app/globals.css"), "utf-8");
+import { afterEach, describe, expect, it, vi } from "vitest";
+import "@testing-library/jest-dom/vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 
-describe("landing pública · narrativa canónica", () => {
-  it("presenta a Dona como plataforma-agente de negocio (no 'chatbot de WhatsApp')", () => {
-    // Narrativa canónica: plataforma-agente de negocio y ejecución controlada.
-    expect(pageSource).toContain("Plataforma-agente de negocio");
-    // WhatsApp aparece solo como canal de entrada.
-    expect(pageSource).toContain("WhatsApp");
-    // La FAQ desmiente explícitamente la reducción a chatbot de WhatsApp.
-    expect(pageSource).toContain("¿Dona es un chatbot de WhatsApp?");
-    // Guardia anti-regresión: no vender Dona como asistente/chatbot de WhatsApp.
-    expect(pageSource).not.toContain("asistente en WhatsApp");
-    expect(pageSource).not.toContain("agente de WhatsApp");
-  });
+const { authSpy, notFoundSpy } = vi.hoisted(() => ({
+  authSpy: vi.fn(),
+  notFoundSpy: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
+  }),
+}));
+vi.mock("@/auth", () => ({ auth: authSpy }));
+vi.mock("next/navigation", () => ({ notFound: notFoundSpy, redirect: vi.fn() }));
 
-  it("cubre las secciones clave del brief", () => {
-    const claves = [
-      "De intención a ejecución", // loop
-      "Plataforma", // módulos
-      "Control Room",
-      "Lo que Dona produce", // galería de outputs
-      "Dona no ejecuta a ciegas", // control humano (obligatoria)
-      "Audit trail",
-      "Preguntas frecuentes", // FAQ
-    ];
-    for (const k of claves) expect(pageSource).toContain(k);
-  });
+import Home from "./page";
+import CheckoutPage from "./checkout/page";
+import SuccessPage from "./success/page";
+import CancelPage from "./cancel/page";
+import LoginPage from "./login/page";
+import DashboardPage from "./dashboard/page";
+import SoportePage from "./soporte/page";
+import EngineeringPage from "./engineering/page";
+import PrototipoHero from "./prototipo/page";
+import TerminosPage from "./terminos-y-condiciones/page";
+import PrivacidadPage from "./politica-de-privacidad/page";
 
-  it("muestra el loop de 6 pasos (entrada → medición)", () => {
-    for (const paso of [
-      "Entrada",
-      "Contexto",
-      "Producción",
-      "Permisos",
-      "Ejecución",
-      "Medición",
-    ]) {
-      expect(pageSource).toContain(paso);
-    }
-  });
+const AVISO = "Dona está en pausa. No aceptamos nuevas suscripciones ni compras.";
 
-  it("conserva el checkout Stripe con los planes Premium y Pro", () => {
-    // Los CTAs de pricing llevan al checkout propio con el plan elegido…
-    expect(pageSource).toContain("/checkout?plan=");
-    expect(pageSource).toContain("handleCheckout");
-    // …y la página de checkout crea la sesión server-side (POST /api/checkout).
-    const checkoutSource = readFileSync(
-      join(repoRoot, "app/checkout/checkout-client.tsx"),
-      "utf-8",
+afterEach(() => cleanup());
+
+const paginas: [string, () => ReactElement][] = [
+  ["/", Home],
+  ["/checkout", CheckoutPage],
+  ["/success", SuccessPage],
+  ["/cancel", CancelPage],
+  ["/login", LoginPage],
+  ["/dashboard", DashboardPage],
+  ["/soporte", SoportePage],
+];
+
+describe.each(paginas)("página %s en pausa", (_ruta, Pagina) => {
+  it("muestra el aviso de pausa y enlaces a términos y privacidad", () => {
+    render(Pagina());
+    expect(screen.getByRole("heading", { name: "Dona está en pausa" })).toBeInTheDocument();
+    expect(screen.getByText(AVISO)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Términos y condiciones" })).toHaveAttribute(
+      "href",
+      "/terminos-y-condiciones",
     );
-    expect(checkoutSource).toContain("/api/checkout");
-    // El catálogo compartido conserva las claves que espera el backend y los
-    // precios publicados.
-    const planesSource = readFileSync(join(repoRoot, "lib/planes.ts"), "utf-8");
-    expect(planesSource).toContain('plan: "premium"');
-    expect(planesSource).toContain('plan: "pro"');
-    expect(planesSource).toContain("$20");
-    expect(planesSource).toContain("$40");
+    expect(screen.getByRole("link", { name: "Política de privacidad" })).toHaveAttribute(
+      "href",
+      "/politica-de-privacidad",
+    );
   });
 
-  it("elimina testimonios inventados y pain-stats sin sustanciar (riesgo FTC)", () => {
-    // Ningún testimonio inventado de la landing vieja.
-    expect(pageSource).not.toContain("Carlos Montoya");
-    expect(pageSource).not.toContain("Valeria Restrepo");
-    // Ninguna estadística de dolor sin fuente.
-    expect(pageSource).not.toContain("painStats");
-    expect(pageSource).not.toContain("14h");
-    // Sin promesas de ingresos garantizados ni "Fundadores".
-    expect(pageSource).not.toContain("Fundadores");
-    expect(pageSource).not.toMatch(/ingresos garantizados/i);
+  it("no vende, no pide credenciales ni publica contacto sin verificar", () => {
+    const { container } = render(Pagina());
+    const texto = container.textContent ?? "";
+    expect(texto).not.toMatch(/Pago exitoso|está activa|Empezar|Ver planes|\$20|\$40/);
+    expect(texto).not.toContain("WhatsApp");
+    expect(container.querySelector("form")).toBeNull();
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+    expect(container.querySelector('a[href^="mailto:"]')).toBeNull();
+    expect(container.querySelector('a[href*="/dashboard"]')).toBeNull();
+  });
+});
+
+describe("páginas con lógica específica", () => {
+  it("success no afirma que se haya realizado un pago", () => {
+    render(SuccessPage());
+    expect(
+      screen.getByText("Esta página no confirma pagos ni activa suscripciones."),
+    ).toBeInTheDocument();
   });
 
-  it("no deja contenido crítico invisible si falla el reveal on-scroll", () => {
-    // El reveal solo oculta contenido cuando JS marca [data-reveal-root="ready"];
-    // sin JS (SSR) el contenido es visible. Guardia: el estado base de
-    // [data-reveal] NO debe poner opacity:0 sin el gate "ready".
-    const gatedBlock =
-      globalCss.match(
-        /\[data-reveal-root="ready"\]\s*\[data-reveal\]\s*\{(?<body>[^}]*)\}/,
-      )?.groups?.body ?? "";
-    expect(gatedBlock).toMatch(/opacity\s*:\s*0/);
-    // Y no debe existir una regla global [data-reveal] { opacity: 0 } sin gate.
-    expect(globalCss).not.toMatch(/^\s*\[data-reveal\]\s*\{[^}]*opacity\s*:\s*0/m);
+  it("dashboard no lee la sesión: una sesión anterior no da acceso", () => {
+    authSpy.mockResolvedValue({ user: { email: "usuario@example.com" } });
+    render(DashboardPage());
+    expect(authSpy).not.toHaveBeenCalled();
+    expect(screen.getByText(AVISO)).toBeInTheDocument();
   });
 
-  it("usa la base clara premium (gris cálido editorial, un solo acento de marca)", () => {
-    expect(globalCss).toContain("--bg: #f2f2f0");
-    expect(globalCss).toContain("--brand: #5b5bf0");
-    // El chrome oscuro viejo salió del layout: sin video de fondo, overlay
-    // negro, noise-overlay ni ambient blobs.
-    const layout = readFileSync(join(repoRoot, "app/layout.tsx"), "utf-8");
-    expect(layout).not.toContain("hero.mp4");
-    expect(layout).not.toContain("noise-overlay");
-    expect(layout).not.toContain("ambient-blob");
-    expect(layout).not.toContain("bg-black");
-    // El pixel de Facebook se conserva.
-    expect(layout).toContain("connect.facebook.net");
+  it("engineering y prototipo responden 404", () => {
+    expect(() => EngineeringPage()).toThrow("NEXT_NOT_FOUND");
+    expect(() => PrototipoHero()).toThrow("NEXT_NOT_FOUND");
+    expect(notFoundSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("documentos legales siguen publicados con el aviso", () => {
+  it.each([
+    ["términos", TerminosPage],
+    ["privacidad", PrivacidadPage],
+  ])("%s", (_nombre, Pagina) => {
+    render(Pagina());
+    expect(screen.getByRole("status")).toHaveTextContent(AVISO);
+    // Sin fecha de pausa inventada en el aviso.
+    expect(screen.getByRole("status").textContent).not.toMatch(/\d{4}/);
   });
 });

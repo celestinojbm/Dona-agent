@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import AvisoPausa from "@/components/aviso-pausa";
 
 export const metadata = {
   title: "Política de privacidad — Dona",
@@ -11,6 +12,9 @@ const ULTIMA_ACTUALIZACION = "2 de mayo de 2026";
 
 export default function PoliticaDePrivacidadPage() {
   return (
+    // Pausa: los documentos legales siguen publicados, con el aviso arriba.
+    <>
+    <AvisoPausa />
     <div className="min-h-screen px-6 py-24 md:py-32 relative z-[2]">
       <div className="max-w-3xl mx-auto">
         <Link
@@ -200,5 +204,6 @@ export default function PoliticaDePrivacidadPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }

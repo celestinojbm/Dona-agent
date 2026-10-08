@@ -12,11 +12,16 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { bloqueoPausa } from "@/lib/pausa-api";
 import { fetchOportunidades } from "@/lib/automation-bridge";
 
 const EMPTY = { oportunidades: [], count: 0 };
 
 export async function GET() {
+  // Pausa: sin sesión, backend ni Stripe (ver lib/pausa.ts).
+  const pausa = bloqueoPausa();
+  if (pausa) return pausa;
+
   const session = await auth();
   if (!session) {
     console.warn("[OPORTUNIDADES] GET · missing_session");

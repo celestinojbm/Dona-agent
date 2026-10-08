@@ -12,6 +12,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { bloqueoPausa } from "@/lib/pausa-api";
 import { fetchAssets } from "@/lib/assets-bridge";
 import type { TipoAsset } from "@/lib/assets-types";
 
@@ -26,6 +27,10 @@ const TIPOS_VALIDOS: readonly TipoAsset[] = [
 ];
 
 export async function GET(req: Request) {
+  // Pausa: sin sesión, backend ni Stripe (ver lib/pausa.ts).
+  const pausa = bloqueoPausa();
+  if (pausa) return pausa;
+
   const session = await auth();
   if (!session) {
     console.warn("[GALERIA] GET · missing_session");

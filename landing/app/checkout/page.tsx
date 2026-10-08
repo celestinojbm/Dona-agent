@@ -1,27 +1,16 @@
-// landing/app/checkout/page.tsx — "Configura tu plan" (Stripe Embedded Checkout)
+// landing/app/checkout/page.tsx — Checkout durante la pausa.
 //
-// Wrapper de servidor: exporta metadata y envuelve el cliente en <Suspense>
-// (useSearchParams lo exige en Next). Toda la lógica vive en checkout-client.
+// No monta Stripe.js ni el formulario embebido: no hay nada que contratar.
+// El endpoint /api/checkout también responde 503 sin llamar a Stripe.
 
-import { Suspense } from "react";
 import type { Metadata } from "next";
-import CheckoutClient from "./checkout-client";
+import PaginaPausa from "@/components/pagina-pausa";
 
 export const metadata: Metadata = {
-  title: "Configura tu plan — Dona",
-  description:
-    "Elige tu plan de Dona y paga de forma segura sin salir de la página.",
+  title: "Dona en pausa",
   robots: { index: false },
 };
 
 export default function CheckoutPage() {
-  return (
-    <Suspense
-      fallback={
-        <main className="min-h-screen bg-[color:var(--bg)]" aria-busy="true" />
-      }
-    >
-      <CheckoutClient />
-    </Suspense>
-  );
+  return <PaginaPausa detalle="No es posible contratar un plan ni comprar créditos." />;
 }
