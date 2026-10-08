@@ -36,23 +36,35 @@ from agent.app_first import models as m
 
 
 class ErrorAppFirst(Exception):
-    """Base de los errores de dominio de app-first."""
+    """Base de los errores de dominio de app-first. `status`/`codigo` son
+    los que la API devuelve (agent/app_first/api.py)."""
+
+    status = 400
+    codigo = "error"
 
 
 class NoEncontrado(ErrorAppFirst):
     """El objeto no existe o pertenece a otro workspace (→ 404)."""
 
+    status, codigo = 404, "no_encontrado"
+
 
 class SinPermiso(ErrorAppFirst):
     """El usuario es miembro pero su rol no permite la operación (→ 403)."""
+
+    status, codigo = 403, "sin_permiso"
 
 
 class ValorInvalido(ErrorAppFirst):
     """Valor fuera de un conjunto cerrado o dato obligatorio vacío (→ 400)."""
 
+    status, codigo = 400, "valor_invalido"
+
 
 class Conflicto(ErrorAppFirst):
     """Choca con un dato existente (p. ej. email ya registrado) (→ 409)."""
+
+    status, codigo = 409, "conflicto"
 
 
 @dataclass(frozen=True)
