@@ -12,6 +12,9 @@ import {
   recordLoginAttempt,
 } from "@/lib/auth-lockout-bridge";
 import { DONA_EN_PAUSA } from "@/lib/pausa";
+import { appPilotoHabilitado } from "@/lib/app-piloto";
+import { llamarApp } from "@/lib/app-bridge";
+import type { Workspace } from "@/lib/app-types";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -93,6 +96,39 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         };
       },
     }),
+    // J7.5 · Cuentas del piloto app-first (/app). Independiente de la pausa
+    // y de Stripe: valida contra /internal/app/auth.verificar (scrypt +
+    // lockout en el backend). Apagado si el piloto no está habilitado.
+    Credentials({
+      id: "cuenta",
+      name: "Cuenta Dona",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!appPilotoHabilitado()) return null;
+        const email = credentials?.email;
+        const password = credentials?.password;
+        if (typeof email !== "string" || typeof password !== "string") return null;
+        if (!email.trim() || !password) return null;
+
+        const res = await llamarApp<{ usuario_id: number; workspaces: Workspace[] }>(
+          "auth.verificar",
+          { email, password },
+        );
+        if (!res.ok) return null;
+        const workspace = res.data.workspaces[0];
+        if (!workspace) return null;
+        return {
+          id: `cuenta:${res.data.usuario_id}`,
+          email: email.trim().toLowerCase(),
+          tipo: "cuenta",
+          usuarioId: res.data.usuario_id,
+          workspaceId: workspace.id,
+        };
+      },
+    }),
   ],
   pages: {
     signIn: "/login",
@@ -105,6 +141,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.subscriptionId = (user as { subscriptionId?: string })
           .subscriptionId;
         token.plan = (user as { plan?: string }).plan;
+        const cuenta = user as { tipo?: string; usuarioId?: number; workspaceId?: number };
+        if (cuenta.tipo === "cuenta") {
+          token.tipo = "cuenta";
+          token.usuarioId = cuenta.usuarioId;
+          token.workspaceId = cuenta.workspaceId;
+        }
       }
       return token;
     },
@@ -113,10 +155,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         stripeCustomerId?: unknown;
         subscriptionId?: unknown;
         plan?: unknown;
+        tipo?: unknown;
+        usuarioId?: unknown;
+        workspaceId?: unknown;
       };
       s.stripeCustomerId = token.stripeCustomerId;
       s.subscriptionId = token.subscriptionId;
       s.plan = token.plan;
+      if (token.tipo === "cuenta") {
+        s.tipo = "cuenta";
+        s.usuarioId = token.usuarioId;
+        s.workspaceId = token.workspaceId;
+      }
       return session;
     },
   },
