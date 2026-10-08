@@ -10,7 +10,7 @@ Fuente de verdad del avance. Cuatro estados:
 Sin identificadores privados (IDs de cliente, emails, teléfonos, claves,
 hostnames internos).
 
-Última actualización: 2026-10-08 (jornada 1) · base `main` = `958b525` (sin cambios: nada fusionado).
+Última actualización: 2026-10-08 (jornada 1, cierre) · base `main` = `958b525` (sin cambios: nada fusionado).
 
 ---
 
@@ -52,20 +52,25 @@ ninguna vía de renovación pendiente (no "cero cobros históricos").
 |---|---|---|---|
 | Docs de transición | **Probado** (solo docs) | #289 · `claude/dona-transicion-docs` | #288 |
 | J2 Respaldo y retiro | **Preparado** (`RESPALDO-Y-RETIRO.md`); **Bloqueado** (Celestino: inventario y respaldos) | — | J1 |
-| J3 Repo sano y dependencias | **Probado**: candidata con #287 + #286 + #285 + #243 + #284 + pausa; CI en verde salvo pytest (en curso en el momento de escribir) | #290 · `claude/j3-candidato-deps` | #288 |
-| J4 Backend sin efectos externos | **Probado** (local: 2466 + 3 corregidos; diff-cover 97 %) | #291 · `claude/j4-backend-sin-efectos` | #290 |
-| J5 Paquete MSI | **Probado** (CI sin Docker); **Preparado** el preflight para Hermes MSI | #292 · `claude/j5-paquete-msi` | #291 |
+| J3 Repo sano y dependencias | **Probado**: CI completo en verde (pytest, pip-audit, gitleaks, landing) | #290 · `claude/j3-candidato-deps` | #288 |
+| J4 Backend sin efectos externos | **Probado**: CI en verde | #291 · `claude/j4-backend-sin-efectos` | #290 |
+| J5 Paquete MSI | **Probado**: CI en verde (sin Docker); **Preparado** el preflight para Hermes MSI | #292 · `claude/j5-paquete-msi` | #291 |
 | J6 Conectividad MSI | **Preparado** (`MSI-RUNBOOK.md` § 3); **Bloqueado** (OK de arranque) | — | J5 |
-| J7 Base app-first (backend: modelo + runner) | **Probado** (local) | `claude/j7-app-first-modelo` | #291 |
-| J7.4–J7.6 (acceso propio, API, UI, demo) | Pendiente | — | J7 backend |
-| J8 Piloto privado | Pendiente | — | J7 |
+| J7.1–J7.3 Modelo + runner | **Probado** (local: 2505 passed, diff-cover 90 %) | #293 · `claude/j7-app-first-modelo` | #291 |
+| J7.4 API interna `/internal/app` | **Probado** (local: 2523 passed, diff-cover 86 %) | #294 · `claude/j7-app-first-api` | #293 |
+| J7.5 UI `/app` + J7.6 demo | **Probado** (local: vitest 303, build, E2E móvil 13/13) | #295 · `claude/j7-app-first-ui` | J7.4 |
+| J8 Piloto privado | **Preparado** (`ACCIONES-CELESTINO.md` § F); **Bloqueado** (merges, MSI y OK) | — | J5, J6, J7 |
 
 Orden de merge propuesto (cada merge publica la landing en Vercel; antes,
 Render sin redeploy automático):
 
-1. #287 → #286 → #288 (o la candidata #290 de una vez, ver su descripción).
+1. #290 (incluye #287, #286, #285, #243, #284 y la pausa de #288) — o #288
+   solo si prefieres el corte mínimo primero.
 2. #289 (docs).
-3. #291 (J4) → #292 (J5) → J7.
+3. #291 (J4) → #292 (J5) → #293 (J7) → #294 → #295.
+
+Fusionar J7.5 en `main` **no abre** el piloto: `/app` sigue en 404 hasta
+`DONA_APP_PILOTO_ENABLED=true` en Vercel y en el backend (§ F).
 
 ## Acciones de Celestino pendientes (resumen)
 
@@ -79,19 +84,25 @@ Render sin redeploy automático):
 | 6 | WhatsApp: quitar webhooks en Whapi/Meta, no borrar número ni WABA | `ACCIONES-CELESTINO.md` § C | — |
 | 7 | Probar que `hola@usadona.com` recibe correo antes de publicarlo | `ACCIONES-CELESTINO.md` § E | contacto en el aviso |
 | 8 | Autorizar el preflight de solo lectura en la MSI (Hermes MSI) | `MSI-RUNBOOK.md` § 1 | J5/J6 |
+| 9 | Abrir el piloto con invitados (cuando J5–J7 estén fusionados y la MSI corra) | `ACCIONES-CELESTINO.md` § F | J8 |
 
 ## Cómo reanudar
 
 ```bash
 git fetch origin
-git checkout claude/j7-app-first-modelo        # último bloque de código
+git checkout claude/j7-app-first-ui            # último bloque (incluye J7.1–J7.6)
 python3.11 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q tests/test_app_first_modelo.py tests/test_app_first_ejecucion.py tests/test_efectos_arranque.py
-(cd landing && npm ci && npx vitest run)
+.venv/bin/python -m pytest -q tests/test_app_first_modelo.py tests/test_app_first_ejecucion.py \
+  tests/test_app_first_api.py tests/test_demo_app_first.py tests/test_efectos_arranque.py
+(cd landing && npm ci && npx vitest run && npm run build)
 ```
 
-Siguiente bloque de código: J7.4 (acceso propio y bridge `/internal/app/*`),
-según `APP-FIRST.md` § 10.
+Recorrido completo a mano: `APP-FIRST.md` § 11.
+
+Siguiente bloque de código, sin depender de Celestino: lo que `APP-FIRST.md`
+§ 8 deja fuera del piloto (editar agentes, invitar miembros, actualización
+en vivo) y el refresco de `vitest` cuando npm permita salir de 4.1.9.
+Lo que sí depende de él: J2 (respaldos), J6 (arranque en la MSI) y J8.
 
 ## Riesgos abiertos
 
@@ -103,7 +114,12 @@ según `APP-FIRST.md` § 10.
 - Hasta el merge de la pausa, cada visita a `/checkout` en producción puede
   crear una sesión de pago real.
 - `main` sigue con CI rojo (greenlet, cryptography, gitleaks) hasta que se
-  integren #287/#286 y las huellas de `.gitleaksignore`.
+  fusione #290 (o #287/#286 y las huellas de `.gitleaksignore`).
+- `vitest` 4.1.9 tiene un aviso abierto (dev, no llega a producción); npm 10
+  falla al actualizarlo dentro del rango. Dependabot propone 5.0.3 (#278):
+  es mayor, revisarlo aparte.
+- El piloto `/app` usa un solo workspace por usuario y no se actualiza en
+  vivo; el proveedor es simulado. No es todavía un producto para vender.
 - El repo es público: todo lo que se commitea (docs incluidos) es visible.
 - La imagen Docker del backend no se ha construido aún en ninguna máquina
   con este código (el sandbox no tiene daemon); lo hará Hermes MSI.

@@ -176,3 +176,32 @@ Ver `RESPALDO-Y-RETIRO.md`. Nada se borra antes de un respaldo comprobado.
 Antes de añadir `hola@usadona.com` al aviso de pausa: envía un correo de
 prueba desde una cuenta externa y confirma que lo recibes (Cloudflare Email
 Routing). Hasta entonces el aviso no muestra contacto.
+
+## F. Abrir el piloto app-first (J8, solo con tu OK)
+
+No hagas nada de esto hasta que estén fusionados J4 (#291), J7 (#293) y los
+PRs de API y UI que van encima, y el backend corra en la MSI (J5/J6). Abrir
+el piloto no reactiva ventas, Stripe ni WhatsApp: los agentes usan el
+proveedor simulado.
+
+1. **Backend (MSI, `dona.env`)**:
+   - `DONA_APP_PILOTO_ENABLED=true`
+   - `DONA_APP_INVITADOS=` correos de los usuarios invitados, separados por
+     comas (solo ellos pueden registrarse).
+   - `DONA_WORKER_ENABLED=true` (sin esto las tareas quedan encoladas).
+   - Mantén apagados `DONA_WHATSAPP_ENABLED`, `DONA_STRIPE_ENABLED`,
+     `DONA_LLM_ENABLED`, `DONA_SCHEDULER_ENABLED`, `DONA_INBOUND_ENABLED`.
+2. **Prueba en la MSI antes de tocar Vercel**: con `BACKEND_URL` en
+   loopback, `python scripts/demo_app_first.py --email <un invitado de
+   prueba>` debe terminar con "Demo completa". Si no, no sigas.
+3. **Vercel (Production)**:
+   - `DONA_APP_PILOTO_ENABLED=true`
+   - `BACKEND_URL` = la URL https del túnel de la MSI (J6).
+   - `INTERNAL_BRIDGE_SECRET` = el mismo valor que en la MSI.
+   - `AUTH_SECRET` ya existe; no lo cambies (cerraría sesiones).
+   - Redeploy.
+4. **Comprobación**: `https://usadona.com/` sigue mostrando la pausa;
+   `https://usadona.com/app/entrar` carga; registrarse con un correo **no**
+   invitado da "Este correo no tiene invitación al piloto."
+5. **Cerrar el piloto** cuando quieras: `DONA_APP_PILOTO_ENABLED` vacío en
+   Vercel (redeploy) o en la MSI. `/app` pasa a 404 y no se borra nada.

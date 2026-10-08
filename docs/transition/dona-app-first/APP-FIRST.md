@@ -31,14 +31,21 @@ se reutiliza del repo y por qué.
 
 `DONA_EN_PAUSA` sigue bloqueando lo **comercial y lo antiguo** (checkout,
 portal, dashboard anterior, WhatsApp). La app nueva vive detrás de **otro**
-interruptor, `PILOTO_APP` (constante en código, `false` hasta J8), y de una
-**lista de invitación** en el servidor. Que la web pública siga en pausa y
-el piloto esté abierto a invitados no se contradicen.
+interruptor, `DONA_APP_PILOTO_ENABLED`, que debe valer exactamente `true`
+**en la landing y en el backend**, y de una **lista de invitación** en el
+servidor (`DONA_APP_INVITADOS`). Que la web pública siga en pausa y el
+piloto esté abierto a invitados no se contradicen.
+
+Cambio respecto al plan inicial (constante en código): es variable de
+entorno porque abrir el piloto no reactiva nada comercial (sin Stripe, sin
+WhatsApp, proveedor simulado) y exige dos variables en dos sistemas más una
+invitación; un error de configuración en un solo lado deja `/app` en 404.
+`DONA_EN_PAUSA` sí sigue siendo constante: despausar la venta exige PR.
 
 ## 3. Modelo de datos (tablas nuevas, prefijo `app_`)
 
 ```
-app_usuarios          id, email (único, normalizado), password_hash (argon2id), creado, desactivado
+app_usuarios          id, email (único, normalizado), password_hash (scrypt), creado, desactivado
 app_workspaces        id, nombre, creado_por, creado
 app_membresias        workspace_id, usuario_id, rol (owner|admin|miembro), creado        PK(workspace_id, usuario_id)
 app_areas             id, workspace_id, nombre, descripcion
@@ -112,32 +119,40 @@ Ejecución: `encolada → en_curso → esperando_aprobacion → en_curso → ter
 
 ## 7. Acceso
 
-- Registro y acceso con **email + contraseña** propios (argon2id en el
-  backend). El login no consulta Stripe. Recuperar acceso por correo queda
-  para cuando haya un proveedor de correo verificado; en el piloto, reset
-  manual de un admin con registro en `app_actividad`.
+- Registro y acceso con **email + contraseña** propios (scrypt en el
+  backend, `agent/app_first/repositorio.py`; mínimo 10 caracteres). El login
+  no consulta Stripe. Lockout persistente reutilizado con prefijo `app:`.
+  Recuperar acceso por correo queda para cuando haya un proveedor de correo
+  verificado; en el piloto, reset manual de un admin.
+- Registro **solo por invitación**: el email debe estar en
+  `DONA_APP_INVITADOS` del backend (lista vacía = registro cerrado).
 - NextAuth en la landing con un proveedor `cuenta` que llama a
-  `/internal/app/auth/verificar` por el bridge HMAC.
-- La sesión lleva `usuario_id`; el **workspace activo se resuelve en el
-  servidor** con la membresía. Nunca se toma un `workspace_id` del cliente
-  sin comprobarlo.
-- Permisos en el servidor: `owner/admin` gestionan agentes y presupuesto;
-  `miembro` crea tareas y aprueba solo si es responsable del proyecto.
+  `POST /internal/app/auth.verificar` por el bridge HMAC. La sesión lleva
+  `tipo: "cuenta"`, `usuarioId` y `workspaceId`; una sesión del dashboard
+  antiguo (Stripe) no abre `/app`, y una de `cuenta` no abre las rutas
+  antiguas (exigen `subscriptionId`).
+- La identidad sale de la sesión del servidor (server actions), nunca del
+  formulario. El backend vuelve a comprobar la membresía en cada acción:
+  workspace u objeto ajeno → 404.
+- Permisos en el servidor: `owner/admin` gestionan áreas y agentes;
+  aprueba el responsable del proyecto u owner/admin.
 
-## 8. Pantallas mínimas
+## 8. Pantallas (J7.5, `landing/app/app/`)
 
-1. **Inicio**: proyectos y actividad reciente.
-2. **Área**: una inicial, configurable (nombre, descripción).
-3. **Proyecto**: objetivo, criterios de aceptación, responsable, tareas por estado.
-4. **Tarea**: ejecuciones con estados reales, evidencia, aprobación
-   pendiente, reintentar/cancelar.
-5. **Chat del proyecto**: mensajes vinculados al proyecto o a una tarea.
-6. **Agentes**: responsable y ejecutor; instrucciones, herramientas, presupuesto.
+| Ruta | Contenido |
+|---|---|
+| `/app/registro`, `/app/entrar` | Alta por invitación y acceso |
+| `/app` | Aprobaciones pendientes, áreas con sus proyectos, crear área/proyecto, agentes (rol, modelo, herramientas, presupuesto), actividad reciente |
+| `/app/proyectos/[id]` | Objetivo, criterios de aceptación, tareas por estado, crear tarea asignada a un ejecutor, conversación del proyecto |
+| `/app/tareas/[id]` | Estado y motivo de bloqueo, ejecutar/reintentar/cancelar, aprobación con riesgo y preview, evidencia con sha256, ejecuciones |
 
-Diseño: la identidad visual actual (tokens de `landing/app/globals.css`,
-tipografía, componentes Radix/shadcn ya instalados). Incluye estados
-vacíos, errores y navegación móvil. Ninguna animación se presenta como
-prueba de trabajo.
+Diseño: tokens de `landing/app/globals.css`; estados vacíos y errores;
+probado a 390 px sin desborde horizontal. Todo lo simulado va marcado.
+
+Lo que **no** tiene UI todavía (decisión consciente para el piloto):
+editar agentes (instrucciones, herramientas, presupuesto), invitar miembros
+a un workspace, varios workspaces por usuario (se usa el primero) y
+actualización en vivo (hay que recargar para ver el avance del agente).
 
 ## 9. Pruebas obligatorias (mocks, sin red)
 
@@ -160,8 +175,41 @@ prueba de trabajo.
 | J7.5 | UI `/app/*` (inicio, área, proyecto, tarea, chat, agentes), móvil | vitest + build + capturas |
 | J7.6 | Datos sintéticos de demo + guía (qué es real, qué es simulado) | recorrido documentado en `EVIDENCIA.md` |
 
-## 11. Marcha atrás
+## 11. Cómo probarlo (J7.6)
 
-`PILOTO_APP = false` oculta la app sin borrar datos. Las migraciones son
+Todo local, con proveedor simulado (sin modelos, sin mensajes, sin cobros):
+
+```bash
+# Backend (otra terminal): SQLite temporal y solo el worker encendido
+export DATABASE_URL=sqlite+aiosqlite:///./demo.db
+export INTERNAL_BRIDGE_SECRET=$(openssl rand -hex 24) ADMIN_TOKEN=$(openssl rand -hex 24)
+export ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())")
+export DONA_APP_PILOTO_ENABLED=true DONA_APP_INVITADOS=demo@example.com DONA_WORKER_ENABLED=true
+uvicorn agent.main:app --port 8000
+
+# Demo por API (misma INTERNAL_BRIDGE_SECRET)
+BACKEND_URL=http://127.0.0.1:8000 DONA_DEMO_PASSWORD=una-clave-larga python scripts/demo_app_first.py
+```
+
+El script imprime cada paso (cuenta → proyecto → tarea → aprobación humana →
+revisión del responsable → evidencia con hash) y sale con 0 si todo cumple.
+Para la UI: `cd landing && npm run build && DONA_APP_PILOTO_ENABLED=true
+BACKEND_URL=http://127.0.0.1:8000 INTERNAL_BRIDGE_SECRET=… AUTH_SECRET=…
+AUTH_TRUST_HOST=true npx next start` y abrir `/app/registro` con
+`demo@example.com`.
+
+Qué es real y qué es simulado:
+
+| Real | Simulado |
+|---|---|
+| Cuentas, workspaces, aislamiento, permisos | El texto del agente ejecutor (plantilla determinista) |
+| Cola, lease, reaper, reintentos, idempotencia | La revisión del responsable (marca los criterios como revisados si hay evidencia) |
+| Aprobación humana y su registro | "Publicar resultado": queda como registro en Dona, no sale a ningún canal |
+| Evidencia con sha256 y actividad | Consumo: 1 unidad por ejecución, sin costo |
+
+## 12. Marcha atrás
+
+`DONA_APP_PILOTO_ENABLED` distinto de `true` (en la landing y/o en el
+backend) oculta la app (404) sin borrar datos. Las migraciones son
 aditivas (tablas `app_*` nuevas). Revertir un PR no toca las tablas
 existentes.

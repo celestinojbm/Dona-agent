@@ -149,3 +149,52 @@ Rama `claude/j7-app-first-modelo` @ `eb3d1e1`.
 | `tests/test_app_first_ejecucion.py` | 19 passed (flujo completo, idempotencia, dos workers, aprobación/rechazo, herramienta no permitida, presupuesto, fallo y reintento sin duplicar efectos, reinicio del worker, cancelación, aislamiento, worker apagado, inproc) |
 | Mutaciones | sin chequeo de presupuesto → 1 fallo; reclamo sin condición de estado → 3 fallos |
 | Proveedores | solo `simulado`; cualquier otro modelo → `proveedor_no_disponible` sin red |
+| Suite completa con cobertura | **2505 passed**, cobertura total 64,56 % (piso 46 %) |
+| diff-cover vs la base (`claude/j4-backend-sin-efectos`) | 90 % (piso 80 %) |
+| gitleaks sobre el rango | sin hallazgos |
+
+## J7.4–J7.6 · API, UI `/app` y demo — 2026-10-08
+
+Ramas `claude/j7-app-first-api` (API) y `claude/j7-app-first-ui` (UI +
+demo), apiladas sobre J7.
+
+| Comprobación | Resultado |
+|---|---|
+| `tests/test_app_first_api.py` + modelo + ejecución | 48 passed (ruta plana en `app.routes`, piloto apagado = 404 aun con firma válida, firma ausente/errónea = 401, registro solo por invitación, duplicado = 409, lockout tras 10 fallos = 429, flujo completo por la API, aislamiento entre usuarios) |
+| `tests/test_demo_app_first.py` | 6 passed (demo completa y repetible con la app real en proceso, sin invitación, worker apagado con pista, solo loopback, backend caído) |
+| Landing `npx vitest run` | **35 archivos, 303 tests** en verde (nuevos: bridge `/internal/app`, provider `cuenta`, server actions, puerta del layout, piloto) |
+| Landing `tsc --noEmit` / `eslint` | sin errores (1 warning preexistente del `<img>` del pixel) |
+| `next build` | OK; rutas dinámicas `/app`, `/app/entrar`, `/app/registro`, `/app/proyectos/[id]`, `/app/tareas/[id]` |
+
+| Suite completa sobre la UI (1.ª corrida) | **1 fallo real**: `test_smoke_e2e::test_webhook_routes_registradas` — `include_router` dejaba un `_IncludedRouter` sin `.path` en `app.routes` (FastAPI 0.142). Corregido registrando la ruta con `add_api_route` (`75906a8`) + test de regresión que falla con el código anterior |
+| Suite completa tras la corrección | **2523 passed**, cobertura 64,79 %; diff-cover 86 % vs #293 |
+
+### Recorrido E2E en navegador (local, proveedor simulado)
+
+Backend local (`uvicorn`, SQLite temporal, solo `DONA_WORKER_ENABLED`
+encendido; WhatsApp, Stripe, LLM, scheduler e inbound apagados) + `next
+start` del build + Chromium (Playwright) en viewport móvil 390×844. Secretos
+generados al vuelo, datos sintéticos (`ana@example.com`).
+
+| Paso | Resultado |
+|---|---|
+| Registro con correo no invitado | rechazado: "Este correo no tiene invitación al piloto." |
+| Registro invitado | crea espacio, área "General", agentes Responsable y Ejecutor |
+| Crear proyecto con 2 criterios, tarea asignada al Ejecutor, mensaje | OK |
+| Ejecutar la tarea "Publicar…" | queda en "Necesita aprobación" con riesgo alto y preview marcada "simulado" |
+| Aprobar | tarea "Completada"; evidencias: texto, registro de la operación, revisión del responsable; cada una con sha256 |
+| Salir; entrar con contraseña mala; entrar bien | rechazado / vuelve a `/app` |
+| `/` | sigue mostrando "Dona está en pausa" |
+| Desborde horizontal a 390 px | ninguno en inicio, proyecto y tarea |
+
+**13 de 13 pasos OK**, repetido desde una base vacía tras pulir textos.
+
+### Límites
+
+- El script E2E de Playwright no está en el repo (Playwright no es
+  dependencia de la landing); el recorrido reproducible para Celestino es
+  `scripts/demo_app_first.py` (API) más la guía de `APP-FIRST.md` § 11.
+- No probado contra Vercel ni contra la MSI: el piloto no está abierto
+  (ver `ACCIONES-CELESTINO.md` § F).
+- El texto del agente y la revisión del responsable son simulados; ningún
+  modelo real ha intervenido.
