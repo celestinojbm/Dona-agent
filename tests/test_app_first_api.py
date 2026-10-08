@@ -90,6 +90,13 @@ class TestPuertas:
     def test_accion_desconocida_es_404(self, api):
         assert api("borrar.todo", {}).status_code == 404
 
+    def test_ruta_plana_en_app_routes(self, api):
+        # Todas las rutas deben tener .path: test_smoke_e2e y otros las recorren.
+        from agent.main import app
+
+        assert all(hasattr(r, "path") for r in app.routes)
+        assert "/internal/app/{accion}" in {r.path for r in app.routes}
+
     def test_tipos_invalidos_son_400(self, api):
         assert api("workspaces", {"usuario_id": "1"}).status_code == 400
         assert api("workspaces", {"usuario_id": True}).status_code == 400
