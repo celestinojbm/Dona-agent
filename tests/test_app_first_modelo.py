@@ -219,7 +219,7 @@ class TestEsquemaAditivo:
         assert nuevas == {
             "app_usuarios", "app_workspaces", "app_membresias", "app_areas", "app_proyectos",
             "app_agentes", "app_tareas", "app_ejecuciones", "app_aprobaciones", "app_evidencias",
-            "app_actividad", "app_consumo", "app_mensajes_proyecto",
+            "app_actividad", "app_consumo", "app_mensajes_proyecto", "app_efectos",
         }
         # Las tablas del producto anterior siguen ahí, intactas.
         assert {"usuarios", "mensajes", "saldo_creditos", "suscripcion_stripe"} <= tablas

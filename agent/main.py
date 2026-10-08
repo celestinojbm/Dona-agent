@@ -366,6 +366,15 @@ async def lifespan(app: FastAPI):
         # Nunca abortar el arranque por el reaper — es recuperación best-effort.
         logger.exception("[JOBS] Reaper de arranque falló (se continúa)")
 
+    # J7 · Recuperar ejecuciones de agentes (app-first) que quedaron en_curso
+    # con el lease vencido por un proceso anterior. Solo DB; el re-despacho
+    # respeta DONA_WORKER_ENABLED.
+    try:
+        from agent.app_first.ejecucion import reaper as reaper_app_first
+        await reaper_app_first()
+    except Exception:
+        logger.exception("[APP-FIRST] Reaper de arranque falló (se continúa)")
+
     iniciar_scheduler(proveedor)  # no-op si DONA_SCHEDULER_ENABLED != true
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor Dona corriendo en puerto {PORT}")

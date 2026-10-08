@@ -276,3 +276,23 @@ class AppMensajeProyecto(Base):
     autor_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     contenido: Mapped[str] = mapped_column(Text)
     creado: Mapped[datetime] = mapped_column(DateTime, default=_ahora, index=True)
+
+
+class AppEfecto(Base):
+    """Efecto de una operación reservada (tras aprobación).
+
+    La clave de idempotencia es única: si un reintento o un worker reiniciado
+    vuelve a ejecutar la misma operación aprobada, encuentra la fila y
+    devuelve el resultado anterior en vez de repetir el efecto.
+    """
+
+    __tablename__ = "app_efectos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("app_workspaces.id"), index=True)
+    clave_idempotencia: Mapped[str] = mapped_column(String(200), unique=True)
+    operacion: Mapped[str] = mapped_column(String(80))
+    ejecucion_id: Mapped[int] = mapped_column(ForeignKey("app_ejecuciones.id"), index=True)
+    resultado_json: Mapped[str] = mapped_column(Text, default="{}")
+    simulado: Mapped[bool] = mapped_column(Boolean, default=True)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=_ahora)
