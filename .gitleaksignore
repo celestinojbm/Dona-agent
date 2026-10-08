@@ -8,3 +8,17 @@
 # Contraseña de FORMATO ("dona-" + 12 hex) en el test de authorize en pausa;
 # reemplazada por un valor construido en ejecución en 231844f.
 92d0b22b87490af6e680600764f8858dc4ac24ea:landing/lib/auth-pausa.test.ts:generic-api-key:43
+
+# ── Históricos de main (escaneo semanal de Security). Revisados uno a uno:
+# todos son fixtures de test con valores inventados, nunca credenciales.
+# Test del sanitizador de audit: "dona-secret123" como valor de la clave
+# "password" que el sanitizador debe descartar.
+ccf1009d6ffdd693f65fe74cd3075ca569d54175:tests/test_automation_audit.py:generic-api-key:31
+# Test del matcher de login: ids de Stripe ficticios "cus_SECRET12345"/"sub_SECRET12345".
+e4181aac9db8e1958de2ce88b37db6c5c764e7ac:landing/lib/auth-matcher.test.ts:generic-api-key:471
+# Tests del mensaje de bienvenida: contraseñas de formato "dona-abc123def456" y "dona-fedcba987654".
+2e77dfe0156246ee6eda83b10c22ad46d5b1a41e:tests/test_welcome_premium.py:generic-api-key:96
+2e77dfe0156246ee6eda83b10c22ad46d5b1a41e:tests/test_welcome_premium.py:generic-api-key:112
+# Tests de redacción de logs: claves con patrón obvio (AAAABBBB…) que el redactor debe ocultar.
+a5e338cac8eafe4ea8ad534acd8e4cd3559f4644:tests/test_logging.py:generic-api-key:63
+a5e338cac8eafe4ea8ad534acd8e4cd3559f4644:tests/test_logging.py:generic-api-key:68
