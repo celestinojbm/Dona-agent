@@ -42,7 +42,15 @@ from agent.entorno import es_entorno_estricto
 def _check_inbound_secret() -> None:
     """Aborta el arranque si el entorno es estricto y falta INBOUND_WEBHOOK_SECRET.
     Fail-closed por defecto (ver agent/entorno.py): solo dev/test explícitos
-    permiten el fallback inseguro."""
+    permiten el fallback inseguro.
+
+    J4 · Solo con webhooks inbound encendidos (DONA_INBOUND_ENABLED=true).
+    Apagados, /webhook/inbound responde 503 antes de validar tokens, y
+    `_secreto()` sigue rechazando en entorno estricto sin secret."""
+    from agent.efectos import efecto_habilitado
+
+    if not efecto_habilitado("inbound"):
+        return
     if es_entorno_estricto() and not os.getenv("INBOUND_WEBHOOK_SECRET", "").strip():
         raise RuntimeError(
             "[INBOUND] INBOUND_WEBHOOK_SECRET no configurado en entorno estricto "

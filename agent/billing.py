@@ -41,7 +41,16 @@ from agent.entorno import es_entorno_estricto
 
 
 def _check_stripe_webhook_secret() -> None:
-    """Aborta el arranque si el entorno es estricto y falta STRIPE_WEBHOOK_SECRET."""
+    """Aborta el arranque si el entorno es estricto y falta STRIPE_WEBHOOK_SECRET.
+
+    J4 · Solo con Stripe encendido (DONA_STRIPE_ENABLED=true). Apagado, las
+    rutas de Stripe responden 503 antes de verificar nada (agent/main.py), y
+    `verificar_firma_stripe` sigue rechazando en entorno estricto sin secret.
+    """
+    from agent.efectos import efecto_habilitado
+
+    if not efecto_habilitado("stripe"):
+        return
     if es_entorno_estricto() and not os.getenv("STRIPE_WEBHOOK_SECRET", "").strip():
         raise RuntimeError(
             "[BILLING] STRIPE_WEBHOOK_SECRET no configurada en entorno estricto "

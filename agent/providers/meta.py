@@ -112,8 +112,12 @@ class ProveedorMeta(ProveedorWhatsApp):
         # no a nivel módulo porque el factory de agent/providers/__init__.py
         # solo importa este módulo si el provider activo es Meta — así no
         # bloqueamos deploys con WHATSAPP_PROVIDER=whapi/twilio sin secret.
+        # J4 · Con el canal WhatsApp apagado (default) /webhook responde 503
+        # antes de verificar firmas (agent/main.py), así que el secreto solo
+        # se exige con DONA_WHATSAPP_ENABLED=true.
+        from agent.efectos import efecto_habilitado
         from agent.entorno import es_entorno_estricto
-        if es_entorno_estricto() and not self.app_secret:
+        if efecto_habilitado("whatsapp") and es_entorno_estricto() and not self.app_secret:
             raise RuntimeError(
                 "[META] META_APP_SECRET no configurado en entorno estricto — "
                 "los webhooks aceptarían payloads forjados, lo que permite "
@@ -128,7 +132,7 @@ class ProveedorMeta(ProveedorWhatsApp):
         # En entorno estricto exigimos la variable configurada (mismo patrón
         # fail-closed que META_APP_SECRET arriba); la comparación en sí se
         # hace en validar_webhook con hmac.compare_digest.
-        if es_entorno_estricto() and not self.verify_token:
+        if efecto_habilitado("whatsapp") and es_entorno_estricto() and not self.verify_token:
             raise RuntimeError(
                 "[META] META_WEBHOOK_VERIFY_TOKEN no configurado en entorno "
                 "estricto — el handshake GET de verificación del webhook "

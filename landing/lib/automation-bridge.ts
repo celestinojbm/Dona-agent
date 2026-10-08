@@ -23,6 +23,7 @@ import type {
   AccionAutomatizacion,
   HighPreviewResponse,
 } from "./automation-types";
+import { resolverBackendUrl } from "@/lib/backend-url";
 
 const BRIDGE_TIMEOUT_MS = 8000;
 
@@ -42,7 +43,7 @@ async function callInternal<T>(
   path: string,
   body: Record<string, unknown>,
 ): Promise<AccionApiResult<T>> {
-  const backendUrl = process.env.BACKEND_URL?.trim();
+  const backendUrl = resolverBackendUrl();
   const secret = process.env.INTERNAL_BRIDGE_SECRET?.trim();
 
   if (!backendUrl) {

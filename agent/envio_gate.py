@@ -246,6 +246,18 @@ async def puede_enviar(telefono: str) -> bool:
     Llamado por ProveedorWhatsApp antes de cada envío. Fail-closed: ante
     cualquier error leyendo el estado del usuario, retorna False.
     """
+    # J4 · Canal WhatsApp apagado (default, ver agent/efectos.py): ningún
+    # envío sale, ni siquiera los DIRECTOS. Va antes de cualquier lectura
+    # de DB: con el canal apagado no hay nada que consultar.
+    from agent.efectos import efecto_habilitado
+
+    if not efecto_habilitado("whatsapp"):
+        logger.warning(
+            f"[GATE] Envío bloqueado motivo=whatsapp_deshabilitado "
+            f"tel=...{telefono[-4:]}"
+        )
+        return False
+
     tipo = _tipo_efectivo(telefono)
 
     if tipo == TIPO_DIRECTO:
