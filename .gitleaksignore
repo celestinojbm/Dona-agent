@@ -1,0 +1,10 @@
+# .gitleaksignore — excepciones EXACTAS de gitleaks (huella = commit:archivo:regla:línea).
+#
+# Solo fixtures de test demostrados como no secretos. Una huella cubre ese
+# hallazgo en ese commit y nada más: un secreto nuevo en otro commit o línea
+# sigue fallando. No usar patrones amplios. Clasificación y motivo de cada
+# entrada: docs/transition/dona-app-first/EVIDENCIA.md (gitleaks).
+
+# Contraseña de FORMATO ("dona-" + 12 hex) en el test de authorize en pausa;
+# reemplazada por un valor construido en ejecución en 231844f.
+92d0b22b87490af6e680600764f8858dc4ac24ea:landing/lib/auth-pausa.test.ts:generic-api-key:43
