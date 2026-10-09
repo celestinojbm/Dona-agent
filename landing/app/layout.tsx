@@ -24,11 +24,11 @@ const mono = JetBrains_Mono({
 
 // Pausa: título y descripción describen el estado real (ver lib/pausa.ts).
 export const metadata: Metadata = {
-  title: "Dona — en pausa",
+  title: "Dona — plazas completas",
   description: MENSAJE_PAUSA,
   metadataBase: new URL("https://usadona.com"),
   openGraph: {
-    title: "Dona — en pausa",
+    title: "Dona — plazas completas",
     description: MENSAJE_PAUSA,
     url: "https://usadona.com",
     siteName: "Dona",
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Dona — en pausa",
+    title: "Dona — plazas completas",
     description: MENSAJE_PAUSA,
   },
 };

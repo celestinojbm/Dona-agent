@@ -6,10 +6,10 @@ import type { Metadata } from "next";
 import PaginaPausa from "@/components/pagina-pausa";
 
 export const metadata: Metadata = {
-  title: "Dona en pausa",
+  title: "Dona — plazas completas",
   robots: { index: false },
 };
 
 export default function CancelPage() {
-  return <PaginaPausa detalle="No hay planes disponibles mientras Dona está en pausa." />;
+  return <PaginaPausa detalle="No hay planes disponibles: todas las plazas están ocupadas." />;
 }
