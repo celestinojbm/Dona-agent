@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getStripe } from "@/lib/stripe";
+import { bloqueoPausa } from "@/lib/pausa-api";
 
 // T1.4.F — Cancelación al final del período (no inmediata).
 //
@@ -25,6 +26,11 @@ function shortId(id: string): string {
 }
 
 export async function POST() {
+  // Pausa: las suscripciones de Dona las cancela Celestino directamente en
+  // Stripe (ver docs/transition/dona-app-first/ACCIONES-CELESTINO.md).
+  const pausa = bloqueoPausa();
+  if (pausa) return pausa;
+
   const session = await auth();
 
   if (!session) {

@@ -14,9 +14,11 @@ const mono = JetBrains_Mono({
   display: "swap",
 });
 
+// Pausa: la página responde 404 (ver page.tsx). Sin título de prototipo y
+// fuera de los buscadores.
 export const metadata: Metadata = {
-  title: "Dona — prototipo hero v2",
-  description: "Prototipo de dirección visual: base clara premium + vitalidad de gradiente.",
+  title: "Dona",
+  robots: { index: false, follow: false },
 };
 
 export default function PrototipoLayout({

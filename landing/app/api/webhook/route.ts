@@ -1,80 +1,59 @@
+// landing/app/api/webhook/route.ts — Webhook de Stripe durante la pausa.
+//
+// Contrato en pausa:
+//   - Sin STRIPE_WEBHOOK_SECRET → 503 y NO se acepta el evento (nunca se
+//     procesa un evento sin validar). Celestino debe deshabilitar el
+//     endpoint en Stripe en ese caso.
+//   - Sin cabecera stripe-signature o con firma inválida → 400.
+//   - Evento con firma válida → 200 {received, paused} SIN acciones
+//     comerciales y SIN bridge al backend. Así Stripe deja de reintentar
+//     (antes el bridge fallaba contra Render suspendido → 500 → reintentos
+//     durante 3 días).
+//
+// La verificación usa Stripe.webhooks (estático): NO necesita
+// STRIPE_SECRET_KEY, que puede retirarse de Vercel.
+//
+// Evidencia: solo se registra en el log id, tipo, livemode y created del
+// evento. Nunca el payload (puede traer emails, teléfonos, importes).
+//
+// Este acuse NO reconcilia la base de datos: la conciliación de cierre se
+// hace contra Stripe (ver docs/transition/dona-app-first/).
+
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { getStripe } from "@/lib/stripe";
-import { reenviarEventoStripeABackend } from "@/lib/internal-bridge";
-
-// T2.0.B · El welcome WhatsApp post-checkout YA NO se envía desde acá.
-// El backend (agent/welcome.py · enviar_bienvenida_premium) lo envía
-// canónicamente tras crear SuscripcionStripe en T1.3.C, con password
-// derivado, link al dashboard e idempotencia por flag bienvenida_enviada.
-// Eliminado para evitar doble WhatsApp si Stripe reintenta el webhook.
 
 export async function POST(req: NextRequest) {
-  const body = await req.text();
-  const sig = req.headers.get("stripe-signature");
+  const secret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    console.error(
+      "[WEBHOOK-PAUSA] STRIPE_WEBHOOK_SECRET no configurada · evento rechazado sin validar",
+    );
+    return NextResponse.json(
+      { error: "webhook_no_configurado" },
+      { status: 503 },
+    );
+  }
 
+  const sig = req.headers.get("stripe-signature");
   if (!sig) {
     return NextResponse.json({ error: "Missing signature" }, { status: 400 });
   }
 
+  const body = await req.text();
+
   let event: Stripe.Event;
-
   try {
-    event = getStripe().webhooks.constructEvent(
-      body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    );
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "unknown";
-    console.error("Webhook signature verification failed:", msg);
-    return NextResponse.json(
-      { error: "Invalid signature" },
-      { status: 400 }
-    );
+    event = Stripe.webhooks.constructEvent(body, sig, secret);
+  } catch {
+    // Sin detalles del error en el log: pueden incluir fragmentos del cuerpo.
+    console.warn("[WEBHOOK-PAUSA] firma inválida · evento rechazado");
+    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
-  // Logueamos solo metadata semántica, no PII. El welcome lo maneja el backend.
-  switch (event.type) {
-    case "checkout.session.completed": {
-      const session = event.data.object as Stripe.Checkout.Session;
-      console.log(
-        `[WEBHOOK] checkout.session.completed plan=${session.metadata?.plan ?? "—"} ` +
-          `mode=${session.mode}`,
-      );
-      break;
-    }
+  console.log(
+    `[WEBHOOK-PAUSA] evento recibido sin procesar · id=${event.id} ` +
+      `type=${event.type} livemode=${event.livemode} created=${event.created}`,
+  );
 
-    case "payment_intent.payment_failed": {
-      const intent = event.data.object as Stripe.PaymentIntent;
-      console.error(
-        `[WEBHOOK] payment_intent.payment_failed id=${intent.id}: ` +
-          `${intent.last_payment_error?.message ?? "—"}`,
-      );
-      break;
-    }
-
-    default:
-      // Unhandled event type — el bridge igual lo reenvía al backend.
-      break;
-  }
-
-  // Bridge T1.3.E: reenviar el evento verificado al backend Dona.
-  // El backend (procesar_evento_suscripcion) maneja la persistencia de
-  // suscripciones, la acreditación de créditos, y desde T2.0.B también
-  // el welcome con password. Si el bridge falla, respondemos 500 a
-  // Stripe para que reintente (mejor retry + alerta que perder un evento).
-  const bridge = await reenviarEventoStripeABackend(event);
-  if (!bridge.ok) {
-    console.error(
-      `[WEBHOOK] Bridge a backend falló (status=${bridge.status ?? "n/a"} ` +
-        `error=${bridge.error}). Respondiendo 500 a Stripe para retry.`,
-    );
-    return NextResponse.json(
-      { error: "bridge_failed", reason: bridge.error },
-      { status: 500 },
-    );
-  }
-
-  return NextResponse.json({ received: true });
+  return NextResponse.json({ received: true, paused: true });
 }

@@ -2,12 +2,17 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { bloqueoPausa } from "@/lib/pausa-api";
 import { rechazarAccion } from "@/lib/automation-bridge";
 
 export async function POST(
   _req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  // Pausa: sin sesión, backend ni Stripe (ver lib/pausa.ts).
+  const pausa = bloqueoPausa();
+  if (pausa) return pausa;
+
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });

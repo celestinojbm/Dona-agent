@@ -13,6 +13,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { bloqueoPausa } from "@/lib/pausa-api";
 import { fetchReportes } from "@/lib/reportes-bridge";
 import type { PeriodoReporte, ReportesResponse } from "@/lib/reportes-types";
 
@@ -41,6 +42,10 @@ function reporteVacio(periodo: PeriodoReporte): ReportesResponse {
 }
 
 export async function GET(req: Request) {
+  // Pausa: sin sesión, backend ni Stripe (ver lib/pausa.ts).
+  const pausa = bloqueoPausa();
+  if (pausa) return pausa;
+
   const session = await auth();
   if (!session) {
     console.warn("[REPORTES] GET · missing_session");

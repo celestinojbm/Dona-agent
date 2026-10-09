@@ -13,10 +13,16 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { esTokenPanelValido, PANEL_COOKIE } from "@/lib/panel-auth";
 import { fetchPanelData } from "@/lib/panel-bridge";
+import { rutaRetiradaEnPausa } from "@/lib/pausa-api";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  // Pausa: 404 antes de leer la cookie o llamar a GitHub/Render, incluso
+  // con una cookie de panel anterior aún válida.
+  const retirada = rutaRetiradaEnPausa();
+  if (retirada) return retirada;
+
   const cookieStore = await cookies();
   const token = cookieStore.get(PANEL_COOKIE)?.value;
   if (!esTokenPanelValido(token)) {

@@ -11,6 +11,7 @@ import {
   checkLoginLockout,
   recordLoginAttempt,
 } from "@/lib/auth-lockout-bridge";
+import { DONA_EN_PAUSA } from "@/lib/pausa";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -21,6 +22,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        // Pausa: ningún login prospera y no se consulta Stripe, el lockout
+        // del backend ni nada externo. Las sesiones anteriores (JWT) no dan
+        // acceso operativo: /dashboard y las rutas /api/* privadas cortan
+        // antes de leer la sesión.
+        if (DONA_EN_PAUSA) return null;
+
         const email = credentials?.email as string | undefined;
         const password = credentials?.password as string | undefined;
 

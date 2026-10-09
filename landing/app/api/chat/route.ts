@@ -23,6 +23,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { bloqueoPausa } from "@/lib/pausa-api";
 import { enviarMensajeChat } from "@/lib/chat-bridge";
 import type { ChatMediaWire } from "@/lib/chat-types";
 
@@ -75,6 +76,10 @@ function validarAdjunto(valor: unknown): AdjuntoValidado | null {
 }
 
 export async function POST(req: Request) {
+  // Pausa: sin sesión, backend ni Stripe (ver lib/pausa.ts).
+  const pausa = bloqueoPausa();
+  if (pausa) return pausa;
+
   const session = await auth();
   if (!session) {
     console.warn("[CHAT] POST · missing_session");

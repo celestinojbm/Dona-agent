@@ -29,6 +29,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getStripe } from "@/lib/stripe";
+import { bloqueoPausa } from "@/lib/pausa-api";
 
 const URL_RE = /^https?:\/\//i;
 
@@ -74,6 +75,11 @@ function resolveReturnUrl(): string {
 }
 
 export async function POST() {
+  // Pausa: el portal permitía reactivar suscripciones y cambiar de plan.
+  // Se corta antes de leer la sesión o llamar a Stripe.
+  const pausa = bloqueoPausa();
+  if (pausa) return pausa;
+
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });

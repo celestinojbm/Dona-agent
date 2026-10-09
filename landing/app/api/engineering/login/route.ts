@@ -13,8 +13,13 @@ import {
   PANEL_COOKIE,
   PANEL_COOKIE_MAX_AGE,
 } from "@/lib/panel-auth";
+import { rutaRetiradaEnPausa } from "@/lib/pausa-api";
 
 export async function POST(req: Request) {
+  // Pausa: el panel no existe públicamente (404) y no emite cookies nuevas.
+  const retirada = rutaRetiradaEnPausa();
+  if (retirada) return retirada;
+
   let token: unknown;
   try {
     const body = (await req.json()) as { token?: unknown };
@@ -40,6 +45,8 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true });
 }
 
+// DELETE sigue disponible en pausa: solo borra la cookie del panel (no
+// consulta APIs ni valida tokens), útil para limpiar sesiones anteriores.
 export async function DELETE() {
   const cookieStore = await cookies();
   cookieStore.delete(PANEL_COOKIE);
