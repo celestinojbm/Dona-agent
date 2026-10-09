@@ -10,7 +10,7 @@ Fuente de verdad del avance. Cuatro estados:
 Sin identificadores privados (IDs de cliente, emails, teléfonos, claves,
 hostnames internos).
 
-Última actualización: 2026-10-08 (jornada 1, cierre) · base `main` = `958b525` (sin cambios: nada fusionado).
+Última actualización: 2026-10-09 · base `main` = `c032211` (fusionados #290 y #288 el 2026-10-09 03:28 UTC; pausa verificada en producción).
 
 ---
 
@@ -20,10 +20,9 @@ hostnames internos).
 |---|---|---|
 | Checklist urgente de Stripe | **Preparado** | `ACCIONES-CELESTINO.md` § A |
 | Ejecución del checklist en Stripe (cuenta Stravos, live) | **Bloqueado** (Celestino) | registrar resultado abajo |
-| PR "Dona en pausa" (landing) | **Probado** (Landing CI y gitleaks en verde; pytest y pip-audit rojos heredados de `main`) | #288 · rama `claude/happy-babbage-bs15fv` |
-| Preview de Vercel del PR revisada | **Bloqueado** (Celestino) | `ACCIONES-CELESTINO.md` § B1 |
-| Render sin redeploy automático antes del merge | **Bloqueado** (Celestino) | `ACCIONES-CELESTINO.md` § B2 |
-| Merge y verificación en producción | **Bloqueado** (OK de Celestino) | `ACCIONES-CELESTINO.md` § B3–B4 |
+| PR "Dona en pausa" (landing) | **Hecho**: en `main` vía #290 (incluye #288) | `c032211` |
+| Render sin redeploy automático | **Sin confirmar** (Celestino): necesario antes de fusionar #291 (primer cambio de backend) | `ACCIONES-CELESTINO.md` § B2 |
+| Merge y verificación en producción | **Hecho**: `/` y páginas de venta muestran la pausa; `POST /api/checkout` 503; webhook Stripe sin firma 400; portal 503; WhatsApp 410; `/prototipo` y `/engineering` 404; sin Pixel | `EVIDENCIA.md` § J1 en producción |
 | Contacto en el aviso de pausa | **Bloqueado** (verificar correo) | `ACCIONES-CELESTINO.md` § E |
 
 ### Registro del corte (lo rellena Celestino)
@@ -50,10 +49,10 @@ ninguna vía de renovación pendiente (no "cero cobros históricos").
 
 | Bloque | Estado | PR · rama | Depende de |
 |---|---|---|---|
-| Docs de transición | **Probado** (solo docs) | #289 · `claude/dona-transicion-docs` | #288 |
+| Docs de transición | **Probado** (solo docs); base cambiada a `main` | #289 · `claude/dona-transicion-docs` | — |
 | J2 Respaldo y retiro | **Preparado** (`RESPALDO-Y-RETIRO.md`); **Bloqueado** (Celestino: inventario y respaldos) | — | J1 |
-| J3 Repo sano y dependencias | **Probado**: CI completo en verde (pytest, pip-audit, gitleaks, landing) | #290 · `claude/j3-candidato-deps` | #288 |
-| J4 Backend sin efectos externos | **Probado**: CI en verde | #291 · `claude/j4-backend-sin-efectos` | #290 |
+| J3 Repo sano y dependencias | **Hecho**: en `main` (`c032211`) | #290 | — |
+| J4 Backend sin efectos externos | **Probado**: CI en verde; base cambiada a `main`, sin conflictos | #291 · `claude/j4-backend-sin-efectos` | — |
 | J5 Paquete MSI | **Probado**: CI en verde (sin Docker); **Preparado** el preflight para Hermes MSI | #292 · `claude/j5-paquete-msi` | #291 |
 | J6 Conectividad MSI | **Preparado** (`MSI-RUNBOOK.md` § 3); **Bloqueado** (OK de arranque) | — | J5 |
 | J7.1–J7.3 Modelo + runner | **Probado** (local: 2505 passed, diff-cover 90 %) | #293 · `claude/j7-app-first-modelo` | #291 |
@@ -64,10 +63,11 @@ ninguna vía de renovación pendiente (no "cero cobros históricos").
 Orden de merge propuesto (cada merge publica la landing en Vercel; antes,
 Render sin redeploy automático):
 
-1. #290 (incluye #287, #286, #285, #243, #284 y la pausa de #288) — o #288
-   solo si prefieres el corte mínimo primero.
+1. ~~#290 / #288~~ — fusionados.
 2. #289 (docs).
-3. #291 (J4) → #292 (J5) → #293 (J7) → #294 → #295.
+3. #291 (J4) → #292 (J5) → #293 (J7) → #294 → #295. Antes de #291,
+   confirmar Render sin Auto-Deploy: es el primer merge que cambia el
+   backend.
 
 Fusionar J7.5 en `main` **no abre** el piloto: `/app` sigue en 404 hasta
 `DONA_APP_PILOTO_ENABLED=true` en Vercel y en el backend (§ F).

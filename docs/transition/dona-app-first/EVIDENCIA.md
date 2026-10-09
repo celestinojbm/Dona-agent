@@ -198,3 +198,21 @@ generados al vuelo, datos sintéticos (`ana@example.com`).
   (ver `ACCIONES-CELESTINO.md` § F).
 - El texto del agente y la revisión del responsable son simulados; ningún
   modelo real ha intervenido.
+
+## J1 en producción — 2026-10-09 03:30 UTC
+
+Tras el merge de #290 (que incluye #288) en `main` = `c032211`. Peticiones
+anónimas a `https://usadona.com`, sin credenciales:
+
+| Ruta | Resultado |
+|---|---|
+| `/`, `/checkout`, `/success`, `/dashboard`, `/login`, términos, privacidad | 200 con "Dona está en pausa" |
+| `/prototipo`, `/engineering`, `/app` | 404 |
+| `POST /api/checkout` | 503 (sin código de Stripe) |
+| `POST /api/billing-portal` | 503 |
+| `POST /api/webhook` sin firma | 400 (hay secreto configurado; la firma se exige) |
+| `GET /api/whatsapp-webhook` | 410 |
+| Pixel de Facebook en `/` | ausente |
+
+No verificado desde aquí: que Stripe no tenga suscripciones vivas ni
+enlaces de pago activos (eso es § A de `ACCIONES-CELESTINO.md`).
