@@ -1,5 +1,9 @@
 # Dona — Current State (snapshot operativo)
 
+> **Histórico.** Desde 2026-10-08 el estado vivo está en
+> `docs/transition/dona-app-first/ESTADO.md` (retiro de la oferta actual y
+> transición a Dona app-first). Este archivo queda como snapshot de Fase 0.
+
 **Fecha de actualización:** 2026-07-09
 
 Snapshot de Fase 0 (estabilización). Sirve para retomar el proyecto sin
