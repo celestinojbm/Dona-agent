@@ -813,6 +813,8 @@ async def inicializar_db():
     # Registrar modelos cuyas tablas se crean por create_all pero cuyos módulos
     # solo se importan lazy desde sus endpoints. El import fuerza el registro en
     # Base.metadata.
+    # J7 · Tablas app_* de Dona app-first (aditivas, por workspace).
+    from agent.app_first import models as _app_first_models  # noqa: F401
     from agent.dashboard_lockout import DashboardLoginIntento  # noqa: F401
     from agent.entorno import es_entorno_estricto
 
