@@ -18,6 +18,7 @@
 import "server-only";
 
 import crypto from "node:crypto";
+import { resolverBackendUrl } from "@/lib/backend-url";
 
 export type BridgeResult = {
   ok: boolean;
@@ -45,7 +46,7 @@ const BRIDGE_TIMEOUT_MS = 8000; // < 10s timeout de Stripe
 export async function reenviarEventoStripeABackend(
   evento: unknown,
 ): Promise<BridgeResult> {
-  const backendUrl = process.env.BACKEND_URL?.trim();
+  const backendUrl = resolverBackendUrl();
   const secret = process.env.INTERNAL_BRIDGE_SECRET?.trim();
 
   if (!backendUrl) {
@@ -174,7 +175,7 @@ function generarRequestId(): string {
 export async function fetchUsuarioResumen(
   subscriptionId: string,
 ): Promise<FetchUsuarioResumenResult> {
-  const backendUrl = process.env.BACKEND_URL?.trim();
+  const backendUrl = resolverBackendUrl();
   const secret = process.env.INTERNAL_BRIDGE_SECRET?.trim();
 
   if (!backendUrl) {

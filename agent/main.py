@@ -44,6 +44,13 @@ from agent.readiness import verificar_readiness
 
 verificar_readiness()
 
+# J4 · Interruptores de efectos externos (agent/efectos.py): todos apagados
+# por defecto. Una combinación incoherente (p. ej. scheduler sin WhatsApp)
+# aborta el arranque en cualquier entorno.
+from agent.efectos import efecto_habilitado, resumen_efectos, verificar_efectos
+
+verificar_efectos()
+
 # Forzar el check de STRIPE_WEBHOOK_SECRET al startup. Si el entorno es estricto
 # y la variable no está configurada, agent.billing levanta RuntimeError al
 # import y aborta el deploy antes de empezar a servir tráfico.
@@ -359,12 +366,21 @@ async def lifespan(app: FastAPI):
         # Nunca abortar el arranque por el reaper — es recuperación best-effort.
         logger.exception("[JOBS] Reaper de arranque falló (se continúa)")
 
-    iniciar_scheduler(proveedor)
+    iniciar_scheduler(proveedor)  # no-op si DONA_SCHEDULER_ENABLED != true
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor Dona corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
+    logger.info(f"[EFECTOS] {resumen_efectos()}")
     yield
+    # Apagado ordenado: primero se deja de programar trabajo nuevo, después
+    # se cierran las conexiones. Los jobs inproc en curso mueren con el
+    # proceso; el reaper de arranque los marca error y reembolsa (ARQ-01).
     detener_scheduler()
+    try:
+        from agent.memory import engine
+        await engine.dispose()
+    except Exception:
+        logger.exception("[SHUTDOWN] Error cerrando el pool de DB (se continúa)")
 
 
 app = FastAPI(
@@ -485,6 +501,9 @@ async def privacy_export_info():
 async def privacy_export(request: Request):
     """Derecho de acceso/portabilidad (CCPA/CPRA §1798.100/.110) — paso 1:
     verifica control del número enviando un código por WhatsApp."""
+    corte = _canal_deshabilitado("whatsapp", "POST /privacy/export")
+    if corte is not None:
+        return corte
     telefono = await _leer_telefono_privacidad(request)
     return await _iniciar_solicitud_privacidad(telefono, "export")
 
@@ -493,6 +512,9 @@ async def privacy_export(request: Request):
 async def privacy_delete(request: Request):
     """Derecho de eliminación (CCPA/CPRA §1798.105) — paso 1: verifica control
     del número enviando un código por WhatsApp."""
+    corte = _canal_deshabilitado("whatsapp", "POST /privacy/delete")
+    if corte is not None:
+        return corte
     telefono = await _leer_telefono_privacidad(request)
     return await _iniciar_solicitud_privacidad(telefono, "delete")
 
@@ -566,6 +588,67 @@ async def health_check():
     except Exception as e:
         logger.error(f"[HEALTH] DB check failed: {e}")
         return {"status": "degraded", "service": "dona", "db": "error"}
+
+
+@app.get("/health/vida")
+async def health_vida():
+    """Vida (liveness): el proceso responde. No toca dependencias.
+
+    Para el healthcheck del contenedor: si esto falla, hay que reiniciar.
+    """
+    return {"status": "ok"}
+
+
+@app.get("/health/listo")
+async def health_listo():
+    """Readiness: dependencias y configuración. 200 listo / 503 no listo.
+
+    Solo booleanos: ni nombres de secretos faltantes, ni URLs, ni errores
+    crudos (pueden filtrar datos de conexión).
+    """
+    from sqlalchemy import text as _text
+
+    from agent.efectos import problemas_de_efectos
+    from agent.entorno import es_entorno_estricto
+    from agent.readiness import evaluar_readiness
+
+    db_ok = True
+    try:
+        from agent.memory import async_session
+        async with async_session() as session:
+            await session.execute(_text("SELECT 1"))
+    except Exception as e:
+        db_ok = False
+        logger.error(f"[HEALTH] readiness: DB no disponible ({type(e).__name__})")
+
+    config_ok = not problemas_de_efectos()
+    if es_entorno_estricto():
+        config_ok = config_ok and not evaluar_readiness()
+
+    listo = db_ok and config_ok
+    return JSONResponse(
+        {
+            "status": "ok" if listo else "no_listo",
+            "db": db_ok,
+            "configuracion": config_ok,
+            "efectos": resumen_efectos(),
+        },
+        status_code=200 if listo else 503,
+    )
+
+
+def _canal_deshabilitado(efecto: str, ruta: str) -> JSONResponse | None:
+    """J4 · Si el efecto está apagado, la respuesta 503 que debe devolver la
+    ruta (antes de leer el body, verificar firmas o llamar a nada); si no,
+    None."""
+    if efecto_habilitado(efecto):
+        return None
+    logger.warning(f"[EFECTOS] {ruta} rechazado: efecto '{efecto}' deshabilitado")
+    return JSONResponse(
+        {"error": "efecto_deshabilitado", "efecto": efecto},
+        status_code=503,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 _TELEFONO_RE = re.compile(r"^\+?\d{10,15}$")
@@ -659,6 +742,9 @@ async def admin_tools_catalog(request: Request):
 @app.get("/webhook")
 async def webhook_verificacion(request: Request):
     """Verificación GET del webhook (requerido por Meta Cloud API, no-op para otros)."""
+    corte = _canal_deshabilitado("whatsapp", "GET /webhook")
+    if corte is not None:
+        return corte
     resultado = await proveedor.validar_webhook(request)
     if resultado is not None:
         return PlainTextResponse(str(resultado))
@@ -875,6 +961,9 @@ async def webhook_inbound(token: str, request: Request):
 
     Body JSON: {"mensaje": "texto a enviar"}
     """
+    corte = _canal_deshabilitado("inbound", "POST /webhook/inbound")
+    if corte is not None:
+        return corte
     from agent.inbound_tokens import verificar_token
     telefono = verificar_token(token)
     if not telefono:
@@ -2678,6 +2767,9 @@ async def webhook_stripe(request: Request):
     y acredita créditos al usuario cuando corresponde.
     Idempotente: reentregas del mismo `session_id` no duplican créditos.
     """
+    corte = _canal_deshabilitado("stripe", "POST /webhook/stripe")
+    if corte is not None:
+        return corte
     from agent.billing import procesar_evento_stripe, verificar_firma_stripe
 
     body = await request.body()
@@ -2788,6 +2880,9 @@ async def internal_stripe_event(request: Request):
     invoice.id + stripe_session_id en TransaccionCredito). Este endpoint
     solo despacha.
     """
+    corte = _canal_deshabilitado("stripe", "POST /internal/stripe-event")
+    if corte is not None:
+        return corte
     from agent.billing import procesar_evento_stripe, procesar_evento_suscripcion
 
     body = await request.body()
@@ -3991,6 +4086,9 @@ async def internal_chat(request: Request):
         429 → rate limit excedido para este telefono.
         200 → {"respuesta": "..."}.
     """
+    corte = _canal_deshabilitado("llm", "POST /internal/chat")
+    if corte is not None:
+        return corte
     import asyncio as _asyncio
     import time as _time
 
@@ -4131,12 +4229,18 @@ async def internal_auth_login_record(request: Request):
 @app.post("/webhook")
 async def webhook_handler(request: Request):
     """Webhook genérico."""
+    corte = _canal_deshabilitado("whatsapp", "POST /webhook")
+    if corte is not None:
+        return corte
     return await procesar_webhook(request)
 
 
 @app.post("/webhook/messages")
 async def webhook_messages_handler(request: Request):
     """Whapi envía aquí cuando el evento es 'messages' (agrega /messages a la URL base)."""
+    corte = _canal_deshabilitado("whatsapp", "POST /webhook/messages")
+    if corte is not None:
+        return corte
     return await procesar_webhook(request)
 
 @app.get("/voice/reenviar")

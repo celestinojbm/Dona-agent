@@ -15,6 +15,7 @@
 import "server-only";
 
 import crypto from "node:crypto";
+import { resolverBackendUrl } from "@/lib/backend-url";
 
 const BRIDGE_TIMEOUT_MS = 8000;
 
@@ -27,7 +28,7 @@ async function callInternalAuth(
   path: string,
   body: Record<string, unknown>,
 ): Promise<Record<string, unknown> | null> {
-  const backendUrl = process.env.BACKEND_URL?.trim();
+  const backendUrl = resolverBackendUrl();
   const secret = process.env.INTERNAL_BRIDGE_SECRET?.trim();
 
   if (!backendUrl || !secret) {

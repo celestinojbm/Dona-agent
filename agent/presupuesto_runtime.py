@@ -177,7 +177,14 @@ def cargar_config() -> ConfigPresupuesto:
 
 def kill_switch_global_activo() -> bool:
     """DONA_LLM_COST_KILL_SWITCH=true bloquea nuevas reservas LLM no
-    críticas. Se lee en cada reserva (activable sin redeploy)."""
+    críticas. Se lee en cada reserva (activable sin redeploy).
+
+    J4: con el interruptor DONA_LLM_ENABLED apagado (default) el efecto es
+    el mismo: ninguna reserva LLM prospera (agent/efectos.py)."""
+    from agent.efectos import efecto_habilitado
+
+    if not efecto_habilitado("llm"):
+        return True
     return os.getenv("DONA_LLM_COST_KILL_SWITCH", "").strip().lower() in (
         "true", "1", "yes", "on",
     )

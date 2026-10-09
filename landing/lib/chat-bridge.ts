@@ -27,6 +27,7 @@ import "server-only";
 import crypto from "node:crypto";
 
 import type { ChatApiResult, ChatMediaWire, ChatResponse } from "./chat-types";
+import { resolverBackendUrl } from "@/lib/backend-url";
 
 // 120s · holgado sobre el timeout de 90s del backend en /internal/chat.
 const CHAT_BRIDGE_TIMEOUT_MS = 120_000;
@@ -64,7 +65,7 @@ export async function enviarMensajeChat(
   mensaje: string,
   media?: ChatMediaWire,
 ): Promise<ChatApiResult> {
-  const backendUrl = process.env.BACKEND_URL?.trim();
+  const backendUrl = resolverBackendUrl();
   const secret = process.env.INTERNAL_BRIDGE_SECRET?.trim();
 
   const texto = mensaje?.trim() ?? "";

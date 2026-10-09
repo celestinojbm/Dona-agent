@@ -19,6 +19,7 @@ import type {
   ReportesApiResult,
   ReportesResponse,
 } from "./reportes-types";
+import { resolverBackendUrl } from "@/lib/backend-url";
 
 const BRIDGE_TIMEOUT_MS = 8000;
 
@@ -50,7 +51,7 @@ export async function fetchReportes(
   subscriptionId: string,
   opts?: { periodo?: PeriodoReporte },
 ): Promise<ReportesApiResult> {
-  const backendUrl = process.env.BACKEND_URL?.trim();
+  const backendUrl = resolverBackendUrl();
   const secret = process.env.INTERNAL_BRIDGE_SECRET?.trim();
 
   if (!subscriptionId) return { ok: false, error: "missing_subscription_id" };

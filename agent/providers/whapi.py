@@ -37,8 +37,12 @@ class ProveedorWhapi(ProveedorWhatsApp):
         # factory de agent/providers/__init__.py solo importa este módulo
         # si el provider activo es Whapi — así no bloqueamos deploys con
         # WHATSAPP_PROVIDER=meta/twilio sin necesidad de este token.
+        # J4 · Con el canal WhatsApp apagado (default) /webhook responde 503
+        # antes de verificar firmas (agent/main.py), así que el secreto solo
+        # se exige con DONA_WHATSAPP_ENABLED=true.
+        from agent.efectos import efecto_habilitado
         from agent.entorno import es_entorno_estricto
-        if es_entorno_estricto() and not self.webhook_token:
+        if efecto_habilitado("whatsapp") and es_entorno_estricto() and not self.webhook_token:
             raise RuntimeError(
                 "[WHAPI] WHAPI_WEBHOOK_TOKEN no configurado en entorno estricto — "
                 "los webhooks aceptarían payloads forjados, lo que permite "

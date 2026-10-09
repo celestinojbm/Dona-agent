@@ -19,6 +19,7 @@ cada llamada (no se cachea) para facilitar tests.
 
 import os
 
+from agent.efectos import INTERRUPTORES, efecto_habilitado, problemas_de_efectos
 from agent.entorno import entorno_actual, es_entorno_estricto
 from agent.providers import modulo_de_proveedor_falta
 
@@ -39,12 +40,25 @@ _SECRETS_REQUERIDOS = [
     ("DATABASE_URL", "persistencia (sin DB confiable, dedup/créditos/auditoría/permisos no son seguros)"),
     ("ENCRYPTION_KEY", "cifrado de tokens OAuth y firma del state OAuth"),
     ("INTERNAL_BRIDGE_SECRET", "bridge landing→backend + hash de lockout del dashboard"),
-    ("STRIPE_WEBHOOK_SECRET", "verificación de webhooks de Stripe (billing)"),
-    ("INBOUND_WEBHOOK_SECRET", "firma de tokens de webhooks inbound"),
     ("ADMIN_TOKEN", "autenticación de endpoints admin"),
-    ("DASHBOARD_PASSWORD_SECRET", "derivación del password del dashboard del usuario"),
-    ("ANTHROPIC_API_KEY", "LLM principal (Claude)"),
 ]
+
+# J4 · Secrets que solo se exigen si su efecto está encendido (agent/efectos.py).
+# Con el efecto apagado su ruta responde 503 antes de usarlos, así que el
+# backend puede arrancar en pausa/staging sin credenciales de cobro, envío
+# ni modelos.
+_SECRETS_POR_EFECTO = {
+    "stripe": [
+        ("STRIPE_WEBHOOK_SECRET", "verificación de webhooks de Stripe (billing)"),
+        ("DASHBOARD_PASSWORD_SECRET", "derivación del password del dashboard (bienvenida post-pago)"),
+    ],
+    "inbound": [
+        ("INBOUND_WEBHOOK_SECRET", "firma de tokens de webhooks inbound"),
+    ],
+    "llm": [
+        ("ANTHROPIC_API_KEY", "LLM principal (Claude)"),
+    ],
+}
 
 # Secret del proveedor de WhatsApp activo (solo se exige el del provider en uso).
 _SECRET_POR_PROVEEDOR = {
@@ -66,8 +80,21 @@ def evaluar_readiness() -> list[str]:
         if _falta(var):
             problemas.append(f"{var} — {desc}")
 
-    # Proveedor de WhatsApp: no se adivina en entorno estricto. Ausente o no
-    # soportado es un problema; si es válido, se exige SOLO el secret del activo.
+    for efecto, secretos in _SECRETS_POR_EFECTO.items():
+        if not efecto_habilitado(efecto):
+            continue
+        for var, desc in secretos:
+            if _falta(var):
+                problemas.append(f"{var} — {desc} ({INTERRUPTORES[efecto]}=true)")
+
+    # Coherencia entre interruptores (p. ej. scheduler sin WhatsApp/LLM).
+    problemas.extend(problemas_de_efectos())
+
+    # Proveedor de WhatsApp: solo con el canal encendido. No se adivina en
+    # entorno estricto; si es válido, se exige SOLO el secret del activo.
+    if not efecto_habilitado("whatsapp"):
+        return problemas
+
     proveedor = os.getenv("WHATSAPP_PROVIDER", "").strip().lower()
     if not proveedor:
         problemas.append(

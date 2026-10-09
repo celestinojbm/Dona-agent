@@ -76,7 +76,22 @@ async def _dispatch(tipo: str, telefono: str, params: dict[str, Any], job_id: in
 
 
 async def _ejecutar_con_estado(job_id: int, tipo: str, telefono: str, params: dict) -> None:
-    """Loop de ejecución común: marca running → corre handler → marca done/error."""
+    """Loop de ejecución común: marca running → corre handler → marca done/error.
+
+    J4 · Con DONA_WORKER_ENABLED apagado (default, ver agent/efectos.py) el
+    job NO se ejecuta y su fila se deja intacta en `pending`: no se marca
+    error (marcar_error no reembolsa) ni se llama a ningún proveedor. Qué
+    hacer con esos jobs (reintentar o reembolsar) se decide al reactivar.
+    """
+    from agent.efectos import efecto_habilitado
+
+    if not efecto_habilitado("worker"):
+        logger.warning(
+            f"[JOBS] Job {job_id} ({tipo}) NO ejecutado: DONA_WORKER_ENABLED != true "
+            "(queda pending)"
+        )
+        return
+
     await marcar_running(job_id)
     try:
         asset_id = await _dispatch(tipo, telefono, params, job_id=job_id)
@@ -109,11 +124,30 @@ def _redis_settings():
     return RedisSettings.from_dsn(url)
 
 
+async def _al_arrancar_worker(ctx) -> None:
+    """J4 · El worker arq no arranca con DONA_WORKER_ENABLED apagado.
+
+    Mejor un proceso que se niega a levantar (y lo dice en el log) que uno
+    que consume la cola y deja jobs a medias.
+    """
+    from agent.efectos import efecto_habilitado
+
+    if not efecto_habilitado("worker"):
+        raise RuntimeError(
+            "[JOBS] Worker arq deshabilitado: DONA_WORKER_ENABLED != true. "
+            "No se consume la cola."
+        )
+
+
 class WorkerSettings:
     """Config para `arq` worker. Uso:
         python -m arq agent.jobs.worker.WorkerSettings
+
+    Sin `cron_jobs`: los trabajos recurrentes viven SOLO en el scheduler del
+    proceso web (un responsable por trabajo, no se mezclan arq e inproc).
     """
     functions = [ejecutar_job]
+    on_startup = _al_arrancar_worker
     max_jobs = int(os.getenv("ARQ_MAX_JOBS", "5"))
     job_timeout = int(os.getenv("ARQ_JOB_TIMEOUT", "600"))  # 10 min
     keep_result = 3600

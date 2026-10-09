@@ -12,7 +12,6 @@ import logging
 import os
 from datetime import datetime, timedelta
 
-import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from agent.envio_gate import (
@@ -481,25 +480,27 @@ async def _verificar_seguimientos_vencidos(proveedor):
         logger.error(f"[SEGUIMIENTOS] Error en job ({type(e).__name__}): {e}")
 
 
-async def _self_ping():
-    """
-    Self-ping para mantener vivo el servicio en Render Free Tier.
-    Render duerme los servicios gratuitos después de 15 minutos de inactividad.
-    Este job hace un GET al propio /health cada 10 minutos para evitarlo.
-    """
-    render_url = os.getenv("RENDER_EXTERNAL_URL", "")
-    if not render_url:
-        return  # No estamos en Render o no se configuró la URL
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{render_url}/")
-            logger.debug(f"Self-ping: {resp.status_code}")
-    except Exception as e:
-        logger.debug(f"Self-ping falló (no crítico): {type(e).__name__}")
-
-
 def iniciar_scheduler(proveedor):
-    """Registra los jobs y arranca el scheduler."""
+    """Registra los jobs y arranca el scheduler.
+
+    J4 · Solo si DONA_SCHEDULER_ENABLED=true (apagado por defecto, ver
+    agent/efectos.py). Idempotente dentro del proceso: una segunda llamada
+    con el scheduler ya corriendo no registra nada.
+
+    Un responsable por trabajo: este scheduler vive en el proceso web (1
+    worker gunicorn, ver Dockerfile). APScheduler NO coordina entre
+    procesos: con varios procesos con el interruptor encendido, cada uno
+    registraría sus jobs. Por eso el interruptor se enciende en UN solo
+    servicio (nunca en el worker arq, que no tiene cron propios).
+    """
+    from agent.efectos import efecto_habilitado
+
+    if not efecto_habilitado("scheduler"):
+        logger.info("[SCHEDULER] Deshabilitado (DONA_SCHEDULER_ENABLED != true): no se registran jobs")
+        return
+    if scheduler.running:
+        logger.warning("[SCHEDULER] Ya estaba corriendo en este proceso: no se registran jobs de nuevo")
+        return
     scheduler.add_job(
         _verificar_y_enviar_recordatorios,
         trigger="interval",
@@ -584,14 +585,6 @@ def iniciar_scheduler(proveedor):
         id="resumen_semanal_usuarios",
         replace_existing=True,
     )
-    # Self-ping para mantener vivo el servicio en Render Free Tier
-    scheduler.add_job(
-        _self_ping,
-        trigger="interval",
-        minutes=10,
-        id="self_ping_keep_alive",
-        replace_existing=True,
-    )
     # ─── Simulaciones MiroFish programadas ────────────────────────────────────
     # Lunes 2 AM — Optimización de Recursos
     scheduler.add_job(
@@ -649,7 +642,7 @@ def iniciar_scheduler(proveedor):
     logger.info(
         "Scheduler iniciado — recordatorios cada minuto, Google Calendar cada 5 min, "
         "onboarding y proactividad cada hora, monitoreo Dona 2.0 cada 15 min, "
-        "seguimientos CRM cada 10 min, self-ping cada 10 min, aprendizaje los domingos, "
+        "seguimientos CRM cada 10 min, aprendizaje los domingos, "
         "simulaciones MiroFish lunes/miércoles/viernes a las 2 AM UTC"
     )
 
