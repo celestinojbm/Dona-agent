@@ -1,0 +1,268 @@
+/*
+  DONA — Sistema visual de la APP (0A · feat/design-tokens)
+  ───────────────────────────────────────────────────────────────────────────
+  Tokens de la identidad oscura aguamarina de Dona (negro puro + #00E5B0),
+  derivados del informe de referencias (REA) y del plan de implementación.
+
+  IMPORTANTE — alcance acotado:
+  - La landing pública conserva su sistema editorial claro (violeta/naranja,
+    aprobado por el dueño) y el `.legacy-shell` oscuro actual. Este archivo NO
+    los toca.
+  - Todo vive bajo el scope opt-in `[data-dona-surface="app"]`. Nada aplica
+    globalmente: un contenedor debe marcarse explícitamente para usar el
+    sistema aguamarina. Así "los componentes siguen funcionando" y no se
+    rehace la landing ni se toca auth.
+
+  La elección de identidad visual definitiva (editorial claro vs. aguamarina
+  oscuro) es una decisión de producto anotada en preguntas-celestino.md.
+*/
+
+[data-dona-surface="app"] {
+  /* ── Superficies ── */
+  --bg-base: #000000;
+  --bg-raised: #0a0a0a;
+  --bg-overlay: #121212;
+
+  /* ── Bordes (luz tenue, no gris sólido) ── */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  /* ── Acento aguamarina ── */
+  --accent: #00e5b0;
+  --accent-2: #00d4d4;
+  --accent-weak: rgba(0, 229, 176, 0.12);
+  --accent-gradient: linear-gradient(135deg, #00e5b0, #00d4d4);
+
+  /* ── Texto ── */
+  --text-primary: #f5f7f6;
+  --text-secondary: #a8b0ad;
+  --text-tertiary: #6b726f; /* solo si contraste >=4.5:1 o decoración */
+  --text-on-accent: #042019;
+
+  /* ── Semántica ── */
+  --danger: #ff5c5c;
+  --warning: #ffc24b;
+  --success: #00e5b0;
+
+  /* ── Chips ── */
+  --chip-bg: rgba(0, 229, 176, 0.1);
+  --chip-border: rgba(0, 229, 176, 0.3);
+
+  /* ── Foco ── */
+  --ring-focus: 0 0 0 3px rgba(0, 229, 176, 0.35);
+
+  /* ── Radios ── */
+  --radius-sm: 8px; /* inputs, chips */
+  --radius-md: 12px; /* cards, botones */
+  --radius-lg: 16px; /* modales, paneles */
+  --radius-pill: 999px;
+
+  /* ── Sombras (en negro, la elevación es luz de borde, no sombra) ── */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.6), 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.6);
+
+  /* ── Movimiento ── */
+  --dur-hover: 120ms;
+  --dur-pop: 180ms;
+  --dur-panel: 240ms;
+  --dur-modal: 320ms;
+  --ease-in: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.4, 0, 1, 1);
+
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-variant-ligatures: none;
+}
+
+/* ───────────────────────── Tipografía ───────────────────────── */
+[data-dona-surface="app"] .dona-display {
+  font-size: clamp(40px, 5vw, 56px);
+  line-height: 1.1;
+  font-weight: 600;
+}
+[data-dona-surface="app"] .dona-h1 {
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+[data-dona-surface="app"] .dona-h2 {
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+[data-dona-surface="app"] .dona-body {
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+}
+[data-dona-surface="app"] .dona-label {
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 500;
+}
+[data-dona-surface="app"] .dona-caption {
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+/* IDs / tokens en monospace; cifras de crédito/coste/saldo con tabular-nums */
+[data-dona-surface="app"] .dona-mono {
+  font-family: var(--font-hero-mono), ui-monospace, "JetBrains Mono", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+[data-dona-surface="app"] .dona-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───────────────────────── Botones ───────────────────────── */
+[data-dona-surface="app"] .dona-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px; /* target táctil accesible */
+  padding: 0 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform var(--dur-hover) var(--ease-in),
+    background var(--dur-hover) var(--ease-in),
+    border-color var(--dur-hover) var(--ease-in);
+}
+[data-dona-surface="app"] .dona-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+[data-dona-surface="app"] .dona-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+/* Primario: fondo aguamarina + texto oscuro (contraste 4.5:1+) */
+[data-dona-surface="app"] .dona-btn--primary {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+[data-dona-surface="app"] .dona-btn--primary:hover:not(:disabled) {
+  background: var(--accent-2);
+  transform: translateY(-1px);
+}
+/* Secundario: superficie elevada + borde de luz */
+[data-dona-surface="app"] .dona-btn--ghost {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+[data-dona-surface="app"] .dona-btn--ghost:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+/* Peligro: sólo para acciones destructivas confirmadas */
+[data-dona-surface="app"] .dona-btn--danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ───────────────────────── Campos ───────────────────────── */
+[data-dona-surface="app"] .dona-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 0.85rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.55;
+  transition: border-color var(--dur-hover) var(--ease-in);
+}
+[data-dona-surface="app"] .dona-input::placeholder {
+  color: var(--text-tertiary);
+}
+[data-dona-surface="app"] .dona-input:focus-visible {
+  outline: none;
+  border-color: var(--border-strong);
+  box-shadow: var(--ring-focus);
+}
+[data-dona-surface="app"] .dona-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+[data-dona-surface="app"] .dona-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-dona-surface="app"] .dona-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+[data-dona-surface="app"] .dona-field .dona-label {
+  color: var(--text-secondary);
+}
+
+/* ───────────────────────── Cards ───────────────────────── */
+[data-dona-surface="app"] .dona-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+}
+[data-dona-surface="app"] .dona-card--compact {
+  padding: 16px;
+}
+
+/* ───────────────────────── Badges / chips ───────────────────────── */
+[data-dona-surface="app"] .dona-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: var(--radius-pill);
+  padding: 0.2rem 0.65rem;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border);
+  color: var(--text-primary);
+}
+[data-dona-surface="app"] .dona-badge--danger {
+  background: rgba(255, 92, 92, 0.1);
+  border-color: rgba(255, 92, 92, 0.3);
+  color: var(--danger);
+}
+[data-dona-surface="app"] .dona-badge--warning {
+  background: rgba(255, 194, 75, 0.1);
+  border-color: rgba(255, 194, 75, 0.3);
+  color: var(--warning);
+}
+
+/* ───────────────────────── Modal / popover ───────────────────────── */
+[data-dona-surface="app"] .dona-overlay {
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+[data-dona-surface="app"] .dona-modal {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+}
+
+/* ───────────────────────── Reduced motion ───────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  [data-dona-surface="app"] .dona-btn,
+  [data-dona-surface="app"] .dona-input {
+    transition: none;
+  }
+  [data-dona-surface="app"] .dona-btn--primary:hover:not(:disabled) {
+    transform: none;
+  }
+}
