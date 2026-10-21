@@ -12,12 +12,14 @@ RLS/grants de la tabla nueva: sólo PostgreSQL (dialect-guarded). En SQLite es
 no-op. El contrato es el mismo que 0B: backend-only, sin acceso de
 anon/authenticated.
 
-Nota de integración: F3 parte de `main` (head 003). La rama 0B añade 004; al
-fusionar varias ramas del plan puede hacer falta una revisión de merge de
-Alembic (múltiples heads). No se aplicó ninguna migración a remoto.
+Nota de integración: cadena lineal de Alembic. 005 va encadenada sobre 004
+(ya fusionada en `main` vía PR 298). Resuelve del todo cuando los PRs se fusionan
+en orden (004→005→006→…). No se aplicó ninguna migración a remoto. La rama NO se
+pudo actualizar desde origin/main por `git merge` bloqueado en el entorno; sólo
+se fijó down_revision.
 
 Revision ID: 005_recibo_por_accion
-Revises: 003_bienvenida_enviada
+Revises: 004_rls_tablas_existentes
 Create Date: 2026-10-20
 """
 
@@ -26,7 +28,7 @@ import sqlalchemy as sa
 
 
 revision = "005_recibo_por_accion"
-down_revision = "003_bienvenida_enviada"
+down_revision = "004_rls_tablas_existentes"
 branch_labels = None
 depends_on = None
 
