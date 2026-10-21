@@ -107,3 +107,41 @@ def test_flag_apagado_por_defecto(monkeypatch):
     monkeypatch.delenv("DONA_FIRST_VALUE_ONBOARDING_ENABLED", raising=False)
     from agent.primer_valor.logica import primer_valor_habilitado
     assert primer_valor_habilitado() is False
+
+
+# ─────────── Respuestas de Celestino: #11 orden, #12 welcome 0, #13 retención ───────────
+
+class TestRespuestasCelestino:
+    def test_chips_borrador_primero_imagen_al_final(self, pv):
+        # #11: borrador útil del negocio primero; imagen al final.
+        assert pv.CHIPS[0] == "Armar seguimiento"
+        assert pv.CHIPS[-1] == "Generar imagen"
+
+    def test_welcome_credits_cero_por_defecto(self, pv, monkeypatch):
+        # #12: créditos de bienvenida = 0 por defecto.
+        monkeypatch.delenv("DONA_FIRST_VALUE_WELCOME_CREDITS", raising=False)
+        assert pv.creditos_bienvenida() == 0
+
+    async def test_purga_eventos_onboarding_90_dias(self, pv):
+        from datetime import datetime, timedelta
+        from sqlalchemy import update
+        from agent.primer_valor.models import EventoOnboarding
+        from agent.memory import async_session
+        await pv.registrar_evento("5551", "inicio")
+        await pv.registrar_evento("5551", "preview")
+        # Envejecer uno 100 días
+        async with async_session() as s:
+            await s.execute(
+                update(EventoOnboarding)
+                .where(EventoOnboarding.etapa == "inicio")
+                .values(creado=datetime.utcnow() - timedelta(days=100))
+            )
+            await s.commit()
+        borradas = await pv.purgar_eventos_onboarding(dias=90)
+        assert borradas == 1
+        from sqlalchemy import func, select
+        async with async_session() as s:
+            quedan = (await s.execute(
+                select(func.count()).select_from(EventoOnboarding)
+            )).scalar_one()
+        assert quedan == 1

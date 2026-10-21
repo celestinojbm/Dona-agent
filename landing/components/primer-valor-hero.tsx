@@ -7,12 +7,14 @@
 
 import * as React from "react";
 
+// Decisión de Celestino #11: borrador útil del negocio primero; la imagen se
+// ofrece al final.
 export const CHIPS_PRIMER_VALOR = [
-  "Generar imagen",
   "Armar seguimiento",
   "Redactar correo",
   "Programar recordatorio",
   "Ver saldo",
+  "Generar imagen",
 ] as const;
 
 export interface PrimerValorHeroProps {

@@ -25,13 +25,15 @@ from agent.primer_valor.models import (
 
 logger = logging.getLogger("dona")
 
-# Chips de acción del home (SÓLO lo implementado hoy).
+# Chips de acción del home (SÓLO lo implementado hoy). Decisión de Celestino #11:
+# un BORRADOR útil del negocio primero (p. ej. "Armar seguimiento"), y la imagen
+# se ofrece DESPUÉS → "Generar imagen" va al final.
 CHIPS = (
-    "Generar imagen",
     "Armar seguimiento",
     "Redactar correo",
     "Programar recordatorio",
     "Ver saldo",
+    "Generar imagen",
 )
 
 
@@ -44,13 +46,37 @@ def primer_valor_habilitado() -> bool:
     )
 
 
+# Decisión de Celestino #12: créditos de bienvenida = 0 (desactivado por defecto).
+# Decisión de Celestino #13: retención de telemetría de onboarding = 90 días.
+RETENCION_EVENTOS_ONBOARDING_DIAS = 90
+
+
 def creditos_bienvenida() -> int:
-    """Cantidad de créditos de bienvenida (0 = desactivado). Celestino la fija."""
+    """Cantidad de créditos de bienvenida (0 = desactivado; Celestino fijó 0)."""
     try:
         n = int(os.getenv("DONA_FIRST_VALUE_WELCOME_CREDITS", "0"))
     except ValueError:
         n = 0
     return max(n, 0)  # nunca negativo
+
+
+async def purgar_eventos_onboarding(
+    dias: int = RETENCION_EVENTOS_ONBOARDING_DIAS,
+) -> int:
+    """Borra eventos_onboarding más antiguos que `dias` (retención 90 días por
+    defecto, decisión #13). Devuelve cuántas filas se borraron. No toca las
+    métricas de primer valor (onboarding_primer_valor)."""
+    from datetime import timedelta
+
+    from sqlalchemy import delete
+
+    corte = datetime.utcnow() - timedelta(days=max(int(dias), 1))
+    async with async_session() as s:
+        res = await s.execute(
+            delete(EventoOnboarding).where(EventoOnboarding.creado < corte)
+        )
+        await s.commit()
+        return int(res.rowcount or 0)
 
 
 async def _fila(telefono: str) -> OnboardingPrimerValor | None:
