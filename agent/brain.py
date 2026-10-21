@@ -1231,7 +1231,7 @@ def construir_contexto_tiempo(timestamp_mensaje: int = 0, offset_guardado: int |
     )
 
 
-def cargar_system_prompt(
+def cargar_system_prompt_partes(
     timestamp_mensaje: int = 0,
     offset_guardado: int | None = None,
     tono_emocional: str = "",
@@ -1239,11 +1239,20 @@ def cargar_system_prompt(
     perfil_aprendizaje: str = "",
     memoria_largo_plazo: str = "",
     memoria_vectorial: str = "",
-) -> str:
-    """Lee el system prompt e inyecta contexto de tiempo, memoria histórica, estado emocional y perfil de aprendizaje."""
+) -> tuple[str, str]:
+    """Devuelve (estable, volatil) para el prompt caching (F16).
+
+    - `estable`: SÓLO las instrucciones base versionadas (config/prompts.yaml).
+      Sin timestamp, saldo ni IDs → cacheable como prefijo estable.
+    - `volatil`: todo lo que cambia por turno/usuario (hora, memoria, perfil,
+      tono, contexto emocional).
+
+    El orden del volátil coincide con el ensamblado histórico para que
+    `estable + "\\n\\n" + volatil` sea byte-idéntico al string de antes.
+    """
     config = cargar_config_prompts()
     base = config.get("system_prompt", "Eres Dona, una asistente personal útil. Responde en español.")
-    partes = [base, construir_contexto_tiempo(timestamp_mensaje, offset_guardado)]
+    partes = [construir_contexto_tiempo(timestamp_mensaje, offset_guardado)]
     if memoria_vectorial:
         partes.append(
             f"## Recuerdos específicos relevantes para este mensaje\n"
@@ -1271,7 +1280,33 @@ def cargar_system_prompt(
         partes.append(f"## Tono para este mensaje\n{tono_emocional}")
     if contexto_emocional:
         partes.append(contexto_emocional)
-    return "\n\n".join(partes)
+    return base, "\n\n".join(partes)
+
+
+def cargar_system_prompt(
+    timestamp_mensaje: int = 0,
+    offset_guardado: int | None = None,
+    tono_emocional: str = "",
+    contexto_emocional: str = "",
+    perfil_aprendizaje: str = "",
+    memoria_largo_plazo: str = "",
+    memoria_vectorial: str = "",
+) -> str:
+    """Compatibilidad: devuelve el system prompt completo como string único
+    (base estable + contexto volátil), byte-idéntico al ensamblado histórico.
+    Lo usan los fallbacks (GPT-4o/Haiku) y los tests."""
+    from agent.prompt_cache import unir_system
+
+    estable, volatil = cargar_system_prompt_partes(
+        timestamp_mensaje,
+        offset_guardado,
+        tono_emocional=tono_emocional,
+        contexto_emocional=contexto_emocional,
+        perfil_aprendizaje=perfil_aprendizaje,
+        memoria_largo_plazo=memoria_largo_plazo,
+        memoria_vectorial=memoria_vectorial,
+    )
+    return unir_system(estable, volatil)
 
 
 def obtener_mensaje_error(tipo: str = "general") -> str:
@@ -1353,6 +1388,8 @@ async def _invocar_claude_gateado(api_kwargs: dict, telefono: str):
     timeout del guard (vencimiento → _PresupuestoLLMAgotado con estado
     cerrado) y consume el costo estimado tras la respuesta. Devuelve la
     respuesta de Anthropic."""
+    import time as _time
+
     from agent.presupuesto_runtime import (
         TimeoutPresupuesto,
         con_timeout_llm,
@@ -1363,14 +1400,24 @@ async def _invocar_claude_gateado(api_kwargs: dict, telefono: str):
     decision = reservar_llm(telefono)
     if not decision.permitido:
         raise _PresupuestoLLMAgotado(decision.razon)
+    _t0 = _time.perf_counter()
     try:
         response = await con_timeout_llm(client.messages.create(**api_kwargs), telefono)
     except TimeoutPresupuesto as t:
         raise _PresupuestoLLMAgotado(t.razon) from None
 
+    # F16 · telemetría de prompt caching (sin prompts ni teléfonos). El coste
+    # estimado usa SÓLO los tokens no cacheados: los leídos de caché son ~10x
+    # más baratos, así que contarlos al precio pleno inflaría el presupuesto.
+    _dur_ms = int((_time.perf_counter() - _t0) * 1000)
     try:
-        cin = response.usage.input_tokens
-        cout = response.usage.output_tokens
+        from agent.prompt_cache import registrar_metricas_cache
+
+        _m = registrar_metricas_cache(
+            response, modelo=api_kwargs.get("model", ""), duracion_ms=_dur_ms
+        )
+        cin = _m["input_no_cache"]
+        cout = _m["output"]
         costo = (cin * _PRECIO_IN_USD_MTOK + cout * _PRECIO_OUT_USD_MTOK) / 1_000_000
         consumir_llm(costo, modelo=api_kwargs.get("model", ""))
     except Exception:
@@ -1510,7 +1557,9 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
             estado_previo["actualizado"],
         )
 
-    system_prompt = cargar_system_prompt(
+    # F16 · prompt caching: separar prefijo estable (cacheable) del volátil.
+    from agent.prompt_cache import construir_system, unir_system
+    _estable, _volatil = cargar_system_prompt_partes(
         timestamp_mensaje, offset_guardado,
         tono_emocional=tono_emocional,
         contexto_emocional=ctx_emocional,
@@ -1518,6 +1567,11 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
         memoria_largo_plazo=resumen_memoria,
         memoria_vectorial=ctx_vectorial,
     )
+    # String plano para los fallbacks (OpenAI/Haiku) y compatibilidad.
+    system_prompt = unir_system(_estable, _volatil)
+    # Parámetro `system` para Claude Sonnet: lista con breakpoint de caché si el
+    # flag está encendido; string idéntico si está apagado.
+    system_anthropic = construir_system(_estable, _volatil)
 
     # Construir lista de mensajes (historial + mensaje actual)
     mensajes = [{"role": m["role"], "content": m["content"]} for m in historial]
@@ -1561,7 +1615,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
     _api_kwargs = dict(
         model="claude-sonnet-4-5",
         max_tokens=1024,
-        system=system_prompt,
+        system=system_anthropic,
         messages=mensajes,
     )
     if tools_para_request:
@@ -1606,7 +1660,7 @@ async def generar_respuesta(mensaje: str, historial: list[dict], telefono: str =
             # Si Claude quiere usar una herramienta
             if response.stop_reason == "tool_use":
                 return await _manejar_tool_use(
-                    response, mensajes, system_prompt, telefono,
+                    response, mensajes, system_anthropic, telefono,
                     offset_guardado, proveedor,
                     preparation_request_key=_prep_key_correo,
                 )
@@ -1748,7 +1802,7 @@ def _render_preview_correo(res: dict) -> str:
     )
 
 
-async def _manejar_tool_use(response, mensajes: list, system_prompt: str, telefono: str, offset_guardado: int | None, proveedor=None, preparation_request_key: str = "") -> str:
+async def _manejar_tool_use(response, mensajes: list, system_prompt: "str | list", telefono: str, offset_guardado: int | None, proveedor=None, preparation_request_key: str = "") -> str:
     """
     Ejecuta las herramientas que Claude solicitó y obtiene la respuesta final.
     Soporta: guardar_zona_horaria, crear_recordatorio, listar_recordatorios,
