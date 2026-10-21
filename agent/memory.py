@@ -560,6 +560,7 @@ _MIGRACIONES = [
     # (create_all las crea; ENABLE RLS sólo aplica en PostgreSQL, SQLite ignora).
     "ALTER TABLE autonomia_por_accion ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE autorizaciones_accion ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE reservas_credito ENABLE ROW LEVEL SECURITY",
     # ── Tablas nuevas (respaldo explícito) ──────────────────────────────────
     # TEMA 7.1/7.2 — solicitudes verificadas de privacidad (CCPA export/delete).
     """
@@ -821,6 +822,7 @@ async def inicializar_db():
     from agent.autonomia.models import (  # noqa: F401  (F1: registra sus tablas)
         AutonomiaPorAccion,
         AutorizacionAccion,
+        ReservaCredito,
     )
     from agent.entorno import es_entorno_estricto
 

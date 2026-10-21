@@ -147,12 +147,16 @@ async def autorizar_o_confirmar(
     cotizacion_creditos: int,
     consumo_periodo_creditos: int = 0,
     destinatario_autorizado: bool = True,
+    clase_accion: str = "gasto",
     vencimiento_min: int = VENCIMIENTO_DEFECTO_MIN,
 ) -> tuple[str, DecisionPolitica]:
     """preparar→cotizar→evaluar→autorizar. Devuelve ("autorizado"|
-    "requiere_confirmacion", decision). Si la política autoriza (L2–L4) crea una
-    autorización de ORIGEN política; si no, no crea nada (espera confirmación
-    humana vía crear_autorizacion_humana)."""
+    "requiere_confirmacion", decision). Si la política autoriza (L2–L4, o clase
+    lectura/borrador) crea una autorización de ORIGEN política; si no, no crea
+    nada (espera confirmación humana vía crear_autorizacion_humana).
+
+    `clase_accion` (lectura|borrador|gasto|envio) implementa la decisión #8:
+    sólo lectura/borrador auto-ejecutan sin confirmar."""
     config = await obtener_config(telefono, tipo_accion)
     decision = evaluar_politica(
         tipo_accion=tipo_accion,
@@ -160,6 +164,7 @@ async def autorizar_o_confirmar(
         config=config,
         consumo_periodo_creditos=consumo_periodo_creditos,
         destinatario_autorizado=destinatario_autorizado,
+        clase_accion=clase_accion,
     )
     if decision.requiere_humano:
         return "requiere_confirmacion", decision

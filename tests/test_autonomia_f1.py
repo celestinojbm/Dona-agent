@@ -62,10 +62,21 @@ class TestPolitica:
         cfg = _cfg(nivel=2, umbral_creditos=10)
         bajo = pol.evaluar_politica(tipo_accion="x", cotizacion_creditos=10, config=cfg)
         alto = pol.evaluar_politica(tipo_accion="x", cotizacion_creditos=11, config=cfg)
+        # Sin umbral explícito → aplica el default de Celestino (10).
         sin = pol.evaluar_politica(tipo_accion="x", cotizacion_creditos=1, config=_cfg(nivel=2))
+        sobre_default = pol.evaluar_politica(
+            tipo_accion="x", cotizacion_creditos=11, config=_cfg(nivel=2)
+        )
         assert not bajo.requiere_humano and bajo.origen == "politica"
         assert alto.requiere_humano
-        assert sin.requiere_humano  # L2 sin umbral → humano
+        assert not sin.requiere_humano  # 1 <= umbral default 10 → auto
+        assert sobre_default.requiere_humano  # 11 > 10 → humano
+
+    def test_l2_default_umbral_es_10(self, monkeypatch):
+        monkeypatch.setenv("DONA_AUTONOMY_ENABLED", "true")
+        assert pol.UMBRAL_L2_DEFECTO == 10
+        assert pol.TOPE_DIARIO_DEFECTO == 100
+        assert pol.ZONA_PERIODO_DEFECTO == "America/New_York"
 
     def test_l3_auto_y_notifica(self, monkeypatch):
         monkeypatch.setenv("DONA_AUTONOMY_ENABLED", "true")
@@ -83,10 +94,50 @@ class TestPolitica:
             tipo_accion="x", cotizacion_creditos=60, config=cfg,
             consumo_periodo_creditos=50,
         )
+        # Sin tope explícito → aplica el default diario de Celestino (100).
         sin = pol.evaluar_politica(tipo_accion="x", cotizacion_creditos=1, config=_cfg(nivel=4))
         assert not dentro.requiere_humano
-        assert fuera.requiere_humano
-        assert sin.requiere_humano  # sin tope NO es ilimitado
+        assert fuera.requiere_humano and fuera.razon == "supera_tope_diario"
+        assert not sin.requiere_humano  # 1 <= tope diario default 100 → auto
+
+    def test_tope_diario_aplica_a_todos_los_niveles(self, monkeypatch):
+        monkeypatch.setenv("DONA_AUTONOMY_ENABLED", "true")
+        # L3 dentro del tope diario default (100) → auto; fuera → humano.
+        d_ok = pol.evaluar_politica(
+            tipo_accion="x", cotizacion_creditos=30, config=_cfg(nivel=3),
+            consumo_periodo_creditos=60,
+        )
+        d_no = pol.evaluar_politica(
+            tipo_accion="x", cotizacion_creditos=50, config=_cfg(nivel=3),
+            consumo_periodo_creditos=60,
+        )
+        assert not d_ok.requiere_humano
+        assert d_no.requiere_humano and d_no.razon == "supera_tope_diario"
+
+    def test_clase_lectura_borrador_auto(self, monkeypatch):
+        monkeypatch.setenv("DONA_AUTONOMY_ENABLED", "true")
+        # Sin config / L1, pero clase lectura o borrador → auto (no gasta/envía).
+        for clase in ("lectura", "borrador"):
+            d = pol.evaluar_politica(
+                tipo_accion="x", cotizacion_creditos=0, config=None, clase_accion=clase
+            )
+            assert not d.requiere_humano and d.origen == "politica"
+
+    def test_clase_envio_siempre_humano(self, monkeypatch):
+        monkeypatch.setenv("DONA_AUTONOMY_ENABLED", "true")
+        d = pol.evaluar_politica(
+            tipo_accion="x", cotizacion_creditos=1, config=_cfg(nivel=4, tope_periodo=100),
+            clase_accion="envio",
+        )
+        assert d.requiere_humano
+
+    def test_flag_off_ignora_clase_segura(self, monkeypatch):
+        monkeypatch.delenv("DONA_AUTONOMY_ENABLED", raising=False)
+        # Interruptor maestro: apagado → humano aun para lectura/borrador.
+        d = pol.evaluar_politica(
+            tipo_accion="x", cotizacion_creditos=0, config=None, clase_accion="lectura"
+        )
+        assert d.requiere_humano
 
     def test_tope_por_accion(self, monkeypatch):
         monkeypatch.setenv("DONA_AUTONOMY_ENABLED", "true")
@@ -109,6 +160,7 @@ def _recargar_autonomia():
 
     for mod in (
         "agent.autonomia.comandos",
+        "agent.autonomia.reservas",
         "agent.autonomia.autorizaciones",
         "agent.autonomia.models",
     ):
@@ -116,6 +168,17 @@ def _recargar_autonomia():
     import agent.autonomia.models  # noqa: F401  (registra tablas en el nuevo Base)
     import agent.autonomia.autorizaciones as a
     return a
+
+
+@pytest.fixture
+async def reservas(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path/'res.db'}")
+    monkeypatch.setenv("DONA_AUTONOMY_ENABLED", "true")
+    importlib.reload(agent.memory)
+    _recargar_autonomia()
+    import agent.autonomia.reservas as r
+    await agent.memory.inicializar_db()
+    return r
 
 
 @pytest.fixture
@@ -273,3 +336,43 @@ class TestComandos:
         # Con confirmar sí aplica
         txt2 = await cmds.manejar_comando_autonomia("5551", "autonomía x nivel 3 confirmar")
         assert "L3" in txt2
+
+
+# ───────────────────── Reservas de crédito (#6) ─────────────────────
+
+class TestReservas:
+    async def test_reservar_idempotente(self, reservas):
+        r1 = await reservas.reservar(telefono="5551", accion_ref="j1", creditos=5)
+        r2 = await reservas.reservar(telefono="5551", accion_ref="j1", creditos=5)
+        assert r1.ok and r1.estado == "reservada"
+        assert r2.ok and r2.razon == "ya_reservada"  # no duplica
+
+    async def test_consumir_uso_unico(self, reservas):
+        await reservas.reservar(telefono="5551", accion_ref="j2", creditos=5)
+        c1 = await reservas.consumir(telefono="5551", accion_ref="j2")
+        assert c1.ok and c1.estado == "consumida"
+        # Retry: ya consumida → idempotente, no re-ejecuta transición
+        c2 = await reservas.consumir(telefono="5551", accion_ref="j2")
+        assert c2.ok and c2.razon == "ya_en_destino"
+
+    async def test_no_liberar_tras_consumir(self, reservas):
+        # "No liberar si el proveedor pudo ejecutar": una vez consumida, liberar
+        # no revierte el estado.
+        await reservas.reservar(telefono="5551", accion_ref="j3", creditos=5)
+        await reservas.consumir(telefono="5551", accion_ref="j3")
+        lib = await reservas.liberar(telefono="5551", accion_ref="j3")
+        assert not lib.ok and lib.estado == "consumida"
+
+    async def test_liberar_si_falla(self, reservas):
+        await reservas.reservar(telefono="5551", accion_ref="j4", creditos=5)
+        lib = await reservas.liberar(telefono="5551", accion_ref="j4")
+        assert lib.ok and lib.estado == "liberada"
+
+    async def test_reserva_ajena(self, reservas):
+        await reservas.reservar(telefono="5551", accion_ref="j5", creditos=5)
+        c = await reservas.consumir(telefono="9999", accion_ref="j5")
+        assert not c.ok and c.razon == "ajena"
+
+    async def test_consumir_inexistente(self, reservas):
+        c = await reservas.consumir(telefono="5551", accion_ref="nope")
+        assert not c.ok and c.razon == "inexistente"

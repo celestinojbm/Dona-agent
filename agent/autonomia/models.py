@@ -79,3 +79,32 @@ class AutorizacionAccion(Base):
             "origen IN ('humana','politica')", name="ck_autorizacion_origen"
         ),
     )
+
+
+class ReservaCredito(Base):
+    """Reserva write-ahead de créditos (decisión de Celestino #6).
+
+    Modelo de cobro: RESERVAR al iniciar, COBRAR al completar, LIBERAR si falla.
+    Esta tabla lleva el estado de la reserva (reservada|consumida|liberada) con
+    uso único por `accion_ref` (idempotente). El débito real del saldo lo hace la
+    capa de billing al completar (integración F1+F3); aquí vive la máquina de
+    estados que evita reservar/consumir/liberar dos veces.
+    """
+    __tablename__ = "reservas_credito"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    accion_ref: Mapped[str] = mapped_column(String(120), unique=True)  # uso único
+    creditos: Mapped[int] = mapped_column(Integer, default=0)
+    estado: Mapped[str] = mapped_column(String(12), default="reservada", index=True)
+    # reservada|consumida|liberada
+    idempotency_key: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "estado IN ('reservada','consumida','liberada')",
+            name="ck_reserva_estado",
+        ),
+    )

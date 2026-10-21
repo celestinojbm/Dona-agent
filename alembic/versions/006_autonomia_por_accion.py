@@ -22,7 +22,7 @@ down_revision = "003_bienvenida_enviada"
 branch_labels = None
 depends_on = None
 
-_TABLAS = ("autonomia_por_accion", "autorizaciones_accion")
+_TABLAS = ("autonomia_por_accion", "autorizaciones_accion", "reservas_credito")
 
 
 def upgrade() -> None:
@@ -73,6 +73,25 @@ def upgrade() -> None:
         "ix_autorizaciones_accion_estado", "autorizaciones_accion", ["estado"]
     )
 
+    # Reserva write-ahead de créditos (decisión de Celestino #6).
+    op.create_table(
+        "reservas_credito",
+        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column("telefono", sa.String(length=50), nullable=False),
+        sa.Column("accion_ref", sa.String(length=120), nullable=False),
+        sa.Column("creditos", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("estado", sa.String(length=12), nullable=False, server_default="reservada"),
+        sa.Column("idempotency_key", sa.String(length=250), nullable=True),
+        sa.Column("creado", sa.DateTime(), nullable=True),
+        sa.Column("actualizado", sa.DateTime(), nullable=True),
+        sa.UniqueConstraint("accion_ref", name="uq_reserva_accion_ref"),
+        sa.CheckConstraint(
+            "estado IN ('reservada','consumida','liberada')", name="ck_reserva_estado"
+        ),
+    )
+    op.create_index("ix_reservas_credito_telefono", "reservas_credito", ["telefono"])
+    op.create_index("ix_reservas_credito_estado", "reservas_credito", ["estado"])
+
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
         for t in _TABLAS:
@@ -90,5 +109,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_table("reservas_credito")
     op.drop_table("autorizaciones_accion")
     op.drop_table("autonomia_por_accion")
