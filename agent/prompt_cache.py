@@ -18,8 +18,13 @@ Camino header-free (GA): se usa `cache_control: {"type": "ephemeral"}` con el
 TTL por defecto (5 min). NO se usan cabeceras beta ni el TTL extendido de 1h
 (eso exigiría una cabecera beta; el plan dice "no inventar cabeceras"). Antes de
 encender el flag en producción conviene re-verificar la doc oficial vigente
-(longitud mínima cacheable, compatibilidad con tools/imágenes/thinking/streaming)
-y hacer un "hit real" con presupuesto autorizado.
+(longitud mínima cacheable, compatibilidad con tools/imágenes/thinking/streaming).
+
+Prueba real de caché (decisión de Celestino, 2026-10-21): el presupuesto de
+pruebas de pago quedó CANCELADO (0 USD). NO se hace ningún "hit real" contra
+Anthropic desde aquí; la verificación de este módulo es 100% con mocks. Si en el
+futuro se autoriza un hit real, debe correrse SÓLO en un entorno/base de datos
+AISLADO (nunca `main` ni producción) y con presupuesto explícito.
 
 Flag: DONA_PROMPT_CACHE_ENABLED=false por defecto → comportamiento byte-idéntico
 al actual (system como string plano).
