@@ -3,11 +3,12 @@
 Backend-only: RLS + revoke de anon/authenticated (sólo PostgreSQL). UNIQUE por
 (telefono, scope, scope_id).
 
-Parte de `main` (head 003). Integrar varias ramas del plan puede requerir una
-revisión de merge de Alembic. No aplicada a remoto.
+Cadena lineal de Alembic (009 sobre 008, final de la cadena del plan). Resuelve
+al fusionar los PRs en orden. No aplicada a remoto. La rama NO se pudo actualizar
+desde origin/main (`git merge` bloqueado en el entorno); sólo se fijó down_revision.
 
 Revision ID: 009_preferencia_modelo
-Revises: 003_bienvenida_enviada
+Revises: 008_primer_valor_onboarding
 Create Date: 2026-10-21
 """
 
@@ -16,7 +17,7 @@ import sqlalchemy as sa
 
 
 revision = "009_preferencia_modelo"
-down_revision = "003_bienvenida_enviada"
+down_revision = "008_primer_valor_onboarding"
 branch_labels = None
 depends_on = None
 
