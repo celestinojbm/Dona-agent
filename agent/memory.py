@@ -16,7 +16,7 @@ import secrets
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, select, text, update
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, UniqueConstraint, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -432,6 +432,19 @@ class TransaccionCredito(Base):
     job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     saldo_resultante: Mapped[int] = mapped_column(Integer, default=0)
     creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    # ── F3 · recibo por acción (columnas aditivas, NULL en filas históricas) ──
+    # accion_ref: identificador de la acción/ejecución que originó el cobro.
+    accion_ref: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    # idempotency_key: UNIQUE → un retry/reentrega del MISMO cobro no duplica el
+    # débito (el segundo INSERT choca con el UNIQUE y hace rollback de todo el
+    # commit, saldo incluido). Las filas históricas quedan en NULL (múltiples
+    # NULL permitidos bajo UNIQUE en Postgres y SQLite) → sin conflicto.
+    idempotency_key: Mapped[str | None] = mapped_column(String(250), nullable=True, unique=True)
+    # desglose_json: recibo versionado (acción, tarifa, proveedores/modelos,
+    # tokens por tipo, coste base + moneda como string NUMERIC nunca float,
+    # estado estimado|observado|no_disponible, margen, créditos, saldo posterior,
+    # estado y vínculo a ajuste/reembolso). No es factura fiscal.
+    desglose_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class IdempotenciaCredito(Base):
@@ -452,6 +465,37 @@ class IdempotenciaCredito(Base):
 
     clave: Mapped[str] = mapped_column(String(250), primary_key=True)
     creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class UsoProveedorAccion(Base):
+    """Telemetría durable por proveedor para el recibo por acción (F3).
+
+    Una fila por (accion_ref, proveedor, intento). Guarda el uso/coste saneado de
+    cada proveedor externo (Gemini, Anthropic, Whapi, …) involucrado en una
+    acción, para que el `desglose_json` del recibo pueda tener una línea por
+    proveedor con estado estimado|observado|no_disponible. No reescribe débitos
+    históricos. Backend-only (RLS en la migración; el navegador nunca la lee).
+
+    Dinero como string (NUMERIC), nunca float; tokens/unidades como JSON saneado.
+    """
+    __tablename__ = "uso_proveedor_accion"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    accion_ref: Mapped[str] = mapped_column(String(120), index=True)
+    proveedor: Mapped[str] = mapped_column(String(60))
+    modelo: Mapped[str] = mapped_column(String(80), default="")
+    intento: Mapped[int] = mapped_column(Integer, default=1)
+    request_ref: Mapped[str] = mapped_column(String(200), default="")  # id de petición saneado
+    usage_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # tokens/unidades saneados
+    costo_base: Mapped[str | None] = mapped_column(String(40), nullable=True)  # NUMERIC como string
+    moneda: Mapped[str] = mapped_column(String(8), default="USD")
+    estado: Mapped[str] = mapped_column(String(20), default="estimado")  # estimado|observado|no_disponible
+    creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("accion_ref", "proveedor", "intento", name="uq_uso_prov_ejecucion"),
+    )
 
 
 class SuscripcionStripe(Base):
@@ -556,6 +600,17 @@ _MIGRACIONES = [
     # en runtime para PostgreSQL prod (Render) ya que el backend no
     # ejecuta `alembic upgrade head` automáticamente.
     "ALTER TABLE suscripcion_stripe ADD COLUMN bienvenida_enviada BOOLEAN DEFAULT FALSE",
+    # ── F3 · recibo por acción (equivalente a alembic 005; prod no corre
+    # `alembic upgrade head` automáticamente). Columnas aditivas nullable y un
+    # índice UNIQUE sobre idempotency_key (múltiples NULL permitidos). RLS de la
+    # tabla nueva uso_proveedor_accion: la crea create_all; su ENABLE RLS va en
+    # la migración 005 (sólo PostgreSQL). ──
+    "ALTER TABLE transacciones_credito ADD COLUMN accion_ref VARCHAR(120)",
+    "ALTER TABLE transacciones_credito ADD COLUMN idempotency_key VARCHAR(250)",
+    "ALTER TABLE transacciones_credito ADD COLUMN desglose_json TEXT",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_transaccion_idempotency_key "
+    "ON transacciones_credito (idempotency_key)",
+    "ALTER TABLE uso_proveedor_accion ENABLE ROW LEVEL SECURITY",
     # ── Tablas nuevas (respaldo explícito) ──────────────────────────────────
     # TEMA 7.1/7.2 — solicitudes verificadas de privacidad (CCPA export/delete).
     """

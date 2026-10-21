@@ -293,6 +293,102 @@ async def obtener_resumen(telefono: str) -> dict:
     }
 
 
+def _tx_a_recibo(t) -> dict:
+    """Serializa una TransaccionCredito a dict de recibo (desglose parseado)."""
+    desg = None
+    if getattr(t, "desglose_json", None):
+        try:
+            desg = json.loads(t.desglose_json)
+        except Exception:
+            desg = None
+    return {
+        "id": t.id,
+        "delta": t.delta,
+        "razon": t.razon,
+        "accion_ref": getattr(t, "accion_ref", None),
+        "saldo_resultante": t.saldo_resultante,
+        "creado": t.creado.isoformat() if t.creado else None,
+        "desglose": desg,
+    }
+
+
+async def obtener_recibo(telefono: str, tx_id: int) -> dict | None:
+    """Devuelve el recibo `tx_id` SÓLO si pertenece a `telefono`. Un recibo
+    ajeno (o inexistente) devuelve None — el caller responde sin revelar nada."""
+    from sqlalchemy import select
+
+    from agent.memory import TransaccionCredito, async_session
+
+    async with async_session() as session:
+        t = (await session.execute(
+            select(TransaccionCredito).where(
+                TransaccionCredito.id == tx_id,
+                TransaccionCredito.telefono == telefono,
+            )
+        )).scalar_one_or_none()
+        return _tx_a_recibo(t) if t is not None else None
+
+
+async def ultimo_recibo(telefono: str) -> dict | None:
+    """Último cobro (delta < 0) del usuario, como recibo. None si no hay."""
+    from sqlalchemy import select
+
+    from agent.memory import TransaccionCredito, async_session
+
+    async with async_session() as session:
+        t = (await session.execute(
+            select(TransaccionCredito)
+            .where(
+                TransaccionCredito.telefono == telefono,
+                TransaccionCredito.delta < 0,
+            )
+            .order_by(TransaccionCredito.creado.desc(), TransaccionCredito.id.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        return _tx_a_recibo(t) if t is not None else None
+
+
+async def registrar_uso_proveedor(
+    telefono: str,
+    accion_ref: str,
+    proveedor: str,
+    *,
+    modelo: str = "",
+    intento: int = 1,
+    request_ref: str = "",
+    usage: dict | None = None,
+    costo_base: str | None = None,
+    moneda: str = "USD",
+    estado: str = "estimado",
+) -> None:
+    """Registra (idempotente por accion_ref+proveedor+intento) la telemetría de
+    uso de un proveedor para una acción. Backend-only. No reescribe débitos."""
+    from sqlalchemy.exc import IntegrityError
+
+    from agent.memory import UsoProveedorAccion, async_session
+
+    fila = UsoProveedorAccion(
+        telefono=telefono,
+        accion_ref=accion_ref[:120],
+        proveedor=proveedor[:60],
+        modelo=(modelo or "")[:80],
+        intento=int(intento),
+        request_ref=(request_ref or "")[:200],
+        usage_json=json.dumps(usage, ensure_ascii=False) if usage else None,
+        costo_base=(str(costo_base)[:40] if costo_base is not None else None),
+        moneda=(moneda or "USD")[:8],
+        estado=estado if estado in ("estimado", "observado", "no_disponible") else "estimado",
+        creado=datetime.utcnow(),
+    )
+    async with async_session() as session:
+        session.add(fila)
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Ya registrada esta ejecución/proveedor/intento → idempotente.
+            await session.rollback()
+
+
 # ── API: Cobro / Acreditación ──────────────────────────────────────────────
 
 async def cobrar(
@@ -301,6 +397,9 @@ async def cobrar(
     razon: str,
     asset_id: int | None = None,
     job_id: int | None = None,
+    idempotency_key: str = "",
+    accion_ref: str = "",
+    desglose: dict | None = None,
 ) -> int:
     """
     Descuenta `creditos` del saldo del usuario de forma atómica.
@@ -310,15 +409,47 @@ async def cobrar(
     Implementación: SELECT FOR UPDATE no es portable entre sqlite/postgres,
     así que usamos un UPDATE condicional (`WHERE saldo >= creditos`) y
     verificamos rowcount — patrón "compare-and-swap".
+
+    Idempotencia (F3): si se pasa `idempotency_key`, el débito es idempotente —
+    un retry/reentrega del MISMO cobro no vuelve a descontar. El recibo
+    (`accion_ref`, `desglose_json`, `saldo_resultante`) se escribe en la MISMA
+    transacción que el débito (recibo y saldo atómicos). Un segundo cobro con la
+    misma key choca con el índice UNIQUE y hace rollback de TODO el commit → no
+    doble-débito ni secuencial ni concurrente; se devuelve el saldo del recibo
+    original. La idempotencia está SIEMPRE activa (independiente del flag de
+    exposición de recibos).
     """
     if creditos <= 0:
         raise ValueError("creditos debe ser > 0 en cobrar()")
 
+    import json
+
     from sqlalchemy import select, update
+    from sqlalchemy.exc import IntegrityError
 
     from agent.memory import SaldoCreditos, TransaccionCredito, async_session
 
+    clave = (idempotency_key or "")[:250] or None
+    desglose_txt = json.dumps(desglose, ensure_ascii=False) if desglose else None
+
+    async def _saldo_recibo(session) -> int | None:
+        """Saldo resultante del recibo ya aplicado con esta key, o None."""
+        if not clave:
+            return None
+        tx = (await session.execute(
+            select(TransaccionCredito).where(
+                TransaccionCredito.idempotency_key == clave
+            )
+        )).scalar_one_or_none()
+        return int(tx.saldo_resultante) if tx is not None else None
+
     async with async_session() as session:
+        # Fast-path idempotente: si la key ya se aplicó, no re-cobra.
+        ya = await _saldo_recibo(session)
+        if ya is not None:
+            logger.info(f"[BILLING] Cobro idempotente skip: key aplicada")
+            return ya
+
         # Asegurar que exista la fila
         row = (await session.execute(
             select(SaldoCreditos).where(SaldoCreditos.telefono == telefono)
@@ -358,10 +489,28 @@ async def cobrar(
             asset_id=asset_id,
             job_id=job_id,
             saldo_resultante=nuevo,
+            idempotency_key=clave,
+            accion_ref=(accion_ref or None),
+            desglose_json=desglose_txt,
             creado=datetime.utcnow(),
         ))
-        await session.commit()
-        return nuevo
+        try:
+            await session.commit()
+            return nuevo
+        except IntegrityError:
+            # Otra entrega con la misma key ganó la carrera: TODO el commit hizo
+            # rollback (saldo incluido). Devolver el saldo del recibo original.
+            await session.rollback()
+
+    if clave:
+        async with async_session() as s2:
+            ya = await _saldo_recibo(s2)
+            if ya is not None:
+                logger.info("[BILLING] Cobro idempotente (carrera) skip")
+                return ya
+    # IntegrityError sin key idempotente aplicada → no es doble-cobro conocido;
+    # propagar como error de saldo seguro (no se descontó: el commit hizo rollback).
+    raise SaldoInsuficienteError(saldo=0, requerido=creditos)
 
 
 async def acreditar(
@@ -499,10 +648,17 @@ async def cobrar_o_rechazar(
     telefono: str,
     creditos: int,
     razon: str,
+    idempotency_key: str = "",
+    accion_ref: str = "",
+    desglose: dict | None = None,
 ) -> tuple[bool, str | None]:
     """
     Helper para tools: intenta cobrar; si no alcanza, retorna mensaje
     listo para enviar al usuario (con link a recargar).
+
+    F3: acepta `idempotency_key` (débito idempotente ante retries/reentregas),
+    `accion_ref` y `desglose` (recibo) que se escriben en la MISMA transacción
+    que el débito. Son opcionales → callers existentes no cambian de conducta.
 
     Uso:
         ok, err = await cobrar_o_rechazar(tel, COSTO_IMAGEN_STANDARD, "generar_imagen")
@@ -512,7 +668,12 @@ async def cobrar_o_rechazar(
         # ...ejecutar trabajo caro...
     """
     try:
-        await cobrar(telefono, creditos, razon)
+        await cobrar(
+            telefono, creditos, razon,
+            idempotency_key=idempotency_key,
+            accion_ref=accion_ref,
+            desglose=desglose,
+        )
         return True, None
     except SaldoInsuficienteError as e:
         msj = (
