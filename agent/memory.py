@@ -16,7 +16,17 @@ import secrets
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, UniqueConstraint, select, text, update
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 

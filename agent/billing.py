@@ -470,7 +470,7 @@ async def cobrar(
         # Fast-path idempotente: si la key ya se aplicó, no re-cobra.
         ya = await _saldo_recibo(session)
         if ya is not None:
-            logger.info(f"[BILLING] Cobro idempotente skip: key aplicada")
+            logger.info("[BILLING] Cobro idempotente skip: key aplicada")
             return ya
 
         # Asegurar que exista la fila
