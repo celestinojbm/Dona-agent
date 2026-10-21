@@ -389,6 +389,29 @@ async def registrar_uso_proveedor(
             await session.rollback()
 
 
+# Retención de telemetría de uso por proveedor (decisión de Celestino #13).
+RETENCION_USO_PROVEEDOR_DIAS = 90
+
+
+async def purgar_uso_proveedor(dias: int = RETENCION_USO_PROVEEDOR_DIAS) -> int:
+    """Borra filas de uso_proveedor_accion más antiguas que `dias` (retención
+    90 días por defecto). Devuelve cuántas filas se borraron. Pensado para un
+    job de limpieza; no toca transacciones_credito (el ledger no se purga)."""
+    from datetime import timedelta
+
+    from sqlalchemy import delete
+
+    from agent.memory import UsoProveedorAccion, async_session
+
+    corte = datetime.utcnow() - timedelta(days=max(int(dias), 1))
+    async with async_session() as session:
+        res = await session.execute(
+            delete(UsoProveedorAccion).where(UsoProveedorAccion.creado < corte)
+        )
+        await session.commit()
+        return int(res.rowcount or 0)
+
+
 # ── API: Cobro / Acreditación ──────────────────────────────────────────────
 
 async def cobrar(

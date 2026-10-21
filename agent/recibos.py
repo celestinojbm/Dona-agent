@@ -67,14 +67,32 @@ def linea_proveedor(
     }
 
 
+def linea_paso(
+    *,
+    nombre: str,
+    creditos: int | None = None,
+    estado: str = "completado",
+    detalle: str = "",
+) -> dict[str, Any]:
+    """Una línea del desglose POR PASO (decisión de Celestino #7). `creditos` es
+    entero (lo que ve el usuario); None si el paso no cobró por sí mismo."""
+    return {
+        "nombre": nombre,
+        "creditos": int(creditos) if creditos is not None else None,
+        "estado": estado,
+        "detalle": detalle,
+    }
+
+
 def construir_desglose(
     *,
     accion: str,
-    version_tarifa: str,
     proveedores: list[dict[str, Any]],
     creditos_cobrados: int,
     saldo_posterior: int,
     estado: str,
+    version_tarifa: str | None = None,
+    pasos: list[dict[str, Any]] | None = None,
     margen: Any = None,
     coste_base_total: Any = None,
     moneda: str = "USD",
@@ -83,16 +101,29 @@ def construir_desglose(
 ) -> dict[str, Any]:
     """Construye el desglose versionado (dict serializable a JSON).
 
-    `creditos_cobrados` y `saldo_posterior` son enteros; los montos de dinero se
-    guardan como string. `estado` del recibo ∈ estimado|observado|no_disponible.
+    Decisiones de Celestino aplicadas:
+    - #4 Créditos ENTEROS (visibles); dinero como string Decimal (interno), nunca
+      float.
+    - #5 Margen por defecto = 30% (de agent.tarifa) si no se pasa explícito;
+      `version_tarifa` por defecto = tarifa.VERSION_TARIFA.
+    - #7 Recibo con desglose POR PASO (`pasos`), además de proveedores usados.
+
+    `estado` del recibo ∈ estimado|observado|no_disponible.
     """
+    from agent import tarifa
+
     if estado not in ("estimado", "observado", "no_disponible"):
         estado = "estimado"
+    if margen is None:
+        margen = tarifa.margen_str()  # 30% por defecto
+    if version_tarifa is None:
+        version_tarifa = tarifa.VERSION_TARIFA
     return {
         "version": VERSION_DESGLOSE,
         "accion": accion,
         "version_tarifa": version_tarifa,
         "proveedores": list(proveedores),
+        "pasos": list(pasos) if pasos else None,
         "unidades_no_token": unidades_no_token or None,
         "coste_base_total": _dinero(coste_base_total),
         "moneda": moneda,
@@ -150,6 +181,19 @@ def formatear_recibo(tx: dict[str, Any]) -> str:
         creditos = abs(int(tx.get("delta", 0)))
     lineas.append(f"Créditos: *{creditos}*")
 
+    # Desglose POR PASO (decisión de Celestino #7).
+    pasos = desg.get("pasos") or []
+    if pasos:
+        lineas.append("")
+        lineas.append("*Por paso:*")
+        for p in pasos:
+            est = _NOMBRE_ESTADO.get(p.get("estado", ""), p.get("estado", ""))
+            cr = p.get("creditos")
+            cr_txt = f" — {cr} cr" if cr is not None else ""
+            det = f" ({p['detalle']})" if p.get("detalle") else ""
+            lineas.append(f"• {p.get('nombre', '?')}: {est}{cr_txt}{det}")
+
+    # Proveedores usados.
     provs = desg.get("proveedores") or []
     if provs:
         lineas.append("")

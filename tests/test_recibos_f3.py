@@ -216,3 +216,85 @@ class TestComandos:
         assert "gemini" in txt
         assert "observado" in txt
         assert "No es una factura fiscal" in txt
+
+
+# ─────────── Respuestas de Celestino: tarifa, desglose por paso, retención ───────────
+
+class TestTarifa:
+    def test_margen_30_pct(self):
+        from decimal import Decimal
+        from agent import tarifa
+        assert tarifa.aplicar_margen("1.00") == Decimal("1.30")
+        assert tarifa.margen_str() == "0.30"
+
+    def test_creditos_redondeo_hacia_arriba(self):
+        from agent import tarifa
+        # coste 1.00 + 30% = 1.30 ; con valor_credito 1.00 → ceil(1.30) = 2
+        assert tarifa.creditos_por_costo("1.00", valor_credito_usd="1.00") == 2
+        # coste 0.10 + 30% = 0.13 ; valor 1.00 → ceil(0.13) = 1
+        assert tarifa.creditos_por_costo("0.10", valor_credito_usd="1.00") == 1
+
+    def test_valor_credito_desde_env(self, monkeypatch):
+        from agent import tarifa
+        monkeypatch.setenv("DONA_VALOR_CREDITO_USD", "0.50")
+        # 1.00 + 30% = 1.30 ; /0.50 = 2.6 → ceil = 3
+        assert tarifa.creditos_por_costo("1.00") == 3
+
+    def test_sin_valor_credito_lanza(self, monkeypatch):
+        import pytest as _pytest
+        from agent import tarifa
+        monkeypatch.delenv("DONA_VALOR_CREDITO_USD", raising=False)
+        with _pytest.raises(ValueError):
+            tarifa.creditos_por_costo("1.00")
+
+
+class TestDesgloseCelestino:
+    def test_margen_y_version_por_defecto(self):
+        from agent import tarifa
+        desg = recibos.construir_desglose(
+            accion="x", proveedores=[], creditos_cobrados=2, saldo_posterior=8,
+            estado="observado",
+        )
+        assert desg["margen"] == "0.30"  # 30% por defecto
+        assert desg["version_tarifa"] == tarifa.VERSION_TARIFA
+
+    def test_desglose_por_paso(self):
+        pasos = [
+            recibos.linea_paso(nombre="Buscar leads", creditos=1, estado="completado"),
+            recibos.linea_paso(nombre="Redactar", creditos=1, estado="completado"),
+        ]
+        desg = recibos.construir_desglose(
+            accion="seguimiento", proveedores=[], pasos=pasos,
+            creditos_cobrados=2, saldo_posterior=8, estado="observado",
+        )
+        assert len(desg["pasos"]) == 2
+        tx = {"id": 7, "delta": -2, "saldo_resultante": 8, "desglose": desg}
+        txt = recibos.formatear_recibo(tx)
+        assert "Por paso" in txt
+        assert "Buscar leads" in txt
+
+
+class TestRetencion:
+    async def test_purga_uso_proveedor_90_dias(self, db):
+        from datetime import datetime, timedelta
+        from sqlalchemy import update
+        from agent.memory import UsoProveedorAccion, async_session
+        # Fila reciente y fila vieja (100 días)
+        await db.registrar_uso_proveedor("5551", "job-new", "gemini", intento=1)
+        await db.registrar_uso_proveedor("5551", "job-old", "gemini", intento=1)
+        async with async_session() as s:
+            await s.execute(
+                update(UsoProveedorAccion)
+                .where(UsoProveedorAccion.accion_ref == "job-old")
+                .values(creado=datetime.utcnow() - timedelta(days=100))
+            )
+            await s.commit()
+        borradas = await db.purgar_uso_proveedor(dias=90)
+        assert borradas == 1
+        # La reciente sobrevive
+        from sqlalchemy import func, select
+        async with async_session() as s:
+            quedan = (await s.execute(
+                select(func.count()).select_from(UsoProveedorAccion)
+            )).scalar_one()
+        assert quedan == 1
