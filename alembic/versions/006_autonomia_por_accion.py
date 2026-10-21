@@ -5,11 +5,12 @@ Crea `autonomia_por_accion` (nivel 1–4 por usuario+tipo, con UNIQUE y CHECK) y
 cotización, máximo, origen humana|politica, estado, vencimiento, uso único).
 Ambas backend-only: RLS + revoke de anon/authenticated (sólo PostgreSQL).
 
-Nota de integración: parte de `main` (head 003). Al fusionar varias ramas del
-plan puede hacer falta una revisión de merge de Alembic. No aplicada a remoto.
+Nota de integración: cadena lineal de Alembic (006 sobre 005 sobre 004). Resuelve
+al fusionar los PRs en orden. No aplicada a remoto. La rama NO se pudo actualizar
+desde origin/main (`git merge` bloqueado en el entorno); sólo se fijó down_revision.
 
 Revision ID: 006_autonomia_por_accion
-Revises: 003_bienvenida_enviada
+Revises: 005_recibo_por_accion
 Create Date: 2026-10-20
 """
 
@@ -18,7 +19,7 @@ import sqlalchemy as sa
 
 
 revision = "006_autonomia_por_accion"
-down_revision = "003_bienvenida_enviada"
+down_revision = "005_recibo_por_accion"
 branch_labels = None
 depends_on = None
 
