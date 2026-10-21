@@ -1803,6 +1803,24 @@ async def procesar_webhook(request: Request):
             except Exception as _e_bil:
                 logger.error(f"[CMD] Error en comando billing: {_e_bil}")
 
+            # ── Comandos de autonomía (F1) — determinísticos, gated por flag ──
+            try:
+                from agent.autonomia.politica import autonomia_habilitada
+                if autonomia_habilitada():
+                    from agent.autonomia.comandos import (
+                        es_comando_autonomia,
+                        manejar_comando_autonomia,
+                    )
+                    if es_comando_autonomia(msg.texto):
+                        await proveedor.enviar_mensaje(
+                            msg.telefono,
+                            await manejar_comando_autonomia(msg.telefono, msg.texto),
+                        )
+                        logger.info(f"[CMD] autonomia → {msg.telefono}")
+                        continue
+            except Exception as _e_auto:
+                logger.error(f"[CMD] Error en comando autonomía: {_e_auto}")
+
             # ── Comandos creativos ("dona imagen <prompt>" + confirmar/cancelar) ──
             try:
                 from agent.creativos.bg_remove import (
