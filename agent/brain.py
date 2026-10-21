@@ -1388,14 +1388,14 @@ async def _invocar_claude_gateado(api_kwargs: dict, telefono: str):
     timeout del guard (vencimiento → _PresupuestoLLMAgotado con estado
     cerrado) y consume el costo estimado tras la respuesta. Devuelve la
     respuesta de Anthropic."""
+    import time as _time
+
     from agent.presupuesto_runtime import (
         TimeoutPresupuesto,
         con_timeout_llm,
         consumir_llm,
         reservar_llm,
     )
-
-    import time as _time
 
     decision = reservar_llm(telefono)
     if not decision.permitido:
