@@ -4,11 +4,12 @@ Backend-only: RLS + revoke de anon/authenticated (sólo PostgreSQL). Mide el
 time-to-first-value; `eventos_onboarding` registra sólo la etapa (sin respuestas
 libres).
 
-Parte de `main` (head 003). Integrar varias ramas puede requerir merge de
-Alembic. No aplicada a remoto.
+Cadena lineal de Alembic (008 sobre 007). Resuelve al fusionar los PRs en orden.
+No aplicada a remoto. La rama NO se pudo actualizar desde origin/main (`git merge`
+bloqueado en el entorno); sólo se fijó down_revision.
 
 Revision ID: 008_primer_valor_onboarding
-Revises: 003_bienvenida_enviada
+Revises: 007_plan_vivo
 Create Date: 2026-10-20
 """
 
@@ -17,7 +18,7 @@ import sqlalchemy as sa
 
 
 revision = "008_primer_valor_onboarding"
-down_revision = "003_bienvenida_enviada"
+down_revision = "007_plan_vivo"
 branch_labels = None
 depends_on = None
 
