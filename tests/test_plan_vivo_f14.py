@@ -153,25 +153,24 @@ class TestNotificaciones:
         assert n.estado == "fallida" and n.intentos == 1
 
 
-class TestFormato:
-    def test_render_markers(self):
-        # No requiere DB.
-        from agent.plan_vivo.formato import render_whatsapp
-        plan = {
-            "estado": "en_curso",
-            "coste_maximo": 5,
-            "pasos": [
-                {"titulo": "Buscar", "estado": "completado"},
-                {"titulo": "Redactar", "estado": "en_curso"},
-                {"titulo": "Enviar", "estado": "pendiente"},
-            ],
-        }
-        txt = render_whatsapp(plan)
-        assert "Dona trabajando" in txt
-        assert "✅ 1. Buscar" in txt
-        assert "▶︎ 2. Redactar" in txt
-        assert "◻︎ 3. Enviar" in txt
-        assert "5 créditos" in txt
+class TestNotificacionWhatsApp:
+    """Decisión de Celestino #10: plan vivo SÓLO en la app; nada de checklist en
+    vivo en WhatsApp. Durante la ejecución no se notifica; sólo aviso terminal."""
+
+    def test_sin_plan_vivo_en_whatsapp(self):
+        # Ya no existe un render de checklist en vivo para WhatsApp.
+        import agent.plan_vivo.formato as fmt
+        assert not hasattr(fmt, "render_whatsapp")
+
+    def test_en_curso_no_notifica(self):
+        from agent.plan_vivo.formato import notificacion_terminal
+        assert notificacion_terminal({"estado": "en_curso"}) is None
+        assert notificacion_terminal({"estado": "preparado"}) is None
+
+    def test_aviso_terminal_breve(self):
+        from agent.plan_vivo.formato import notificacion_terminal
+        assert notificacion_terminal({"estado": "completado"}) == "Listo."
+        assert "app" in notificacion_terminal({"estado": "fallido"})
 
 
 def test_flag_apagado_por_defecto(monkeypatch):
