@@ -4,11 +4,12 @@ Backend-only: RLS + revoke de anon/authenticated (sólo PostgreSQL). `plan_tarea
 tiene concurrencia optimista (`revision`) y UNIQUE por accion_ref;
 `notificaciones_plan` es un outbox idempotente (UNIQUE por dedupe_key).
 
-Parte de `main` (head 003). Al integrar varias ramas puede hacer falta un merge
-de Alembic. No aplicada a remoto.
+Cadena lineal de Alembic (007 sobre 006). Resuelve al fusionar los PRs en orden.
+No aplicada a remoto. La rama NO se pudo actualizar desde origin/main (`git merge`
+bloqueado en el entorno); sólo se fijó down_revision.
 
 Revision ID: 007_plan_vivo
-Revises: 003_bienvenida_enviada
+Revises: 006_autonomia_por_accion
 Create Date: 2026-10-20
 """
 
@@ -17,7 +18,7 @@ import sqlalchemy as sa
 
 
 revision = "007_plan_vivo"
-down_revision = "003_bienvenida_enviada"
+down_revision = "006_autonomia_por_accion"
 branch_labels = None
 depends_on = None
 
