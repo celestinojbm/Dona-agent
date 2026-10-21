@@ -556,6 +556,9 @@ _MIGRACIONES = [
     # en runtime para PostgreSQL prod (Render) ya que el backend no
     # ejecuta `alembic upgrade head` automáticamente.
     "ALTER TABLE suscripcion_stripe ADD COLUMN bienvenida_enviada BOOLEAN DEFAULT FALSE",
+    # ── F12 · primer valor: RLS backend-only de las tablas nuevas (PostgreSQL).
+    "ALTER TABLE onboarding_primer_valor ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE eventos_onboarding ENABLE ROW LEVEL SECURITY",
     # ── Tablas nuevas (respaldo explícito) ──────────────────────────────────
     # TEMA 7.1/7.2 — solicitudes verificadas de privacidad (CCPA export/delete).
     """
@@ -814,6 +817,10 @@ async def inicializar_db():
     # solo se importan lazy desde sus endpoints. El import fuerza el registro en
     # Base.metadata.
     from agent.dashboard_lockout import DashboardLoginIntento  # noqa: F401
+    from agent.primer_valor.models import (  # noqa: F401  (F12: registra sus tablas)
+        EventoOnboarding,
+        OnboardingPrimerValor,
+    )
     from agent.entorno import es_entorno_estricto
 
     tablas_esperadas = set(Base.metadata.tables.keys())

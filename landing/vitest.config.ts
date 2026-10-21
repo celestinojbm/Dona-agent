@@ -7,7 +7,11 @@ export default defineConfig({
     //   /** @vitest-environment jsdom */
     // al inicio del archivo.
     environment: "node",
-    include: ["lib/**/*.test.ts", "app/**/*.test.tsx"],
+    include: [
+      "lib/**/*.test.ts",
+      "app/**/*.test.tsx",
+      "components/**/*.test.tsx",
+    ],
     exclude: ["node_modules", ".next"],
   },
   resolve: {
