@@ -1,6 +1,7 @@
 # Matriz de acceso a Supabase / PostgreSQL (0B)
 
-**Fecha:** 2026-10-20 · **Alcance:** las 47 tablas ORM del `Base` único de
+**Fecha:** 2026-10-20 · **Actualizado:** 2026-10-21 con las decisiones de
+Celestino (identidad persona + Supabase Auth). · **Alcance:** las 47 tablas ORM del `Base` único de
 `agent/memory.py` (incluye `business`, `automation`, `enhanced`,
 `dashboard_lockout`). Fuente única de verdad de la lista y el SQL:
 `agent/rls_policy.py`. Migración: `alembic/versions/004_rls_tablas_existentes.py`.
@@ -21,23 +22,43 @@
 - El **teléfono del cliente no prueba identidad**: una columna `telefono` en una
   fila no autoriza a nadie; la autorización vive en los endpoints de FastAPI.
 
-## Contrato elegido: (a) acceso sólo-backend
+## Decisiones de Celestino (2026-10-21)
 
-Se elige el contrato **(a)** del plan: el navegador no tiene acceso directo a la
-base; todo pasa por FastAPI. Por tanto:
+- **Unidad de cuenta:** la **persona** (usuario individual), no el teléfono.
+- **Identidad:** **Supabase Auth**; `auth.uid()` es la identidad canónica. Login
+  con Google/Apple + email; el teléfono es **opcional** y ya no es la clave de
+  identidad.
+- **Objetivo:** contrato **(b)** — RLS por propietario con `auth.uid()` real.
+
+## Contrato objetivo (b) y estado de transición
+
+**Decisión:** el objetivo es el contrato **(b)** (Supabase Auth con `auth.uid()`),
+no el (a). Pero adoptarlo **correctamente** exige un mapeo verificable
+`auth.uid()` ↔ propietario, que **hoy no existe** en el esquema (las tablas se
+indexan por `telefono`; el puente `usuarios` mapea email↔teléfono pero aún no al
+`auth.users.id` de Supabase). El plan advierte explícitamente: **no** usar
+`auth.uid() = usuario_id` cuando no corresponden.
+
+Por eso esta migración (004) **no cambia** y sigue siendo la base correcta y
+**compatible hacia adelante** con (b):
 
 - RLS **habilitado** en las 47 tablas.
-- **Sin políticas** para `anon`/`authenticated`: bajo RLS, sin política = acceso
-  denegado por defecto. Es exactamente lo que queremos para el navegador.
+- **Sin políticas** para `anon`/`authenticated` → bajo RLS, sin política = acceso
+  **denegado por defecto** (seguro tanto para (a) como para (b)).
 - **REVOKE ALL** de `anon`/`authenticated` (defensa en profundidad, role-gated).
-- El backend (dueño/`service_role`) **evita RLS** y sigue operando sin cambios:
-  no se añaden políticas para el rol backend porque no las necesita.
+- El backend (dueño/`service_role`) evita RLS y sigue operando sin cambios.
 
-No se adopta el contrato (b) (Supabase Auth con `auth.uid()` + membresías)
-porque hoy **no existe** Supabase Auth en la app ni un mapeo verificable
-`auth.uid()` ↔ propietario. Usar `auth.uid() = usuario_id` sin esa
-correspondencia sería incorrecto. Reabrir a (b) es una decisión de producto
-(ver `preguntas-celestino.md`, puntos 2–3).
+### Pasos pendientes para completar (b) (follow-up, migración aparte)
+
+1. Añadir `auth_user_id uuid` (FK lógica a `auth.users.id`) a la identidad
+   (`usuarios`) y propagarlo como columna de propietario a las tablas que el
+   navegador deba leer con sesión autenticada.
+2. Backfill del mapeo persona↔`auth.uid()` (una sola vez, verificado).
+3. Recién entonces añadir políticas `USING (auth_user_id = auth.uid())` por tabla
+   para los recorridos que el navegador haga directo con sesión Supabase.
+4. Hasta que ese mapeo exista, el acceso del navegador sigue **denegado** y todo
+   pasa por FastAPI (enforcement backend). Esto es seguro: no se habilita lectura
+   directa sin una correspondencia real.
 
 ## Límite honesto (no sobrevender RLS)
 

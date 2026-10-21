@@ -8,11 +8,18 @@ las pruebas no se desincronicen.
 
 Contrato de acceso (ver docs/security/supabase-access-matrix.md):
 
-  (a) Acceso sólo-backend. El navegador (dashboard Next.js) NO habla con Supabase
-      directamente: pasa por FastAPI con el bridge HMAC. Por eso ninguna tabla
-      necesita políticas para `anon`/`authenticated`: con RLS habilitado y sin
-      política, esos roles quedan denegados por defecto. El backend conecta con
-      el rol dueño/`service_role` (que evita RLS), así que sigue operando.
+  Objetivo decidido por Celestino (2026-10-21): contrato (b) — Supabase Auth con
+  `auth.uid()` como identidad (cuenta = persona). Pero (b) exige un mapeo real
+  `auth.uid()` ↔ propietario que aún NO existe en el esquema (tablas por
+  `telefono`), así que esta migración mantiene el estado base, que es
+  compatible hacia adelante con (b):
+
+      RLS habilitado + SIN políticas para `anon`/`authenticated` → denegado por
+      defecto. El navegador no accede directo (pasa por FastAPI con bridge HMAC);
+      el backend conecta con el rol dueño/`service_role` (que evita RLS). Las
+      políticas `USING (auth_user_id = auth.uid())` se añaden en un follow-up,
+      recién cuando exista la columna de mapeo y su backfill verificado (NO usar
+      `auth.uid() = usuario_id` sin correspondencia real).
 
 Límite honesto: `service_role`/dueño EVITAN RLS. RLS protege contra acceso
 directo del navegador vía PostgREST, NO contra errores de la propia FastAPI
