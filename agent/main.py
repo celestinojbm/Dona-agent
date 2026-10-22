@@ -1800,6 +1800,33 @@ async def procesar_webhook(request: Request):
                     await proveedor.enviar_mensaje(msg.telefono, await texto_mis_assets(msg.telefono))
                     logger.info(f"[CMD] mis_assets → {msg.telefono}")
                     continue
+                # F3 · "recibo <id>" / "último recibo" (gratis, sólo si el flag de
+                # EXPOSICIÓN está encendido). Un recibo ajeno/inexistente responde
+                # igual: no revela nada.
+                from agent.recibos import (
+                    es_comando_recibo,
+                    formatear_recibo,
+                    recibos_habilitado,
+                )
+                _rec = es_comando_recibo(msg.texto)
+                if _rec is not None and recibos_habilitado():
+                    from agent.billing import obtener_recibo, ultimo_recibo
+                    tipo_rec, rec_id = _rec
+                    recibo = (
+                        await obtener_recibo(msg.telefono, rec_id)
+                        if tipo_rec == "id"
+                        else await ultimo_recibo(msg.telefono)
+                    )
+                    if recibo is None:
+                        await proveedor.enviar_mensaje(
+                            msg.telefono, "No encontré ese recibo."
+                        )
+                    else:
+                        await proveedor.enviar_mensaje(
+                            msg.telefono, formatear_recibo(recibo)
+                        )
+                    logger.info(f"[CMD] recibo({tipo_rec}) → {msg.telefono}")
+                    continue
             except Exception as _e_bil:
                 logger.error(f"[CMD] Error en comando billing: {_e_bil}")
 
