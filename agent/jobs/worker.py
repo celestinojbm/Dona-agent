@@ -117,6 +117,21 @@ async def ejecutar_job(ctx, job_id: int, tipo: str, telefono: str, params: dict)
     await _ejecutar_con_estado(job_id, tipo, telefono, params)
 
 
+async def app_ejecutar(ctx, ejecucion_id: int) -> str | None:
+    """Task de arq para Dona app-first (J7): procesa una ejecución de agente.
+
+    Respeta el mismo interruptor que los jobs creativos: con
+    DONA_WORKER_ENABLED apagado la ejecución queda encolada."""
+    from agent.efectos import efecto_habilitado
+
+    if not efecto_habilitado("worker"):
+        logger.warning(f"[APP-FIRST] ejecución {ejecucion_id} NO procesada: DONA_WORKER_ENABLED != true")
+        return None
+    from agent.app_first.ejecucion import ejecutar
+
+    return await ejecutar(ejecucion_id)
+
+
 def _redis_settings():
     # Import diferido para que el módulo cargue sin arq instalado
     from arq.connections import RedisSettings  # type: ignore
@@ -138,6 +153,17 @@ async def _al_arrancar_worker(ctx) -> None:
             "No se consume la cola."
         )
 
+    # J7 · Al arrancar (p. ej. tras un reinicio), recuperar ejecuciones de
+    # agentes que quedaron en_curso con el lease vencido.
+    try:
+        from agent.app_first.ejecucion import reaper
+
+        recuperadas = await reaper()
+        if recuperadas:
+            logger.warning(f"[APP-FIRST] reaper de arranque del worker: {len(recuperadas)} ejecuciones abandonadas")
+    except Exception:
+        logger.exception("[APP-FIRST] reaper de arranque del worker falló (se continúa)")
+
 
 class WorkerSettings:
     """Config para `arq` worker. Uso:
@@ -146,7 +172,7 @@ class WorkerSettings:
     Sin `cron_jobs`: los trabajos recurrentes viven SOLO en el scheduler del
     proceso web (un responsable por trabajo, no se mezclan arq e inproc).
     """
-    functions = [ejecutar_job]
+    functions = [ejecutar_job, app_ejecutar]
     on_startup = _al_arrancar_worker
     max_jobs = int(os.getenv("ARQ_MAX_JOBS", "5"))
     job_timeout = int(os.getenv("ARQ_JOB_TIMEOUT", "600"))  # 10 min
