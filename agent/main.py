@@ -149,6 +149,8 @@ _MAX_IDS_DEDUP = 1000
 import threading as _threading
 from datetime import UTC
 
+from agent.rate_limiter import config_cupo as _config_cupo
+from agent.rate_limiter import consumir_cupo as _consumir_cupo
 from agent.rate_limiter import dentro_de_limite as _dentro_de_limite
 
 
@@ -505,6 +507,9 @@ async def privacy_export(request: Request):
     if corte is not None:
         return corte
     telefono = await _leer_telefono_privacidad(request)
+    limitado = _cupo_privacidad(telefono, "privacy_export")
+    if limitado is not None:
+        return limitado
     return await _iniciar_solicitud_privacidad(telefono, "export")
 
 
@@ -516,6 +521,9 @@ async def privacy_delete(request: Request):
     if corte is not None:
         return corte
     telefono = await _leer_telefono_privacidad(request)
+    limitado = _cupo_privacidad(telefono, "privacy_delete")
+    if limitado is not None:
+        return limitado
     return await _iniciar_solicitud_privacidad(telefono, "delete")
 
 
@@ -657,6 +665,40 @@ _TELEFONO_RE = re.compile(r"^\+?\d{10,15}$")
 def _telefono_valido(telefono: str) -> bool:
     """Valida formato E.164 laxo (10-15 dígitos, '+' opcional)."""
     return bool(telefono) and bool(_TELEFONO_RE.match(telefono.strip()))
+
+
+def _sujeto_privacidad(telefono: str) -> str:
+    """Identidad del cupo. Con o sin '+' es la misma persona.
+
+    No consulta la base: el cupo no puede delatar si el número tiene cuenta.
+    """
+    return telefono.strip().lstrip("+")
+
+
+def _respuesta_cupo_excedido(retry_after: int) -> JSONResponse:
+    """429 idéntico para cualquier sujeto. Sin teléfono ni pista de existencia."""
+    return JSONResponse(
+        {"detail": "rate_limit_excedido"},
+        status_code=429,
+        headers={
+            "Retry-After": str(max(int(retry_after), 1)),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def _cupo_privacidad(telefono: str, ambito: str) -> JSONResponse | None:
+    """None si cabe otro intento; si no, la respuesta 429 ya armada."""
+    maximo, ventana = _config_cupo(ambito)
+    permitido, retry = _consumir_cupo(
+        ambito, _sujeto_privacidad(telefono), maximo, ventana
+    )
+    if permitido:
+        return None
+    logger.warning(
+        f"[PRIVACY] rate limit {ambito} para {telefono[:4]}*** retry={retry}s"
+    )
+    return _respuesta_cupo_excedido(retry)
 
 
 def _verificar_admin(request: Request) -> bool:
