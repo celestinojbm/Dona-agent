@@ -41,11 +41,14 @@ beforeEach(() => {
   process.env.PANEL_INGENIERIA_TOKEN = TOKEN;
   delete process.env.RATE_LIMIT_LOGIN_MAX;
   delete process.env.RATE_LIMIT_LOGIN_WINDOW_SECONDS;
+  delete process.env.BACKEND_URL;
+  delete process.env.INTERNAL_BRIDGE_SECRET;
 });
 
 afterEach(() => {
   fijarReloj(null);
   reiniciarCupos();
+  vi.unstubAllGlobals();
   process.env = { ...ENV_ORIGINAL };
 });
 
@@ -110,6 +113,55 @@ describe("POST /api/engineering/login · cupo", () => {
     expect(firmas[1]).toEqual(firmas[2]);
     expect(firmas[0].status).toBe(429);
     expect(JSON.stringify(firmas[0].body)).not.toMatch(/exist|not found|invalid_token/i);
+  });
+
+  it("delega al backend y usa el Retry-After compartido sin mandar el token", async () => {
+    process.env.BACKEND_URL = "https://backend.test";
+    process.env.INTERNAL_BRIDGE_SECRET = "bridge-test";
+    const vistos = new Map<string, number>();
+    const fetchMock = vi.fn(async (_url: string, opts: { body?: string }) => {
+      const body = JSON.parse(String(opts.body)) as { ip: string; usuario: string; token?: string };
+      expect(body.usuario).toBe("engineering");
+      expect(body.token).toBeUndefined();
+      expect(JSON.stringify(body)).not.toContain(TOKEN);
+      const n = (vistos.get(body.ip) ?? 0) + 1;
+      vistos.set(body.ip, n);
+      const permitido = n <= 5;
+      return new Response(
+        JSON.stringify({ permitido, retry_after_segundos: permitido ? 0 : 123 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ip = "203.0.113.40";
+    for (let i = 0; i < 5; i++) {
+      expect((await POST(post("incorrecto", ip))).status).toBe(401);
+    }
+    const sexto = await POST(post(TOKEN, ip));
+    expect(sexto.status).toBe(429);
+    expect(sexto.headers.get("retry-after")).toBe("123");
+    expect(await sexto.json()).toEqual({ error: "rate_limit_excedido" });
+    expect(setCookie).not.toHaveBeenCalled();
+
+    const otra = await POST(post("incorrecto", "203.0.113.41"));
+    expect(otra.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("si el backend no responde, la memoria local igual corta en el sexto", async () => {
+    process.env.BACKEND_URL = "https://backend.test";
+    process.env.INTERNAL_BRIDGE_SECRET = "bridge-test";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+    const ip = "203.0.113.50";
+    for (let i = 0; i < 5; i++) {
+      expect((await POST(post("incorrecto", ip))).status).toBe(401);
+    }
+    const sexto = await POST(post(TOKEN, ip));
+    expect(sexto.status).toBe(429);
+    expect(sexto.headers.get("retry-after")).toBe("900");
+    expect(await sexto.json()).toEqual({ error: "rate_limit_excedido" });
+    expect(setCookie).not.toHaveBeenCalled();
   });
 
   it("DELETE no consume el cupo del login", async () => {

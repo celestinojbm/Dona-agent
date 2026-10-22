@@ -4295,6 +4295,32 @@ async def internal_auth_login_record(request: Request):
     return await registrar_resultado(email, exito)
 
 
+@app.post("/internal/panel/login-cupo")
+async def internal_panel_login_cupo(request: Request):
+    """Cupo compartido del login de ingeniería (landing → este proceso).
+
+    La landing firma el body (IP ya resuelta allá + usuario fijo del panel) y
+    traduce ``permitido=false`` a 429. Esta ruta responde 200 también cuando
+    el cupo está lleno: un 429 aquí haría que el bridge lo tome por fallo y
+    abra una ventana local nueva, saltándose el tope compartido.
+
+    Redis si ``REDIS_URL`` conecta; si no, memoria de este proceso. El cuerpo
+    no repite la IP ni el usuario: no hay forma de inferir si alguien existe.
+    """
+    payload = await _verificar_y_parsear_internal(request)
+    ip = payload.get("ip") if isinstance(payload.get("ip"), str) else ""
+    usuario = payload.get("usuario") if isinstance(payload.get("usuario"), str) else ""
+    from agent.rate_limiter import consumir_login
+
+    permitido, retry = consumir_login(ip, usuario)
+    if not permitido:
+        logger.warning(f"[PANEL] login cupo excedido retry={retry}s")
+    return {
+        "permitido": permitido,
+        "retry_after_segundos": 0 if permitido else max(int(retry), 1),
+    }
+
+
 @app.post("/webhook")
 async def webhook_handler(request: Request):
     """Webhook genérico."""

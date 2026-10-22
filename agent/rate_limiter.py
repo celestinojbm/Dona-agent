@@ -11,9 +11,12 @@ Límites del gate de mensajes:
   - Por usuario: 10 mensajes por 60 segundos
   - Global: 1000 mensajes por 60 segundos (todos los usuarios)
 
-Cupos aparte (login del panel no vive aquí; export/delete de privacidad sí):
-  `consumir_cupo` es la misma ventana deslizante, con máximo y duración
-  propios, clave opaca (no guarda el teléfono en claro) y Retry-After.
+Cupos aparte (`consumir_cupo`): misma ventana, máximo y duración propios,
+clave opaca (no guarda teléfono ni IP en claro) y segundos de Retry-After.
+  - privacy_export / privacy_delete: solicitudes CCPA
+  - login_engineering: login del panel, compartido entre instancias de Next
+    vía POST /internal/panel/login-cupo. Si Redis no está, el cupo queda
+    en memoria de este proceso.
 """
 
 import hashlib
@@ -74,7 +77,18 @@ _CUPOS: dict[str, tuple[str, int, str, int]] = {
         "RATE_LIMIT_PRIVACY_DELETE_WINDOW_SECONDS",
         86400,
     ),
+    # Login del panel de ingeniería. Lo consulta la landing por el bridge
+    # HMAC; el usuario es el principal fijo, no un campo del cliente.
+    "login_engineering": (
+        "RATE_LIMIT_LOGIN_MAX",
+        5,
+        "RATE_LIMIT_LOGIN_WINDOW_SECONDS",
+        15 * 60,
+    ),
 }
+
+# Principal único del panel. Un usuario vacío no abre otro balde.
+USUARIO_LOGIN_PANEL = "engineering"
 
 # ── Métricas in-memory del gate (8.2) ─────────────────────────────────────────
 # Contadores observables vía snapshot_metricas_rate(). El más importante:
@@ -284,6 +298,23 @@ def _consumir_cupo_redis(clave: str, maximo: int, ventana: float) -> tuple[bool,
     except Exception as e:
         _registrar_fallback_degradado(e)
         return _consumir_cupo_memoria(clave, maximo, ventana)
+
+
+def sujeto_login(ip: str | None, usuario: str | None) -> str:
+    """Clave IP+usuario del login. No consulta si el principal existe.
+
+    IP vacía comparte el balde ``desconocida``. Usuario vacío es el principal
+    del panel: no se acepta un identificador en blanco como sujeto nuevo.
+    """
+    ip_n = (ip or "").strip().lower()[:80] or "desconocida"
+    usuario_n = (usuario or "").strip().lower() or USUARIO_LOGIN_PANEL
+    return f"{ip_n}|{usuario_n}"
+
+
+def consumir_login(ip: str | None, usuario: str | None = None) -> tuple[bool, int]:
+    """Cupo del login de ingeniería. Redis si hay cliente; si no, memoria."""
+    maximo, ventana = config_cupo("login_engineering")
+    return consumir_cupo("login_engineering", sujeto_login(ip, usuario), maximo, ventana)
 
 
 def consumir_cupo(

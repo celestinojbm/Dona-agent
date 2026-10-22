@@ -1,13 +1,10 @@
 // landing/lib/rate-limit.ts — Cupo del login del panel de ingeniería.
 //
-// Ventana deslizante en memoria de ESTE proceso.
-//
-// El backend Python (agent/rate_limiter.py) usa Redis cuando REDIS_URL está
-// configurada y, si no, memoria. El login del panel corre en Next, que no
-// trae el cliente Redis: aquí el cupo es in-memory. En Vercel cada instancia
-// tiene su propia ventana y un cold start la vacía. No es un tope global
-// entre instancias. No persistimos el token ni armamos la clave con él
-// (rotarlo saltaría el límite).
+// El tope compartido entre instancias está en el backend
+// (agent/rate_limiter.consumir_login): Redis si REDIS_URL conecta, y memoria
+// de ese proceso si Redis no está. Este archivo conserva la ventana local
+// para cuando el bridge no responde (backend caído o sin configurar). Esa
+// memoria es por instancia y no persiste. No usamos el token como clave.
 //
 // Clave = IP + usuario. El panel tiene un solo principal ("engineering");
 // no se toma un usuario del body, porque el cliente podría cambiarlo en
@@ -15,6 +12,8 @@
 // dice si el token era válido ni si el panel está configurado.
 
 import "server-only";
+
+import { consultarCupoLogin } from "@/lib/login-cupo-bridge";
 
 export const USUARIO_PANEL = "engineering";
 export const LOGIN_MAX_DEFAULT = 5;
@@ -130,8 +129,21 @@ export function consumirCupo(
   return { permitido: true, retryAfterSegundos: 0 };
 }
 
-/** Cupo del login del panel para esta IP y el principal fijo. */
+/** Cupo local (fallback) para esta IP y el principal fijo. */
 export function consumirLogin(ip: string): ResultadoCupo {
   const { maximo, ventanaSegundos } = configLogin();
   return consumirCupo(claveCupo(ip, USUARIO_PANEL), maximo, ventanaSegundos);
+}
+
+/**
+ * Primero el cupo compartido (Redis en el backend). Si el bridge no contesta,
+ * la memoria de esta instancia. Nunca un fallo de red equivale a "permitido"
+ * sin contar el intento.
+ */
+export async function resolverCupoLogin(ip: string): Promise<ResultadoCupo> {
+  const remoto = await consultarCupoLogin(ip, USUARIO_PANEL);
+  if (remoto) return remoto;
+  // El bridge ya registró por qué no hubo respuesta. Contamos aquí para no
+  // dejar el intento libre.
+  return consumirLogin(ip);
 }

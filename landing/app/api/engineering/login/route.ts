@@ -7,6 +7,8 @@
 // (ver lib/panel-auth.ts).
 //
 // Cupo: 5 intentos / 15 min por IP+usuario (env RATE_LIMIT_LOGIN_*).
+// Lo cuenta el backend en Redis (memoria de ese proceso si Redis no está).
+// Si el bridge no responde, cuenta la memoria de esta instancia.
 // Al pasarse responde 429 + Retry-After, igual si el token es bueno, malo
 // o el panel no está configurado.
 
@@ -18,7 +20,7 @@ import {
   PANEL_COOKIE_MAX_AGE,
 } from "@/lib/panel-auth";
 import { rutaRetiradaEnPausa } from "@/lib/pausa-api";
-import { consumirLogin, ipDe } from "@/lib/rate-limit";
+import { ipDe, resolverCupoLogin } from "@/lib/rate-limit";
 
 function respuestaLimite(retryAfterSegundos: number): NextResponse {
   // Mismo cuerpo siempre: no dice si el token era válido ni si el panel
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
 
   // Cuenta el intento antes de leer el token. Así el 429 no depende de si
   // el secreto coincide o de si PANEL_INGENIERIA_TOKEN existe.
-  const cupo = consumirLogin(ipDe(req));
+  const cupo = await resolverCupoLogin(ipDe(req));
   if (!cupo.permitido) {
     console.warn(`[PANEL] login rate limit excedido retry=${cupo.retryAfterSegundos}s`);
     return respuestaLimite(cupo.retryAfterSegundos);
