@@ -9,6 +9,7 @@ perezosa; en pruebas se usa `ProveedorSimulado`, que NUNCA hace red (presupuesto
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
@@ -16,6 +17,50 @@ from dataclasses import dataclass, field
 from agent.multi_model.catalogo import costo_estimado_usd, info_modelo
 
 logger = logging.getLogger("dona")
+
+# Timeout y reintentos de las llamadas a proveedores reales (configurables por
+# env). Evitan cuelgues y errores transitorios. No aplican al simulado.
+TIMEOUT_SEGUNDOS = float(os.getenv("DONA_MODEL_TIMEOUT_S", "30"))
+MAX_REINTENTOS = int(os.getenv("DONA_MODEL_MAX_RETRIES", "2"))
+
+# Nombres de excepción transitoria (no se importan los SDK sólo para esto).
+_TRANSITORIOS_POR_NOMBRE = frozenset(
+    {
+        "APITimeoutError",
+        "APIConnectionError",
+        "RateLimitError",
+        "InternalServerError",
+        "ConnectError",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "PoolTimeout",
+    }
+)
+
+
+def _es_transitorio(e: BaseException) -> bool:
+    if isinstance(e, (asyncio.TimeoutError, ConnectionError, TimeoutError)):
+        return True
+    return type(e).__name__ in _TRANSITORIOS_POR_NOMBRE
+
+
+async def invocar_con_timeout_retry(factory, *, timeout=None, reintentos=None):
+    """Ejecuta `factory()` (corutina) bajo timeout, con reintentos acotados ante
+    errores transitorios y backoff exponencial corto. Un error NO transitorio se
+    propaga sin reintentar (no multiplica coste). Función pura y testeable con un
+    factory mockeado (sin red)."""
+    timeout = TIMEOUT_SEGUNDOS if timeout is None else timeout
+    reintentos = MAX_REINTENTOS if reintentos is None else reintentos
+    intento = 0
+    while True:
+        try:
+            return await asyncio.wait_for(factory(), timeout)
+        except BaseException as e:  # noqa: BLE001 — se reclasifica abajo
+            if _es_transitorio(e) and intento < reintentos:
+                intento += 1
+                await asyncio.sleep(min(2 ** intento, 4))
+                continue
+            raise
 
 
 @dataclass
@@ -103,7 +148,7 @@ class ProveedorAnthropic(ProveedorModelo):
         kwargs = dict(model=modelo, max_tokens=max_tokens, messages=mensajes)
         if system:
             kwargs["system"] = system
-        resp = await cliente.messages.create(**kwargs)
+        resp = await invocar_con_timeout_retry(lambda: cliente.messages.create(**kwargs))
         tin = int(getattr(resp.usage, "input_tokens", 0) or 0)
         tout = int(getattr(resp.usage, "output_tokens", 0) or 0)
         return RespuestaModelo(
@@ -129,8 +174,10 @@ class ProveedorOpenAI(ProveedorModelo):
     ) -> RespuestaModelo:  # pragma: no cover - requiere API real (no se prueba)
         cliente = self._cliente()
         msgs = ([{"role": "system", "content": system}] if system else []) + mensajes
-        resp = await cliente.chat.completions.create(
-            model=modelo, max_tokens=max_tokens, messages=msgs
+        resp = await invocar_con_timeout_retry(
+            lambda: cliente.chat.completions.create(
+                model=modelo, max_tokens=max_tokens, messages=msgs
+            )
         )
         usage = getattr(resp, "usage", None)
         tin = int(getattr(usage, "prompt_tokens", 0) or 0)
@@ -159,7 +206,9 @@ class ProveedorGoogle(ProveedorModelo):
         raise NotImplementedError("Adaptador de texto Gemini pendiente de activar")
 
 
-# Proveedores reales por nombre.
+# Proveedores reales por nombre. `google` queda registrado pero HOY ningún modelo
+# del catálogo lo usa (Gemini está fuera hasta tener adaptador); su generar() es
+# un placeholder que lanza NotImplementedError si alguna vez se invocara.
 _PROVEEDORES_REALES: dict[str, ProveedorModelo] = {
     "anthropic": ProveedorAnthropic(),
     "openai": ProveedorOpenAI(),
@@ -176,11 +225,18 @@ def forzar_proveedor(proveedor: ProveedorModelo | None) -> None:
     _proveedor_forzado = proveedor
 
 
-def proveedor_para(modelo_id: str) -> ProveedorModelo:
-    """Devuelve el proveedor para un modelo. Si hay uno forzado (pruebas/demo),
-    lo usa. Si no, el real según el catálogo."""
+def proveedor_para(modelo_id: str, *, permitir_real: bool = True) -> ProveedorModelo:
+    """Devuelve el proveedor para un modelo.
+
+    - Si hay un proveedor forzado (pruebas/demo), se usa siempre.
+    - Si `permitir_real` es False (flag DONA_MULTI_MODEL_ENABLED apagado), se
+      devuelve el proveedor SIMULADO → nunca se llama a un proveedor real.
+    - Si no, el real según el catálogo.
+    """
     if _proveedor_forzado is not None:
         return _proveedor_forzado
+    if not permitir_real:
+        return ProveedorSimulado(etiqueta="flag-off")
     info = info_modelo(modelo_id)
     if info is None:
         raise ValueError(f"modelo desconocido: {modelo_id}")

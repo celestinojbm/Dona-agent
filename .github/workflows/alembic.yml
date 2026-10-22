@@ -1,0 +1,62 @@
+name: Alembic (cadena de migraciones)
+
+"on":
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alembic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  alembic:
+    name: Cadena Alembic (head único + upgrade/downgrade)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # BD efímera AISLADA, sólo para CI (no toca Supabase ni producción).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dona_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      ENVIRONMENT: test
+      ANTHROPIC_API_KEY: sk-ant-test-fake-key
+      # asyncpg para el engine de la app (import de agent.memory); alembic env.py
+      # convierte a postgresql+psycopg2:// para correr las migraciones sync.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dona_ci
+      ALEMBIC_CHECK_DB: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Verificar cadena Alembic (head único + upgrade/downgrade efímero)
+        run: python scripts/ci_alembic_check.py

@@ -43,8 +43,13 @@ CLASES_TAREA = (
 )
 
 
-# Tabla base (IDs reales ya presentes en el repo + GPT/Gemini). Los precios son
-# defaults configurables; no pretenden ser exactos.
+# Tabla base (IDs reales ya presentes en el repo). Los precios son defaults
+# configurables; no pretenden ser exactos.
+#
+# Gemini: QUITADO del catálogo hasta tener un adaptador de texto real
+# (agent.multi_model.providers.ProveedorGoogle.generar aún no está implementado).
+# No se expone un modelo que no se puede ejecutar. Reañadir cuando exista el
+# adaptador + sus pruebas con mock.
 _BASE: tuple[ModeloInfo, ...] = (
     ModeloInfo(
         id="claude-sonnet-4-5",
@@ -73,30 +78,56 @@ _BASE: tuple[ModeloInfo, ...] = (
         clases=("conversacion", "planificacion", "razonamiento"),
         nivel_coste=2,
     ),
-    ModeloInfo(
-        id="gemini-2.5-flash",
-        nombre="Gemini 2.5 Flash",
-        proveedor="google",
-        precio_in_usd_mtok=Decimal("0.3"),
-        precio_out_usd_mtok=Decimal("2.5"),
-        clases=("imagen", "borrador", "clasificacion", "resumen"),
-        nivel_coste=1,
-    ),
 )
 
 _POR_ID = {m.id: m for m in _BASE}
 
 
-def _override_precios() -> dict:
+def _precio_valido(v) -> Decimal | None:
+    """Coacciona un valor de precio a Decimal >= 0, o None si es inválido."""
+    if isinstance(v, bool):  # bool es subclase de int; no lo aceptamos
+        return None
+    try:
+        d = Decimal(str(v))
+    except Exception:
+        return None
+    return d if d >= 0 else None
+
+
+def _override_precios() -> dict[str, dict[str, Decimal]]:
+    """Lee y VALIDA DONA_MODEL_PRICES. Forma esperada:
+    {"<id>": {"in": num>=0, "out": num>=0}}. Entradas o campos inválidos se
+    ignoran con warning (no rompen el arranque). Devuelve sólo lo válido."""
     raw = os.getenv("DONA_MODEL_PRICES", "").strip()
     if not raw:
         return {}
     try:
         data = json.loads(raw)
-        return data if isinstance(data, dict) else {}
     except Exception:
         logger.warning("[MULTI_MODEL] DONA_MODEL_PRICES no es JSON válido; se ignora")
         return {}
+    if not isinstance(data, dict):
+        logger.warning("[MULTI_MODEL] DONA_MODEL_PRICES debe ser un objeto; se ignora")
+        return {}
+
+    validos: dict[str, dict[str, Decimal]] = {}
+    for mid, cfg in data.items():
+        if not isinstance(cfg, dict):
+            logger.warning("[MULTI_MODEL] precio inválido para %s (no es objeto); se ignora", mid)
+            continue
+        entrada: dict[str, Decimal] = {}
+        for campo in ("in", "out"):
+            if campo in cfg:
+                d = _precio_valido(cfg[campo])
+                if d is None:
+                    logger.warning(
+                        "[MULTI_MODEL] precio %s.%s inválido; se ignora ese campo", mid, campo
+                    )
+                else:
+                    entrada[campo] = d
+        if entrada:
+            validos[mid] = entrada
+    return validos
 
 
 def modelos_disponibles() -> list[ModeloInfo]:
@@ -112,13 +143,13 @@ def existe(modelo_id: str) -> bool:
 
 
 def precio_modelo(modelo_id: str) -> tuple[Decimal, Decimal] | None:
-    """(precio_in, precio_out) USD/Mtok, con override por env si existe."""
+    """(precio_in, precio_out) USD/Mtok, con override por env VALIDADO si existe."""
     base = _POR_ID.get(modelo_id)
     if base is None:
         return None
     ov = _override_precios().get(modelo_id, {})
-    pin = Decimal(str(ov["in"])) if "in" in ov else base.precio_in_usd_mtok
-    pout = Decimal(str(ov["out"])) if "out" in ov else base.precio_out_usd_mtok
+    pin = ov.get("in", base.precio_in_usd_mtok)
+    pout = ov.get("out", base.precio_out_usd_mtok)
     return pin, pout
 
 

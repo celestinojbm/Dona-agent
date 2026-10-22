@@ -11,11 +11,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 
 from agent.multi_model.catalogo import existe, modelos_disponibles
 from agent.multi_model.providers import RespuestaModelo, proveedor_para
+
+logger = logging.getLogger("dona")
 
 MODELO_POR_DEFECTO = "claude-sonnet-4-5"
 
@@ -107,9 +110,31 @@ async def generar(
     mensajes: list[dict],
     system: str = "",
     max_tokens: int = 1024,
+    permitir_fallback: bool = True,
 ) -> RespuestaModelo:
-    """Genera con el proveedor del modelo elegido (capa común)."""
-    prov = proveedor_para(modelo)
-    return await prov.generar(
-        modelo=modelo, mensajes=mensajes, system=system, max_tokens=max_tokens
-    )
+    """Genera con el proveedor del modelo elegido (capa común).
+
+    - Respeta DONA_MULTI_MODEL_ENABLED: si está APAGADO, se usa el proveedor
+      simulado (NUNCA se llama a un proveedor real / API de pago).
+    - Fallback: si el proveedor del modelo falla, reintenta UNA vez con el modelo
+      por defecto (si es distinto). El propio adaptador real ya aplica
+      timeout+reintentos ante errores transitorios antes de llegar aquí.
+    """
+    permitir_real = multi_model_habilitado()
+    prov = proveedor_para(modelo, permitir_real=permitir_real)
+    try:
+        return await prov.generar(
+            modelo=modelo, mensajes=mensajes, system=system, max_tokens=max_tokens
+        )
+    except Exception as e:  # noqa: BLE001
+        if permitir_fallback and modelo != MODELO_POR_DEFECTO:
+            logger.warning(
+                "[MULTI_MODEL] %s falló (%s); fallback a %s",
+                modelo, type(e).__name__, MODELO_POR_DEFECTO,
+            )
+            provf = proveedor_para(MODELO_POR_DEFECTO, permitir_real=permitir_real)
+            return await provf.generar(
+                modelo=MODELO_POR_DEFECTO, mensajes=mensajes, system=system,
+                max_tokens=max_tokens,
+            )
+        raise

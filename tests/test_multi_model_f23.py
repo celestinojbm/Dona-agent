@@ -40,9 +40,11 @@ class TestCatalogo:
         ids = {m.id for m in catalogo.modelos_disponibles()}
         assert "claude-sonnet-4-5" in ids
         assert "gpt-4o" in ids
-        assert "gemini-2.5-flash" in ids
         assert catalogo.existe("claude-haiku-4-5-20251001")
         assert not catalogo.existe("no-existe")
+        # Gemini fuera del catálogo hasta tener adaptador de texto real.
+        assert "gemini-2.5-flash" not in ids
+        assert not catalogo.existe("gemini-2.5-flash")
 
     def test_precio_override_por_env(self, monkeypatch):
         monkeypatch.setenv("DONA_MODEL_PRICES", '{"gpt-4o":{"in":1.0,"out":2.0}}')
@@ -100,8 +102,8 @@ class TestSeleccion:
 
     def test_auto_tarea_barata(self, _flag_on):
         e = seleccion.elegir(clase_tarea="clasificacion", modo_auto=True)
-        # haiku (1) y gemini (1); desempata por id → gemini-2.5-flash
-        assert e.modelo in ("claude-haiku-4-5-20251001", "gemini-2.5-flash")
+        # Sin Gemini, el único candidato barato de clasificación es Haiku.
+        assert e.modelo == "claude-haiku-4-5-20251001"
 
     def test_cambiar_modelo_preserva_contexto(self):
         hist = [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]
@@ -201,3 +203,139 @@ class TestPreferencias:
     async def test_preferencia_ajena_no_se_ve(self, prefs):
         await prefs.fijar_preferencia("5551", "chat", "c1", modelo_id="gpt-4o")
         assert await prefs.obtener_preferencia("9999", "chat", "c1") is None
+
+
+# ───────────────────── Endurecimiento / rutas de error (mocks) ─────────────────────
+
+class _ProveedorFalla(ProveedorSimulado):
+    """Proveedor mock que falla para un modelo dado; útil para probar fallback."""
+
+    def __init__(self, modelo_que_falla, excepcion=RuntimeError("boom")):
+        super().__init__(etiqueta="falla")
+        self.modelo_que_falla = modelo_que_falla
+        self.excepcion = excepcion
+
+    async def generar(self, *, modelo, mensajes, system="", max_tokens=1024, **kw):
+        if modelo == self.modelo_que_falla:
+            raise self.excepcion
+        return await super().generar(
+            modelo=modelo, mensajes=mensajes, system=system, max_tokens=max_tokens
+        )
+
+
+class TestFlagApagadoSinRed:
+    async def test_generar_flag_off_usa_simulado(self, monkeypatch):
+        # Flag apagado + SIN proveedor forzado → proveedor_para devuelve simulado;
+        # nunca se intenta un proveedor real / API de pago.
+        monkeypatch.delenv("DONA_MULTI_MODEL_ENABLED", raising=False)
+        forzar_proveedor(None)
+        r = await seleccion.generar(
+            modelo="gpt-4o", mensajes=[{"role": "user", "content": "x"}]
+        )
+        assert r.simulado is True
+
+    def test_proveedor_para_flag_off_es_simulado(self, monkeypatch):
+        forzar_proveedor(None)
+        p = prov.proveedor_para("gpt-4o", permitir_real=False)
+        assert isinstance(p, ProveedorSimulado)
+
+
+class TestTimeoutRetry:
+    async def test_reintenta_transitorio_y_luego_ok(self):
+        import asyncio
+
+        llamadas = {"n": 0}
+
+        async def factory():
+            llamadas["n"] += 1
+            if llamadas["n"] < 3:
+                raise asyncio.TimeoutError()
+            return "ok"
+
+        res = await prov.invocar_con_timeout_retry(factory, timeout=1, reintentos=3)
+        assert res == "ok" and llamadas["n"] == 3
+
+    async def test_no_transitorio_no_reintenta(self):
+        llamadas = {"n": 0}
+
+        async def factory():
+            llamadas["n"] += 1
+            raise ValueError("4xx inválido")
+
+        with pytest.raises(ValueError):
+            await prov.invocar_con_timeout_retry(factory, timeout=1, reintentos=3)
+        assert llamadas["n"] == 1  # no reintentó
+
+    async def test_timeout_agota_reintentos(self):
+        import asyncio
+
+        async def factory():
+            await asyncio.sleep(10)  # nunca termina a tiempo
+
+        with pytest.raises(asyncio.TimeoutError):
+            await prov.invocar_con_timeout_retry(factory, timeout=0.01, reintentos=1)
+
+
+class TestFallback:
+    async def test_generar_cae_a_default_si_falla(self, _flag_on):
+        # El modelo pedido falla; fallback al modelo por defecto (distinto).
+        forzar_proveedor(_ProveedorFalla("gpt-4o"))
+        r = await seleccion.generar(
+            modelo="gpt-4o", mensajes=[{"role": "user", "content": "x"}]
+        )
+        assert r.modelo == seleccion.MODELO_POR_DEFECTO
+
+    async def test_sin_fallback_propaga(self, _flag_on):
+        forzar_proveedor(_ProveedorFalla("gpt-4o"))
+        with pytest.raises(RuntimeError):
+            await seleccion.generar(
+                modelo="gpt-4o", mensajes=[{"role": "user", "content": "x"}],
+                permitir_fallback=False,
+            )
+
+
+class TestTopesDeCoste:
+    async def test_comparar_limita_modelos(self):
+        # Más modelos que el tope → se recortan a TOPE_MODELOS_COMPARAR.
+        modelos = ["gpt-4o", "claude-sonnet-4-5", "claude-haiku-4-5-20251001", "gpt-4o"]
+        res = await combinacion.comparar_lado_a_lado(
+            modelos=modelos, mensajes=[{"role": "user", "content": "x"}]
+        )
+        assert len(res.respuestas) == combinacion.TOPE_MODELOS_COMPARAR
+
+    async def test_planificar_acota_pasos(self):
+        res = await combinacion.planificar_y_ejecutar(
+            modelo_plan="claude-sonnet-4-5", modelo_exec="gpt-4o",
+            mensajes=[{"role": "user", "content": "x"}], max_pasos=99,
+        )
+        # 1 (planificación) + a lo sumo TOPE_PASOS de ejecución.
+        assert len(res.pasos) <= combinacion.TOPE_PASOS + 1
+
+    async def test_tope_coste_detiene_comparacion(self):
+        # tope_coste_usd=0 → no se hace ninguna consulta tras agotar presupuesto.
+        res = await combinacion.comparar_lado_a_lado(
+            modelos=["gpt-4o", "claude-sonnet-4-5"],
+            mensajes=[{"role": "user", "content": "x"}],
+            tope_coste_usd="0",
+        )
+        assert res.respuestas == []
+
+
+class TestValidacionPrecios:
+    def test_precios_invalidos_se_ignoran(self, monkeypatch):
+        # JSON válido pero con entradas/campos malformados → se ignoran; el
+        # precio base se mantiene (no rompe).
+        monkeypatch.setenv(
+            "DONA_MODEL_PRICES",
+            '{"gpt-4o":{"in":"abc","out":-5}, "claude-sonnet-4-5":"nope"}',
+        )
+        pin, pout = catalogo.precio_modelo("gpt-4o")
+        assert pin == Decimal("2.5") and pout == Decimal("10.0")  # base intacto
+        # sonnet con cfg no-dict → base intacto
+        s_in, s_out = catalogo.precio_modelo("claude-sonnet-4-5")
+        assert s_in == Decimal("3.0") and s_out == Decimal("15.0")
+
+    def test_json_invalido_se_ignora(self, monkeypatch):
+        monkeypatch.setenv("DONA_MODEL_PRICES", "no es json")
+        pin, pout = catalogo.precio_modelo("gpt-4o")
+        assert pin == Decimal("2.5") and pout == Decimal("10.0")
