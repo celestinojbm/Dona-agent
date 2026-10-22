@@ -31,7 +31,7 @@ import PrototipoHero from "./prototipo/page";
 import TerminosPage from "./terminos-y-condiciones/page";
 import PrivacidadPage from "./politica-de-privacidad/page";
 
-const AVISO = "Dona está en pausa. No aceptamos nuevas suscripciones ni compras.";
+const AVISO = "Dona está completo. Todas las plazas están ocupadas y por ahora no aceptamos nuevas suscripciones ni compras.";
 
 afterEach(() => cleanup());
 
@@ -48,7 +48,7 @@ const paginas: [string, () => ReactElement][] = [
 describe.each(paginas)("página %s en pausa", (_ruta, Pagina) => {
   it("muestra el aviso de pausa y enlaces a términos y privacidad", () => {
     render(Pagina());
-    expect(screen.getByRole("heading", { name: "Dona está en pausa" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dona está completo" })).toBeInTheDocument();
     expect(screen.getByText(AVISO)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Términos y condiciones" })).toHaveAttribute(
       "href",
@@ -62,10 +62,18 @@ describe.each(paginas)("página %s en pausa", (_ruta, Pagina) => {
 
   it("no vende, no pide credenciales ni publica contacto sin verificar", () => {
     const { container } = render(Pagina());
+    const esInicio = _ruta === "/";
     const texto = container.textContent ?? "";
     expect(texto).not.toMatch(/Pago exitoso|está activa|Empezar|Ver planes|\$20|\$40/);
     expect(texto).not.toContain("WhatsApp");
-    expect(container.querySelector("form")).toBeNull();
+    // Solo el inicio lleva formulario: la lista de espera (correo y teléfono).
+    const forms = container.querySelectorAll("form");
+    if (esInicio) {
+      expect(forms).toHaveLength(1);
+      expect(forms[0]).toHaveAttribute("aria-label", "Lista de espera");
+    } else {
+      expect(forms).toHaveLength(0);
+    }
     expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(container.querySelector('a[href^="mailto:"]')).toBeNull();
     expect(container.querySelector('a[href*="/dashboard"]')).toBeNull();
