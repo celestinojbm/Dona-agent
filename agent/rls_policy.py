@@ -65,6 +65,11 @@ TABLAS_RLS: tuple[str, ...] = (
     "saldo_creditos",
     "transacciones_credito",
     "idempotencia_credito",
+    # F3 · telemetría de uso por proveedor (recibo por acción). Declarada aquí
+    # para que test_rls.py cuadre la lista contra los modelos (su modelo vive en
+    # agent/memory.py). RLS se habilita además en la migración 005 y en
+    # _MIGRACIONES.
+    "uso_proveedor_accion",
     "suscripcion_stripe",
     "evento_stripe_procesado",
     "usuarios",
