@@ -13,11 +13,18 @@ config = context.config
 
 # Usar DATABASE_URL de .env en lugar de alembic.ini
 db_url = os.getenv("DATABASE_URL", "sqlite:///./dona.db")
-# Alembic usa sync drivers
+# Alembic usa un driver SÍNCRONO. Forzamos explícitamente psycopg2 para CUALQUIER
+# URL de PostgreSQL (asyncpg, bare, o psycopg v3), en vez de dejar el driver por
+# defecto de SQLAlchemy: en SQLAlchemy 2.1 el default de `postgresql://` pasó a
+# `psycopg` (v3), que NO está instalado (el repo trae psycopg2-binary, el mismo
+# driver sync que usa migration.py). Sin esto, `alembic upgrade` fallaba en CI
+# con "No module named psycopg". psycopg2 es determinista y está siempre presente.
 if db_url.startswith("postgresql+asyncpg://"):
-    db_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    db_url = db_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+elif db_url.startswith("postgresql+psycopg://"):
+    db_url = db_url.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
 elif db_url.startswith("postgresql://"):
-    pass  # ya es sync
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 config.set_main_option("sqlalchemy.url", db_url)
 
 if config.config_file_name is not None:
