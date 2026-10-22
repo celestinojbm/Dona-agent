@@ -621,6 +621,9 @@ _MIGRACIONES = [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_transaccion_idempotency_key "
     "ON transacciones_credito (idempotency_key)",
     "ALTER TABLE uso_proveedor_accion ENABLE ROW LEVEL SECURITY",
+    # ── F14 · plan vivo: RLS backend-only de las tablas nuevas (sólo PostgreSQL).
+    "ALTER TABLE plan_tarea ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE notificaciones_plan ENABLE ROW LEVEL SECURITY",
     # ── Tablas nuevas (respaldo explícito) ──────────────────────────────────
     # TEMA 7.1/7.2 — solicitudes verificadas de privacidad (CCPA export/delete).
     """
@@ -880,6 +883,10 @@ async def inicializar_db():
     # Base.metadata.
     from agent.dashboard_lockout import DashboardLoginIntento  # noqa: F401
     from agent.entorno import es_entorno_estricto
+    from agent.plan_vivo.models import (  # noqa: F401  (F14: registra sus tablas)
+        NotificacionPlan,
+        PlanTarea,
+    )
 
     tablas_esperadas = set(Base.metadata.tables.keys())
     logger.info(f"[DB] Driver: {'PostgreSQL/asyncpg' if _ES_POSTGRES else 'SQLite'}")
