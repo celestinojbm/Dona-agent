@@ -38,7 +38,7 @@ export function PrimerValorHero({
   }
 
   return (
-    <section aria-label="¿Qué quieres lograr hoy?" className="w-full max-w-[720px]">
+    <section aria-label="Primer resultado" className="w-full max-w-[720px]">
       <form onSubmit={enviar}>
         <label htmlFor={id} className="sr-only">
           ¿Qué quieres lograr hoy?

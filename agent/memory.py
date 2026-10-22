@@ -817,11 +817,11 @@ async def inicializar_db():
     # solo se importan lazy desde sus endpoints. El import fuerza el registro en
     # Base.metadata.
     from agent.dashboard_lockout import DashboardLoginIntento  # noqa: F401
+    from agent.entorno import es_entorno_estricto
     from agent.primer_valor.models import (  # noqa: F401  (F12: registra sus tablas)
         EventoOnboarding,
         OnboardingPrimerValor,
     )
-    from agent.entorno import es_entorno_estricto
 
     tablas_esperadas = set(Base.metadata.tables.keys())
     logger.info(f"[DB] Driver: {'PostgreSQL/asyncpg' if _ES_POSTGRES else 'SQLite'}")
