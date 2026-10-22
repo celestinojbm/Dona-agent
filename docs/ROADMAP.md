@@ -112,3 +112,14 @@ Se eliminaron F2, F4–F11, F13, F15 y F17–F22 porque no tienen definición en
 
 - **L2 por defecto**, después de fusionar #301. El #301 entra con L1 por defecto; este PR cambia el nivel por defecto a L2, ajustable por agente (decisión 5).
 - **Revisión entre modelos**, después de #306. Un modelo trabaja y otro revisa (decisión 6).
+
+## F28 · Subsección: memoria de intenciones mencionadas una sola vez (aprobada por Celestino el 22-oct)
+
+Origen: sección "Propuestas de la vigilancia diaria" del canvas "Dona vs plataformas de agentes IA 2026" (22 oct 2026). Según lo reportó Grok Bot, sin verificar: Muse de Meta es un agente personal en su propia VM que actúa sobre algo que el usuario mencionó una vez y pide confirmación antes de comprar.
+
+- **Qué es.** Dona guarda como "intención" algo que el usuario dijo de pasada (por ejemplo, "tengo que renovar el dominio en noviembre") y más adelante lo propone como sugerencia o como borrador de rutina (F25).
+- **Nunca ejecuta sola.** Una intención no es una autorización. Para actuar sobre ella se sigue el flujo de F1, preparar → confirmar, con el nivel L1–L4 del agente. Todo gasto y todo envío a terceros pide siempre aprobación humana. Una intención nunca puede subir el nivel de autonomía.
+- **Privacidad.** Es visible y editable en la pantalla Memoria de la app, en la capa de agente o proyecto. Cada intención tiene vencimiento (propuesta: 30 días si no se confirma). Se puede borrar o apagar por agente. No guarda datos sensibles: salud, credenciales ni datos de pago.
+- **Falsos positivos.** Dona solo la propone como un chip "¿Lo recuerdo?" que el usuario acepta. Si no lo acepta, no se guarda. Cada sugerencia muestra la frase de origen.
+- **Coste.** Apagada por defecto, con su propio flag. En el piloto se prueba con proveedor simulado (0 USD, sin pruebas pagadas). En producción consume créditos del presupuesto del agente (F32).
+- **Canales.** Va en la app (app-first). WhatsApp solo avisa o pide la aprobación (F35).
