@@ -128,6 +128,44 @@ def test_migracion_es_noop_en_sqlite():
     assert ejecutadas == [], "La migración no debe tocar DDL en SQLite"
 
 
+def test_migracion_omite_tablas_ausentes_en_postgresql():
+    """004 no debe ALTER una tabla que todavía no existe (p. ej. la de 005)."""
+    mod = _cargar_migracion()
+    ejecutadas: list[str] = []
+
+    class _FakeDialect:
+        name = "postgresql"
+
+    class _FakeBind:
+        dialect = _FakeDialect()
+
+    class _Insp:
+        def has_table(self, nombre: str) -> bool:
+            return nombre == "mensajes"
+
+    import alembic.op as alembic_op
+
+    orig_get_bind = alembic_op.get_bind
+    orig_execute = alembic_op.execute
+    orig_inspect = mod.sa_inspect
+    alembic_op.get_bind = lambda: _FakeBind()
+    alembic_op.execute = lambda s: ejecutadas.append(s)
+    mod.sa_inspect = lambda _bind: _Insp()
+    try:
+        mod.upgrade()
+        mod.downgrade()
+    finally:
+        alembic_op.get_bind = orig_get_bind
+        alembic_op.execute = orig_execute
+        mod.sa_inspect = orig_inspect
+
+    assert ejecutadas, "Debe tocar la tabla que sí existe"
+    for sentencia in ejecutadas:
+        assert "mensajes" in sentencia
+        assert "uso_proveedor_accion" not in sentencia
+        assert "timezone_usuarios" not in sentencia
+
+
 # ─────────────────── Nivel 2: PostgreSQL aislado (gated) ───────────────────
 
 _PG_URL = os.getenv("DONA_TEST_POSTGRES_URL")

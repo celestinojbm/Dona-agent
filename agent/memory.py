@@ -621,6 +621,11 @@ _MIGRACIONES = [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_transaccion_idempotency_key "
     "ON transacciones_credito (idempotency_key)",
     "ALTER TABLE uso_proveedor_accion ENABLE ROW LEVEL SECURITY",
+    # ── F1 · autonomía por acción: RLS backend-only de las tablas nuevas
+    # (create_all las crea; ENABLE RLS sólo aplica en PostgreSQL, SQLite ignora).
+    "ALTER TABLE autonomia_por_accion ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE autorizaciones_accion ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE reservas_credito ENABLE ROW LEVEL SECURITY",
     # ── F23 · multi-modelo: RLS backend-only de la tabla nueva (PostgreSQL).
     "ALTER TABLE preferencia_modelo ENABLE ROW LEVEL SECURITY",
     # ── F12 · primer valor: RLS backend-only de las tablas nuevas (PostgreSQL).
@@ -886,6 +891,11 @@ async def inicializar_db():
     # Registrar modelos cuyas tablas se crean por create_all pero cuyos módulos
     # solo se importan lazy desde sus endpoints. El import fuerza el registro en
     # Base.metadata.
+    from agent.autonomia.models import (  # noqa: F401  (F1: registra sus tablas)
+        AutonomiaPorAccion,
+        AutorizacionAccion,
+        ReservaCredito,
+    )
     from agent.dashboard_lockout import DashboardLoginIntento  # noqa: F401
     from agent.entorno import es_entorno_estricto
     from agent.multi_model.models import PreferenciaModelo  # noqa: F401  (F23)
