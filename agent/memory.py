@@ -621,6 +621,8 @@ _MIGRACIONES = [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_transaccion_idempotency_key "
     "ON transacciones_credito (idempotency_key)",
     "ALTER TABLE uso_proveedor_accion ENABLE ROW LEVEL SECURITY",
+    # ── F23 · multi-modelo: RLS backend-only de la tabla nueva (PostgreSQL).
+    "ALTER TABLE preferencia_modelo ENABLE ROW LEVEL SECURITY",
     # ── F12 · primer valor: RLS backend-only de las tablas nuevas (PostgreSQL).
     "ALTER TABLE onboarding_primer_valor ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE eventos_onboarding ENABLE ROW LEVEL SECURITY",
@@ -886,6 +888,7 @@ async def inicializar_db():
     # Base.metadata.
     from agent.dashboard_lockout import DashboardLoginIntento  # noqa: F401
     from agent.entorno import es_entorno_estricto
+    from agent.multi_model.models import PreferenciaModelo  # noqa: F401  (F23)
     from agent.plan_vivo.models import (  # noqa: F401  (F14: registra sus tablas)
         NotificacionPlan,
         PlanTarea,
