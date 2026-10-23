@@ -39,7 +39,7 @@ jobs:
       ENVIRONMENT: test
       ANTHROPIC_API_KEY: sk-ant-test-fake-key
       # asyncpg para el engine de la app (import de agent.memory); alembic env.py
-      # convierte a postgresql+psycopg2:// para correr las migraciones sync.
+      # convierte a postgresql:// (psycopg2) para correr las migraciones sync.
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dona_ci
       ALEMBIC_CHECK_DB: "1"
 
