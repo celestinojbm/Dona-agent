@@ -36,29 +36,32 @@ _TABLA_USO = "uso_proveedor_accion"
 
 
 def upgrade() -> None:
-    op.add_column(
-        "transacciones_credito",
-        sa.Column("accion_ref", sa.String(length=120), nullable=True),
-    )
-    op.create_index(
-        "ix_transacciones_credito_accion_ref",
-        "transacciones_credito",
-        ["accion_ref"],
-    )
-    op.add_column(
-        "transacciones_credito",
-        sa.Column("idempotency_key", sa.String(length=250), nullable=True),
-    )
-    op.create_index(
-        "uq_transaccion_idempotency_key",
-        "transacciones_credito",
-        ["idempotency_key"],
-        unique=True,
-    )
-    op.add_column(
-        "transacciones_credito",
-        sa.Column("desglose_json", sa.Text(), nullable=True),
-    )
+    # Guard: en BD vacia (CI) transacciones_credito no existe (la crea
+    # metadata.create_all()); en la BD real existe y el efecto es identico.
+    if sa.inspect(op.get_bind()).has_table("transacciones_credito"):
+        op.add_column(
+            "transacciones_credito",
+            sa.Column("accion_ref", sa.String(length=120), nullable=True),
+        )
+        op.create_index(
+            "ix_transacciones_credito_accion_ref",
+            "transacciones_credito",
+            ["accion_ref"],
+        )
+        op.add_column(
+            "transacciones_credito",
+            sa.Column("idempotency_key", sa.String(length=250), nullable=True),
+        )
+        op.create_index(
+            "uq_transaccion_idempotency_key",
+            "transacciones_credito",
+            ["idempotency_key"],
+            unique=True,
+        )
+        op.add_column(
+            "transacciones_credito",
+            sa.Column("desglose_json", sa.Text(), nullable=True),
+        )
 
     op.create_table(
         _TABLA_USO,
@@ -100,10 +103,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table(_TABLA_USO)
-    op.drop_index("uq_transaccion_idempotency_key", table_name="transacciones_credito")
-    op.drop_index(
-        "ix_transacciones_credito_accion_ref", table_name="transacciones_credito"
-    )
-    op.drop_column("transacciones_credito", "desglose_json")
-    op.drop_column("transacciones_credito", "idempotency_key")
-    op.drop_column("transacciones_credito", "accion_ref")
+    if sa.inspect(op.get_bind()).has_table("transacciones_credito"):
+        op.drop_index("uq_transaccion_idempotency_key", table_name="transacciones_credito")
+        op.drop_index(
+            "ix_transacciones_credito_accion_ref", table_name="transacciones_credito"
+        )
+        op.drop_column("transacciones_credito", "desglose_json")
+        op.drop_column("transacciones_credito", "idempotency_key")
+        op.drop_column("transacciones_credito", "accion_ref")
