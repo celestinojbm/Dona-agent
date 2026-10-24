@@ -157,7 +157,7 @@ export default function PoliticaDePrivacidadPage() {
             </p>
           </section>
 
-          <section>
+          <section id="tus-derechos">
             <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
               Tus derechos
             </h2>
