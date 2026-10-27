@@ -541,4 +541,65 @@ button.surface-card:disabled:hover {
   color: white;
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   Escala tipográfica de la landing pública (usadona.com).
+   Cuerpo mínimo 18px en móvil y 21px en desktop. El titular hero llega
+   a 96px en pantallas anchas y no baja de 48px. No aplica al dashboard
+   ni a engineering: solo a los nodos con .tipo-landing.
+   ════════════════════════════════════════════════════════════════════════ */
+.tipo-landing {
+  overflow-x: clip;
+}
+.tipo-hero {
+  font-size: clamp(3rem, 5.2vw + 1.15rem, 6rem);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  overflow-wrap: break-word;
+}
+.tipo-cuerpo {
+  font-size: 18px;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+.tipo-subtitulo {
+  font-size: clamp(1.5rem, 1.1vw + 1rem, 2.25rem);
+  line-height: 1.22;
+  letter-spacing: -0.02em;
+  overflow-wrap: break-word;
+}
+.tipo-nav {
+  font-size: 18px;
+  line-height: 1.45;
+}
+.tipo-boton {
+  font-size: 18px;
+  line-height: 1.2;
+  padding: 0.95rem 1.65rem;
+}
+.tipo-meta {
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+}
+.tipo-marca {
+  font-size: 2rem;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+.tipo-landing .eyebrow {
+  font-size: 16px;
+  letter-spacing: 0.12em;
+}
+@media (min-width: 768px) {
+  .tipo-cuerpo { font-size: 21px; }
+  .tipo-nav { font-size: 20px; }
+  .tipo-boton {
+    font-size: 20px;
+    padding: 1.05rem 1.9rem;
+  }
+  .tipo-meta { font-size: 20px; }
+  .tipo-marca { font-size: 2.5rem; }
+  .tipo-landing .eyebrow { font-size: 18px; }
+}
+
 } /* fin @layer components */

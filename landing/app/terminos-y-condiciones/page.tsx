@@ -15,24 +15,24 @@ export default function TerminosYCondicionesPage() {
     // Pausa: los documentos legales siguen publicados, con el aviso arriba.
     <>
     <AvisoPausa />
-    <div className="min-h-screen px-6 py-24 md:py-32 relative z-[2]">
+    <div className="tipo-landing min-h-screen px-5 py-20 sm:px-8 md:py-28 relative z-[2]">
       <div className="max-w-3xl mx-auto">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors mb-12 font-normal"
+          className="tipo-nav inline-flex items-center gap-2.5 text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors mb-14 font-normal"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="w-5 h-5" />
           Volver al inicio
         </Link>
 
-        <h1 className="text-4xl md:text-5xl font-normal text-[color:var(--ink)] mb-3 tracking-tighter">
+        <h1 className="tipo-hero font-normal text-[color:var(--ink)] mb-5">
           Términos y condiciones
         </h1>
-        <p className="text-xs uppercase tracking-widest text-[color:var(--muted)] mb-10 font-normal">
+        <p className="tipo-meta uppercase text-[color:var(--muted)] mb-12 font-normal">
           Última actualización: {ULTIMA_ACTUALIZACION}
         </p>
 
-        <div className="space-y-8 text-[color:var(--ink-2)] font-normal leading-relaxed text-[15px]">
+        <div className="tipo-cuerpo space-y-12 text-[color:var(--ink-2)] font-normal">
           <p>
             Estos términos describen las condiciones de uso del servicio
             Dona. Al crear una cuenta, suscribirte a un plan o usar el
@@ -40,7 +40,7 @@ export default function TerminosYCondicionesPage() {
           </p>
 
           <section>
-            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
+            <h2 className="tipo-subtitulo text-[color:var(--ink)] font-normal mb-4">
               Qué es Dona
             </h2>
             <p>
@@ -53,11 +53,11 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
+            <h2 className="tipo-subtitulo text-[color:var(--ink)] font-normal mb-4">
               Uso permitido
             </h2>
-            <p className="mb-3">Al usar Dona te comprometes a no:</p>
-            <ul className="space-y-2 ml-4">
+            <p className="mb-4">Al usar Dona te comprometes a no:</p>
+            <ul className="space-y-3 ml-4">
               <li>· Usar el servicio para actividades ilegales o fraudulentas.</li>
               <li>
                 · Enviar spam, contenido abusivo o material que viole derechos
@@ -81,10 +81,10 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
+            <h2 className="tipo-subtitulo text-[color:var(--ink)] font-normal mb-4">
               Suscripciones y pagos
             </h2>
-            <ul className="space-y-2 ml-4">
+            <ul className="space-y-3 ml-4">
               <li>
                 · Los pagos son procesados por{" "}
                 <span className="text-[color:var(--ink)]">Stripe</span>. Al suscribirte
@@ -109,7 +109,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
+            <h2 className="tipo-subtitulo text-[color:var(--ink)] font-normal mb-4">
               Créditos
             </h2>
             <p>
@@ -122,7 +122,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
+            <h2 className="tipo-subtitulo text-[color:var(--ink)] font-normal mb-4">
               Disponibilidad del servicio
             </h2>
             <p>
@@ -135,7 +135,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
+            <h2 className="tipo-subtitulo text-[color:var(--ink)] font-normal mb-4">
               Responsabilidad del usuario
             </h2>
             <p>
@@ -153,7 +153,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
+            <h2 className="tipo-subtitulo text-[color:var(--ink)] font-normal mb-4">
               Propiedad
             </h2>
             <p>
@@ -166,7 +166,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
+            <h2 className="tipo-subtitulo text-[color:var(--ink)] font-normal mb-4">
               Limitación de responsabilidad
             </h2>
             <p>
@@ -180,7 +180,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
+            <h2 className="tipo-subtitulo text-[color:var(--ink)] font-normal mb-4">
               Cambios a estos términos
             </h2>
             <p>
@@ -193,7 +193,7 @@ export default function TerminosYCondicionesPage() {
           </section>
 
           <section>
-            <h2 className="text-xl text-[color:var(--ink)] font-normal mb-3 tracking-tight">
+            <h2 className="tipo-subtitulo text-[color:var(--ink)] font-normal mb-4">
               Contacto
             </h2>
             <p>

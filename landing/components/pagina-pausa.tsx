@@ -18,24 +18,24 @@ interface PaginaPausaProps {
 
 export default function PaginaPausa({ detalle }: PaginaPausaProps) {
   return (
-    <main className="relative z-[2] flex min-h-screen items-center justify-center bg-[color:var(--bg)] px-6 py-16 text-[color:var(--ink)]">
-      <div className="surface-static w-full max-w-lg p-10 sm:p-12">
-        <p className="text-2xl font-semibold tracking-tight">Dona</p>
+    <main className="tipo-landing relative z-[2] flex min-h-screen items-center justify-center bg-[color:var(--bg)] px-5 py-16 text-[color:var(--ink)] sm:px-8 sm:py-20">
+      <div className="surface-static w-full max-w-3xl p-8 sm:p-12 md:p-14">
+        <p className="tipo-marca font-semibold">Dona</p>
         <p className="eyebrow mt-8">Servicio en pausa</p>
-        <h1 className="mt-4 text-3xl font-medium leading-tight tracking-tight sm:text-4xl">
+        <h1 className="tipo-hero mt-5 font-medium">
           Dona está en pausa
         </h1>
-        <p className="mt-5 text-base leading-relaxed text-[color:var(--ink)]">
+        <p className="tipo-cuerpo mt-6 text-[color:var(--ink)]">
           {MENSAJE_PAUSA}
         </p>
         {detalle && (
-          <p className="mt-3 text-sm leading-relaxed text-[color:var(--muted)]">
+          <p className="tipo-cuerpo mt-4 text-[color:var(--muted)]">
             {detalle}
           </p>
         )}
         <nav
           aria-label="Documentos legales"
-          className="mt-10 flex flex-wrap gap-x-6 gap-y-2 border-t border-[color:var(--line)] pt-6 text-sm text-[color:var(--muted)]"
+          className="tipo-nav mt-12 flex flex-wrap gap-x-8 gap-y-3 border-t border-[color:var(--line)] pt-8 text-[color:var(--muted)]"
         >
           <Link href="/terminos-y-condiciones" className="hover:text-[color:var(--ink)]">
             Términos y condiciones
