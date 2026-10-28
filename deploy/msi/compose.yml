@@ -1,0 +1,110 @@
+# deploy/msi/compose.yml — Dona staging en la MSI (J5)
+#
+# NO contiene secretos. Variables obligatorias al invocar compose:
+#   DONA_SHA        commit (40 hex) con el que se construyó la imagen
+#   DONA_ENV_FILE   ruta ABSOLUTA al env file (chmod 600, fuera del repo)
+# Opcionales:
+#   DONA_API_PORT   puerto del host en 127.0.0.1 (default 8010)
+#
+# Uso (ver docs/transition/dona-app-first/MSI-RUNBOOK.md):
+#   deploy/msi/construir.sh <sha>
+#   DONA_SHA=<sha> DONA_ENV_FILE=$HOME/secretos/dona/dona.env deploy/msi/arrancar.sh
+#
+# Reglas:
+#   - Proyecto "dona": nombres, red y volúmenes propios; nada compartido con
+#     Fluvia, n8n, Hermes ni otros stacks.
+#   - El puerto se publica SOLO en 127.0.0.1. Dentro del contenedor la app
+#     escucha en 0.0.0.0:8000 (necesario para que Docker la alcance); lo que
+#     limita la exposición es el puerto PUBLICADO del host.
+#   - Redis sin puertos publicados (solo red dona-net).
+#   - Postgres: Supabase (DATABASE_URL en el env file). Sin Postgres local.
+#   - Efectos externos apagados salvo que el env file los encienda (J4).
+#   - Ningún comando del paquete borra volúmenes.
+
+name: dona
+
+x-dona-comun: &dona-comun
+  image: dona-api:${DONA_SHA:?DONA_SHA es obligatorio (commit de la imagen)}
+  env_file:
+    - ${DONA_ENV_FILE:?DONA_ENV_FILE es obligatorio (ruta absoluta, chmod 600)}
+  restart: unless-stopped
+  networks: [dona-net]
+  security_opt:
+    - no-new-privileges:true
+  labels:
+    com.dona.stack: staging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  dona-api:
+    <<: *dona-comun
+    container_name: dona-api
+    environment:
+      PORT: "8000"
+    ports:
+      - "127.0.0.1:${DONA_API_PORT:-8010}:8000"
+    volumes:
+      # Fallback local de archivos generados si R2 no está configurado.
+      - dona-assets:/app/assets
+    healthcheck:
+      # Vida (sin dependencias). La readiness es GET /health/listo.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/vida', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 768m
+    cpus: 1.0
+
+  # Solo con JOBS_BACKEND=arq: `--profile arq`. Sin ese perfil, los jobs van
+  # inproc (y con DONA_WORKER_ENABLED apagado no se ejecutan).
+  dona-redis:
+    image: redis:7.4-alpine
+    container_name: dona-redis
+    profiles: ["arq"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "96mb", "--maxmemory-policy", "noeviction"]
+    restart: unless-stopped
+    networks: [dona-net]
+    volumes:
+      - dona-redis:/data
+    labels:
+      com.dona.stack: staging
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 128m
+    cpus: 0.25
+
+  dona-worker:
+    <<: *dona-comun
+    container_name: dona-worker
+    profiles: ["arq"]
+    command: ["python", "-m", "arq", "agent.jobs.worker.WorkerSettings"]
+    environment:
+      JOBS_BACKEND: arq
+      REDIS_URL: redis://dona-redis:6379/0
+      # El scheduler vive SOLO en dona-api: aquí se fuerza apagado aunque el
+      # env file lo encienda (un responsable por trabajo recurrente).
+      DONA_SCHEDULER_ENABLED: "false"
+    depends_on:
+      - dona-redis
+    volumes:
+      - dona-assets:/app/assets
+    mem_limit: 768m
+    cpus: 1.0
+
+networks:
+  dona-net:
+    name: dona-net
+
+volumes:
+  dona-assets:
+    name: dona-assets
+  dona-redis:
+    name: dona-redis
