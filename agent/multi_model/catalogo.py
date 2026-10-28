@@ -29,6 +29,11 @@ class ModeloInfo:
     clases: tuple[str, ...]
     # Nivel de coste relativo (para desempatar por coste en Auto): 1=barato.
     nivel_coste: int
+    # Modelo de RESPALDO si este proveedor falla o se pasa del timeout
+    # (riesgo 2 de PR #306 / issue #310). Preferir un proveedor DISTINTO al
+    # propio para que el respaldo sobreviva una caída del proveedor primario.
+    # None → al elegir(), seleccion.py usa MODELO_POR_DEFECTO si aplica.
+    respaldo: str | None = None
 
 
 # Clases de tarea reconocidas por el modo Auto y las sugerencias.
@@ -59,6 +64,7 @@ _BASE: tuple[ModeloInfo, ...] = (
         precio_out_usd_mtok=Decimal("15.0"),
         clases=("conversacion", "planificacion", "razonamiento", "resumen"),
         nivel_coste=3,
+        respaldo="gpt-4o",  # proveedor distinto (openai) ante caída de Anthropic
     ),
     ModeloInfo(
         id="claude-haiku-4-5-20251001",
@@ -68,6 +74,7 @@ _BASE: tuple[ModeloInfo, ...] = (
         precio_out_usd_mtok=Decimal("5.0"),
         clases=("clasificacion", "resumen", "borrador", "conversacion"),
         nivel_coste=1,
+        respaldo="gpt-4o",  # proveedor distinto (openai) ante caída de Anthropic
     ),
     ModeloInfo(
         id="gpt-4o",
@@ -77,6 +84,7 @@ _BASE: tuple[ModeloInfo, ...] = (
         precio_out_usd_mtok=Decimal("10.0"),
         clases=("conversacion", "planificacion", "razonamiento"),
         nivel_coste=2,
+        respaldo="claude-sonnet-4-5",  # proveedor distinto (anthropic) ante caída de OpenAI
     ),
 )
 
