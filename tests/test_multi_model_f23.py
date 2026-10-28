@@ -8,15 +8,16 @@ sugerencias; y persistencia de preferencia (DB aislada).
 """
 
 import importlib
+import logging
 import sys
 from decimal import Decimal
 
 import pytest
 
 import agent.memory
-from agent.multi_model import catalogo, seleccion, sugerencias
+from agent.multi_model import catalogo, combinacion, seleccion, sugerencias
+from agent.multi_model import presupuesto as presup
 from agent.multi_model import providers as prov
-from agent.multi_model import combinacion
 from agent.multi_model.providers import ProveedorSimulado, forzar_proveedor
 
 
@@ -70,10 +71,11 @@ class TestProveedores:
     def test_proveedor_para_usa_forzado(self):
         assert isinstance(prov.proveedor_para("claude-sonnet-4-5"), ProveedorSimulado)
 
-    def test_proveedor_para_modelo_desconocido(self):
+    def test_proveedor_para_modelo_desconocido(self, monkeypatch):
         forzar_proveedor(None)
+        monkeypatch.setenv("DONA_MULTI_MODEL_ENABLED", "true")
         with pytest.raises(ValueError):
-            prov.proveedor_para("no-existe")
+            prov.proveedor_para("no-existe", permitir_real=True)
 
 
 # ───────────────────── Selección / Auto / cambio ─────────────────────
@@ -339,3 +341,216 @@ class TestValidacionPrecios:
         monkeypatch.setenv("DONA_MODEL_PRICES", "no es json")
         pin, pout = catalogo.precio_modelo("gpt-4o")
         assert pin == Decimal("2.5") and pout == Decimal("10.0")
+
+
+# ═══════════════════ Riesgos de PR #306 / issue #310 ═══════════════════
+#
+# Tres riesgos señalados sobre F23 ya fusionado en main:
+#   1. El flag no frena de verdad las llamadas reales.
+#   2. Faltan timeouts y fallback al proveedor de RESPALDO del catálogo.
+#   3. Los costos no tienen tope (presupuesto por agente).
+# Todo con mocks / proveedor simulado — 0 USD, sin red.
+
+
+# ───────────────────── Riesgo 1: flag fail-closed por defecto ─────────────
+
+class TestRiesgo1FlagFailClosed:
+    def test_proveedor_para_default_es_fail_closed(self, monkeypatch):
+        """Un caller que olvide pasar `permitir_real` NUNCA obtiene un
+        proveedor real, aunque el flag esté encendido: el default del
+        parámetro es False (antes era True → fail-open)."""
+        forzar_proveedor(None)
+        monkeypatch.setenv("DONA_MULTI_MODEL_ENABLED", "true")
+        p = prov.proveedor_para("gpt-4o")  # sin permitir_real explícito
+        assert isinstance(p, ProveedorSimulado)
+
+    def test_proveedor_para_permitir_real_no_pisa_flag_apagado(self, monkeypatch):
+        """Defensa en profundidad: aunque un caller pase permitir_real=True
+        por error, si el flag de verdad está apagado, sigue devolviendo el
+        proveedor simulado — nunca sale una llamada real."""
+        forzar_proveedor(None)
+        monkeypatch.delenv("DONA_MULTI_MODEL_ENABLED", raising=False)
+        p = prov.proveedor_para("gpt-4o", permitir_real=True)
+        assert isinstance(p, ProveedorSimulado)
+
+    async def test_flag_apagado_ninguna_llamada_real_en_combinacion(self, monkeypatch):
+        """Con el flag apagado, ni planificar_y_ejecutar ni comparar_lado_a_lado
+        disparan jamás un proveedor real (sin forzar_proveedor de por medio) —
+        la ruta completa de F23 cae siempre al simulado."""
+        monkeypatch.delenv("DONA_MULTI_MODEL_ENABLED", raising=False)
+        forzar_proveedor(None)
+        res = await combinacion.comparar_lado_a_lado(
+            modelos=["gpt-4o", "claude-sonnet-4-5"],
+            mensajes=[{"role": "user", "content": "x"}],
+        )
+        assert all(r.texto.startswith("[") for r in res.respuestas)  # marca simulada
+        assert len(res.respuestas) == 2
+
+
+# ───────────────────── Riesgo 2: fallback al respaldo del catálogo ────────
+
+class TestRiesgo2FallbackCatalogo:
+    def test_catalogo_declara_respaldo_de_otro_proveedor(self):
+        sonnet = catalogo.info_modelo("claude-sonnet-4-5")
+        gpt = catalogo.info_modelo("gpt-4o")
+        assert sonnet.respaldo == "gpt-4o"
+        assert gpt.respaldo == "claude-sonnet-4-5"
+        # El respaldo es de un PROVEEDOR distinto (resiliencia real).
+        assert catalogo.info_modelo(sonnet.respaldo).proveedor != sonnet.proveedor
+        assert catalogo.info_modelo(gpt.respaldo).proveedor != gpt.proveedor
+
+    async def test_generar_usa_respaldo_del_catalogo_no_siempre_default(self, _flag_on):
+        # Haiku falla → su respaldo de catálogo es gpt-4o (NO el modelo por
+        # defecto, que es claude-sonnet-4-5): el fallback debe ir a gpt-4o.
+        forzar_proveedor(_ProveedorFalla("claude-haiku-4-5-20251001"))
+        r = await seleccion.generar(
+            modelo="claude-haiku-4-5-20251001",
+            mensajes=[{"role": "user", "content": "x"}],
+        )
+        assert r.modelo == "gpt-4o"
+        assert r.modelo != seleccion.MODELO_POR_DEFECTO
+
+    async def test_generar_default_falla_usa_su_propio_respaldo(self, _flag_on):
+        # El modelo por defecto (claude-sonnet-4-5) también tiene respaldo
+        # propio en el catálogo (gpt-4o) — no se queda sin red de seguridad
+        # por ser "el default".
+        forzar_proveedor(_ProveedorFalla("claude-sonnet-4-5"))
+        r = await seleccion.generar(
+            modelo="claude-sonnet-4-5",
+            mensajes=[{"role": "user", "content": "x"}],
+        )
+        assert r.modelo == "gpt-4o"
+
+    async def test_sin_respaldo_disponible_propaga(self, _flag_on):
+        # Si el proveedor forzado falla para AMBOS (el modelo pedido y su
+        # respaldo), no hay una tercera alternativa: se propaga el error en
+        # vez de reintentar indefinidamente (reintentos acotados a un salto).
+        class _FallaTodo(ProveedorSimulado):
+            async def generar(self, *, modelo, mensajes, system="", max_tokens=1024, **kw):
+                raise RuntimeError(f"boom:{modelo}")
+
+        forzar_proveedor(_FallaTodo())
+        with pytest.raises(RuntimeError):
+            await seleccion.generar(
+                modelo="claude-haiku-4-5-20251001",
+                mensajes=[{"role": "user", "content": "x"}],
+            )
+
+    def test_timeout_configurable_por_env(self, monkeypatch):
+        monkeypatch.setenv("DONA_MODEL_TIMEOUT_S", "5")
+        monkeypatch.setenv("DONA_MODEL_MAX_RETRIES", "1")
+        importlib.reload(prov)
+        assert prov.TIMEOUT_SEGUNDOS == 5.0
+        assert prov.MAX_REINTENTOS == 1
+        importlib.reload(prov)  # restaura defaults para el resto de la suite
+
+
+# ───────────────────── Riesgo 3: presupuesto por agente (80% / 100%) ──────
+
+
+@pytest.fixture(autouse=True)
+def _presupuesto_limpio():
+    presup.reiniciar_estado()
+    yield
+    presup.reiniciar_estado()
+
+
+class TestRiesgo3PresupuestoAgente:
+    def test_sin_agente_no_se_gatea(self):
+        """Compat: si no se pasa `agente`, esta dimensión no aplica (no rompe
+        a los callers existentes de F23 que todavía no declaran agente)."""
+        presup.verificar_presupuesto("")  # no lanza
+        presup.registrar_gasto("", 999.0)
+        assert presup.gasto_diario_de("") == 0.0
+
+    def test_avisa_al_80_por_ciento(self, monkeypatch, caplog):
+        monkeypatch.setenv("DONA_PRESUPUESTO_AGENTE_USD_DIA", "1.0")
+        with caplog.at_level(logging.WARNING, logger="dona"):
+            presup.registrar_gasto("ventas", 0.5)
+            assert not any("al 80%" in r.message or "80%" in r.message for r in caplog.records)
+            presup.registrar_gasto("ventas", 0.35)  # acumulado 0.85 → cruza 80%
+        avisos = [r for r in caplog.records if "presupuesto del agente" in r.message]
+        assert len(avisos) == 1
+        assert "80%" in avisos[0].message or "85%" in avisos[0].message
+
+    def test_avisa_una_sola_vez_por_dia(self, monkeypatch, caplog):
+        monkeypatch.setenv("DONA_PRESUPUESTO_AGENTE_USD_DIA", "1.0")
+        with caplog.at_level(logging.WARNING, logger="dona"):
+            presup.registrar_gasto("ventas", 0.9)
+            presup.registrar_gasto("ventas", 0.05)
+            presup.registrar_gasto("ventas", 0.01)
+        avisos = [r for r in caplog.records if "presupuesto del agente" in r.message]
+        assert len(avisos) == 1
+
+    def test_bloquea_al_100_por_ciento(self, monkeypatch):
+        monkeypatch.setenv("DONA_PRESUPUESTO_AGENTE_USD_DIA", "1.0")
+        presup.registrar_gasto("soporte", 1.0)
+        with pytest.raises(presup.PresupuestoAgenteAgotadoError) as exc:
+            presup.verificar_presupuesto("soporte")
+        assert exc.value.agente == "soporte"
+        assert exc.value.gastado == pytest.approx(1.0)
+        assert exc.value.limite == pytest.approx(1.0)
+
+    def test_agentes_distintos_no_comparten_presupuesto(self, monkeypatch):
+        monkeypatch.setenv("DONA_PRESUPUESTO_AGENTE_USD_DIA", "1.0")
+        presup.registrar_gasto("ventas", 1.0)
+        presup.verificar_presupuesto("soporte")  # no lanza: presupuesto propio
+
+    def test_limite_invalido_cae_a_default_fail_closed(self, monkeypatch):
+        monkeypatch.setenv("DONA_PRESUPUESTO_AGENTE_USD_DIA", "no-es-numero")
+        assert presup.limite_usd_dia_agente() == presup.LIMITE_USD_DIA_AGENTE_DEFAULT
+        monkeypatch.setenv("DONA_PRESUPUESTO_AGENTE_USD_DIA", "-5")
+        assert presup.limite_usd_dia_agente() == presup.LIMITE_USD_DIA_AGENTE_DEFAULT
+
+    async def test_generar_bloquea_sin_llamar_al_proveedor(self, monkeypatch, _flag_on):
+        """Al 100% del tope, generar() lanza SIN llamar a ningún proveedor
+        (ni el primario ni el respaldo) — se verifica ANTES de la llamada."""
+        monkeypatch.setenv("DONA_PRESUPUESTO_AGENTE_USD_DIA", "1.0")
+        presup.registrar_gasto("ventas", 1.0)
+
+        contador = {"n": 0}
+
+        class _ContadorProveedor(ProveedorSimulado):
+            async def generar(self, **kw):
+                contador["n"] += 1
+                return await super().generar(**kw)
+
+        forzar_proveedor(_ContadorProveedor())
+        with pytest.raises(presup.PresupuestoAgenteAgotadoError):
+            await seleccion.generar(
+                modelo="gpt-4o",
+                mensajes=[{"role": "user", "content": "x"}],
+                agente="ventas",
+            )
+        assert contador["n"] == 0
+
+    async def test_generar_bajo_el_tope_registra_gasto_del_agente(self, monkeypatch, _flag_on):
+        monkeypatch.setenv("DONA_PRESUPUESTO_AGENTE_USD_DIA", "10.0")
+        r = await seleccion.generar(
+            modelo="gpt-4o",
+            mensajes=[{"role": "user", "content": "hola"}],
+            agente="ventas",
+        )
+        assert r.costo_usd is not None
+        assert presup.gasto_diario_de("ventas") == pytest.approx(float(r.costo_usd))
+
+    async def test_comparacion_se_detiene_al_agotar_presupuesto_de_agente(self, monkeypatch):
+        monkeypatch.setenv("DONA_PRESUPUESTO_AGENTE_USD_DIA", "0.000001")
+        res = await combinacion.comparar_lado_a_lado(
+            modelos=["gpt-4o", "claude-sonnet-4-5"],
+            mensajes=[{"role": "user", "content": "x"}],
+            agente="ventas",
+        )
+        # El tope diminuto se agota en la primera llamada; la comparación se
+        # detiene sin propagar la excepción (API estable para el caller).
+        assert len(res.respuestas) <= 1
+
+    async def test_plan_se_detiene_al_agotar_presupuesto_de_agente(self, monkeypatch):
+        monkeypatch.setenv("DONA_PRESUPUESTO_AGENTE_USD_DIA", "0.000001")
+        res = await combinacion.planificar_y_ejecutar(
+            modelo_plan="claude-sonnet-4-5",
+            modelo_exec="gpt-4o",
+            mensajes=[{"role": "user", "content": "organiza mi semana"}],
+            agente="ventas",
+        )
+        assert "presupuesto de agente agotado" in res.pasos[-1].texto
