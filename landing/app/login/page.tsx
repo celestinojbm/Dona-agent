@@ -7,10 +7,10 @@ import type { Metadata } from "next";
 import PaginaPausa from "@/components/pagina-pausa";
 
 export const metadata: Metadata = {
-  title: "Dona en pausa",
+  title: "Dona — plazas completas",
   robots: { index: false },
 };
 
 export default function LoginPage() {
-  return <PaginaPausa detalle="El acceso a la cuenta está desactivado durante la pausa." />;
+  return <PaginaPausa detalle="El acceso a la cuenta está desactivado por ahora." />;
 }
