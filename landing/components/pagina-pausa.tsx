@@ -9,21 +9,24 @@
 // dirección recibe mensajes (ver docs/transition/dona-app-first/).
 
 import Link from "next/link";
+import ListaEspera from "@/components/lista-espera";
 import { MENSAJE_PAUSA } from "@/lib/pausa";
 
 interface PaginaPausaProps {
   /** Línea específica de la ruta (p. ej. "Esta página no confirma pagos."). */
   detalle?: string;
+  /** Muestra el formulario de lista de espera (solo en el inicio). */
+  listaEspera?: boolean;
 }
 
-export default function PaginaPausa({ detalle }: PaginaPausaProps) {
+export default function PaginaPausa({ detalle, listaEspera = false }: PaginaPausaProps) {
   return (
     <main className="relative z-[2] flex min-h-screen items-center justify-center bg-[color:var(--bg)] px-6 py-16 text-[color:var(--ink)]">
       <div className="surface-static w-full max-w-lg p-10 sm:p-12">
         <p className="text-2xl font-semibold tracking-tight">Dona</p>
-        <p className="eyebrow mt-8">Servicio en pausa</p>
+        <p className="eyebrow mt-8">Plazas completas</p>
         <h1 className="mt-4 text-3xl font-medium leading-tight tracking-tight sm:text-4xl">
-          Dona está en pausa
+          Dona está completo
         </h1>
         <p className="mt-5 text-base leading-relaxed text-[color:var(--ink)]">
           {MENSAJE_PAUSA}
@@ -33,6 +36,7 @@ export default function PaginaPausa({ detalle }: PaginaPausaProps) {
             {detalle}
           </p>
         )}
+        {listaEspera && <ListaEspera />}
         <nav
           aria-label="Documentos legales"
           className="mt-10 flex flex-wrap gap-x-6 gap-y-2 border-t border-[color:var(--line)] pt-6 text-sm text-[color:var(--muted)]"

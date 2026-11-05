@@ -25,7 +25,7 @@ describe("lib/pausa · interruptor central", () => {
   it("el aviso es el texto acordado", async () => {
     const { MENSAJE_PAUSA, CUERPO_PAUSA } = await import("./pausa");
     expect(MENSAJE_PAUSA).toBe(
-      "Dona está en pausa. No aceptamos nuevas suscripciones ni compras.",
+      "Dona está completo. Todas las plazas están ocupadas y por ahora no aceptamos nuevas suscripciones ni compras.",
     );
     expect(CUERPO_PAUSA).toEqual({ error: "dona_en_pausa", mensaje: MENSAJE_PAUSA });
   });

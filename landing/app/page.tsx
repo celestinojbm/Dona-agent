@@ -7,5 +7,5 @@
 import PaginaPausa from "@/components/pagina-pausa";
 
 export default function Home() {
-  return <PaginaPausa />;
+  return <PaginaPausa listaEspera />;
 }
