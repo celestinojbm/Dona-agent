@@ -94,6 +94,27 @@ describe("páginas con lógica específica", () => {
   });
 });
 
+describe("escala tipográfica de la landing pública", () => {
+  it("el inicio usa titular hero, cuerpo y nav por encima del cuerpo anterior", () => {
+    const { container } = render(Home());
+    expect(container.querySelector("h1")).toHaveClass("tipo-hero");
+    expect(container.querySelector("main")).toHaveClass("tipo-landing");
+    expect(container.querySelector(".tipo-cuerpo")).toBeInTheDocument();
+    expect(container.querySelector("nav")).toHaveClass("tipo-nav");
+  });
+
+  it.each([
+    ["términos", TerminosPage],
+    ["privacidad", PrivacidadPage],
+  ])("%s usa la misma escala en titular, cuerpo, subtítulos y aviso", (_nombre, Pagina) => {
+    const { container } = render(Pagina());
+    expect(container.querySelector("h1")).toHaveClass("tipo-hero");
+    expect(container.querySelector(".tipo-cuerpo")).toBeInTheDocument();
+    expect(container.querySelector("h2")).toHaveClass("tipo-subtitulo");
+    expect(container.querySelector("[role='status']")).toHaveClass("tipo-cuerpo");
+  });
+});
+
 describe("documentos legales siguen publicados con el aviso", () => {
   it.each([
     ["términos", TerminosPage],
