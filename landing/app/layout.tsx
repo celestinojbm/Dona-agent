@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import "./v2.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { DONA_EN_PAUSA, MENSAJE_PAUSA } from "@/lib/pausa";
@@ -14,6 +15,8 @@ const sans = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-hero-sans",
   display: "swap",
+  // La cursiva 500 es solo para la palabra «ejecuta» del titular.
+  style: ["normal", "italic"],
 });
 
 const mono = JetBrains_Mono({
