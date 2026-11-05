@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Sistema visual de la APP (0A). Scopeado bajo [data-dona-surface="app"]:
+   no altera la landing clara ni el .legacy-shell. */
+@import "./dona-app-tokens.css";
+
 /* Animación de altura del Accordion (Radix): habilita las utilidades
    animate-accordion-down / -up usando la variable que Radix mide. */
 @theme {
