@@ -5,6 +5,12 @@
 // El token NUNCA se acepta por query string (quedaría en logs/history del
 // browser); solo por body JSON. La validación es timing-safe y fail-closed
 // (ver lib/panel-auth.ts).
+//
+// Cupo: 5 intentos / 15 min por IP+usuario (env RATE_LIMIT_LOGIN_*).
+// Lo cuenta el backend en Redis (memoria de ese proceso si Redis no está).
+// Si el bridge no responde, cuenta la memoria de esta instancia.
+// Al pasarse responde 429 + Retry-After, igual si el token es bueno, malo
+// o el panel no está configurado.
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
@@ -14,11 +20,36 @@ import {
   PANEL_COOKIE_MAX_AGE,
 } from "@/lib/panel-auth";
 import { rutaRetiradaEnPausa } from "@/lib/pausa-api";
+import { ipDe, resolverCupoLogin } from "@/lib/rate-limit";
+
+function respuestaLimite(retryAfterSegundos: number): NextResponse {
+  // Mismo cuerpo siempre: no dice si el token era válido ni si el panel
+  // está configurado. El header Retry-After es el único dato operativo.
+  return NextResponse.json(
+    { error: "rate_limit_excedido" },
+    {
+      status: 429,
+      headers: {
+        "Retry-After": String(retryAfterSegundos),
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
 
 export async function POST(req: Request) {
   // Pausa: el panel no existe públicamente (404) y no emite cookies nuevas.
+  // Va ANTES del cupo: un 429 delataría que la ruta sigue viva.
   const retirada = rutaRetiradaEnPausa();
   if (retirada) return retirada;
+
+  // Cuenta el intento antes de leer el token. Así el 429 no depende de si
+  // el secreto coincide o de si PANEL_INGENIERIA_TOKEN existe.
+  const cupo = await resolverCupoLogin(ipDe(req));
+  if (!cupo.permitido) {
+    console.warn(`[PANEL] login rate limit excedido retry=${cupo.retryAfterSegundos}s`);
+    return respuestaLimite(cupo.retryAfterSegundos);
+  }
 
   let token: unknown;
   try {
