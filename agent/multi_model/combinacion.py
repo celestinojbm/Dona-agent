@@ -16,6 +16,7 @@ import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from agent.multi_model.presupuesto import PresupuestoAgenteAgotadoError
 from agent.multi_model.seleccion import generar
 
 logger = logging.getLogger("dona")
@@ -80,23 +81,36 @@ async def planificar_y_ejecutar(
     system: str = "",
     max_pasos: int = 5,
     tope_coste_usd=None,
+    agente: str = "",
 ) -> ResultadoCombinacion:
     """El modelo `modelo_plan` produce un plan; `modelo_exec` ejecuta cada paso.
     Registra el modelo usado en cada paso (incluido el de planificación).
 
     Topes de coste: `max_pasos` se acota a TOPE_PASOS; si se pasa
     `tope_coste_usd`, se deja de ejecutar pasos cuando el coste estimado
-    acumulado alcanza el tope (se verifica ANTES de cada llamada). Respeta el
-    flag vía generar() (simulado si DONA_MULTI_MODEL_ENABLED está apagado)."""
+    acumulado alcanza el tope (se verifica ANTES de cada llamada). Si se pasa
+    `agente`, además se respeta su presupuesto DIARIO (riesgo 3 de PR #306 /
+    issue #310): al agotarse, se detiene el plan igual que con `tope_coste_usd`
+    en vez de propagar la excepción. Respeta el flag vía generar() (simulado si
+    DONA_MULTI_MODEL_ENABLED está apagado)."""
     pasos_max = max(0, min(int(max_pasos), TOPE_PASOS))
     res = ResultadoCombinacion(modo="plan_y_ejecucion")
     gastado = Decimal(0)
 
-    plan = await generar(
-        modelo=modelo_plan,
-        mensajes=mensajes + [{"role": "user", "content": "Haz un plan en pasos."}],
-        system=system,
-    )
+    try:
+        plan = await generar(
+            modelo=modelo_plan,
+            mensajes=mensajes + [{"role": "user", "content": "Haz un plan en pasos."}],
+            system=system,
+            agente=agente,
+        )
+    except PresupuestoAgenteAgotadoError:
+        logger.warning("[MULTI_MODEL] presupuesto de agente agotado; no se planificó")
+        res.pasos.append(PasoEjecutado(
+            nombre="planificación", modelo=modelo_plan, proveedor="",
+            texto="[plan no iniciado: presupuesto de agente agotado]",
+        ))
+        return res
     gastado += _dec(plan.costo_usd)
     res.pasos.append(PasoEjecutado(
         nombre="planificación", modelo=plan.modelo, proveedor=plan.proveedor,
@@ -109,11 +123,20 @@ async def planificar_y_ejecutar(
             if res.pasos:
                 res.pasos[-1].texto += " [plan detenido: tope de coste]"
             break
-        ej = await generar(
-            modelo=modelo_exec,
-            mensajes=mensajes + [{"role": "user", "content": f"Ejecuta el paso: {paso}"}],
-            system=system,
-        )
+        try:
+            ej = await generar(
+                modelo=modelo_exec,
+                mensajes=mensajes + [{"role": "user", "content": f"Ejecuta el paso: {paso}"}],
+                system=system,
+                agente=agente,
+            )
+        except PresupuestoAgenteAgotadoError:
+            logger.warning(
+                "[MULTI_MODEL] presupuesto de agente agotado; se detiene el plan"
+            )
+            if res.pasos:
+                res.pasos[-1].texto += " [plan detenido: presupuesto de agente agotado]"
+            break
         gastado += _dec(ej.costo_usd)
         res.pasos.append(PasoEjecutado(
             nombre=f"paso {i}: {paso[:60]}", modelo=ej.modelo,
@@ -123,15 +146,21 @@ async def planificar_y_ejecutar(
 
 
 async def comparar_lado_a_lado(
-    *, modelos: list[str], mensajes: list[dict], system: str = "", tope_coste_usd=None
+    *,
+    modelos: list[str],
+    mensajes: list[dict],
+    system: str = "",
+    tope_coste_usd=None,
+    agente: str = "",
 ) -> ResultadoCombinacion:
     """Cada modelo responde lo mismo; se devuelven las respuestas para mostrarlas
     lado a lado. Registra el modelo de cada respuesta.
 
     Topes de coste: se comparan a lo sumo TOPE_MODELOS_COMPARAR modelos (el resto
     se descarta con warning); si se pasa `tope_coste_usd`, se deja de consultar
-    cuando el coste estimado acumulado alcanza el tope. Respeta el flag vía
-    generar()."""
+    cuando el coste estimado acumulado alcanza el tope. Si se pasa `agente`, se
+    respeta además su presupuesto DIARIO (riesgo 3 de PR #306 / issue #310): al
+    agotarse, se detiene la comparación. Respeta el flag vía generar()."""
     if len(modelos) > TOPE_MODELOS_COMPARAR:
         logger.warning(
             "[MULTI_MODEL] comparar_lado_a_lado limitado a %d modelos (%d pedidos)",
@@ -144,7 +173,13 @@ async def comparar_lado_a_lado(
         if _presupuesto_agotado(gastado, tope_coste_usd):
             logger.warning("[MULTI_MODEL] tope de coste alcanzado; se detiene la comparación")
             break
-        r = await generar(modelo=modelo, mensajes=mensajes, system=system)
+        try:
+            r = await generar(modelo=modelo, mensajes=mensajes, system=system, agente=agente)
+        except PresupuestoAgenteAgotadoError:
+            logger.warning(
+                "[MULTI_MODEL] presupuesto de agente agotado; se detiene la comparación"
+            )
+            break
         gastado += _dec(r.costo_usd)
         res.respuestas.append(PasoEjecutado(
             nombre=f"respuesta {r.modelo}", modelo=r.modelo, proveedor=r.proveedor,

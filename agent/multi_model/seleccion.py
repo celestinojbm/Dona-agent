@@ -12,11 +12,19 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 
-from agent.multi_model.catalogo import existe, modelos_disponibles
-from agent.multi_model.providers import RespuestaModelo, proveedor_para
+from agent.multi_model.catalogo import existe, info_modelo, modelos_disponibles
+from agent.multi_model.presupuesto import (
+    PresupuestoAgenteAgotadoError,
+    registrar_gasto,
+    verificar_presupuesto,
+)
+from agent.multi_model.providers import (
+    RespuestaModelo,
+    multi_model_habilitado,
+    proveedor_para,
+)
 
 logger = logging.getLogger("dona")
 
@@ -27,14 +35,9 @@ _TAREAS_POTENTES = frozenset({"planificacion", "razonamiento"})
 # Por debajo de este presupuesto (créditos) Auto fuerza el modelo más barato.
 UMBRAL_BARATO_CREDITOS = 5
 
-
-def multi_model_habilitado() -> bool:
-    return os.getenv("DONA_MULTI_MODEL_ENABLED", "false").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+# multi_model_habilitado() ahora vive en providers.py (la usa también como
+# defensa en profundidad en proveedor_para); se reexporta vía el import de
+# arriba — es la API pública histórica de este módulo.
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,18 @@ def cambiar_modelo(historial: list[dict], nuevo_modelo: str) -> tuple[list[dict]
     return historial, nuevo_modelo
 
 
+def _modelo_respaldo(modelo: str) -> str | None:
+    """Modelo de RESPALDO del catálogo para `modelo` (riesgo 2 de PR #306 /
+    issue #310). Si el catálogo no declara uno válido (inexistente o igual al
+    que falló), cae a MODELO_POR_DEFECTO; si `modelo` YA es el por defecto y
+    no tiene respaldo propio, retorna None (no hay a dónde caer)."""
+    info = info_modelo(modelo)
+    respaldo = info.respaldo if info else None
+    if not respaldo or respaldo == modelo or not existe(respaldo):
+        respaldo = MODELO_POR_DEFECTO if MODELO_POR_DEFECTO != modelo else None
+    return respaldo
+
+
 async def generar(
     *,
     modelo: str,
@@ -111,30 +126,46 @@ async def generar(
     system: str = "",
     max_tokens: int = 1024,
     permitir_fallback: bool = True,
+    agente: str = "",
 ) -> RespuestaModelo:
     """Genera con el proveedor del modelo elegido (capa común).
 
     - Respeta DONA_MULTI_MODEL_ENABLED: si está APAGADO, se usa el proveedor
       simulado (NUNCA se llama a un proveedor real / API de pago).
-    - Fallback: si el proveedor del modelo falla, reintenta UNA vez con el modelo
-      por defecto (si es distinto). El propio adaptador real ya aplica
-      timeout+reintentos ante errores transitorios antes de llegar aquí.
+    - Timeout + reintentos acotados: los adaptadores reales (providers.py)
+      envuelven la llamada con `invocar_con_timeout_retry` (configurable por
+      env `DONA_MODEL_TIMEOUT_S` / `DONA_MODEL_MAX_RETRIES`).
+    - Fallback: si el proveedor del modelo falla (incluido timeout agotado),
+      reintenta UNA sola vez contra el modelo de RESPALDO del catálogo
+      (`ModeloInfo.respaldo`, preferentemente de otro proveedor) — no contra
+      el mismo proveedor caído.
+    - Presupuesto por agente (riesgo 3): si se pasa `agente`, cada intento se
+      verifica ANTES de llamar a cualquier proveedor; al 100% del tope diario
+      lanza `PresupuestoAgenteAgotadoError` sin llamar a nadie (ni siquiera al
+      respaldo). Al 80% sólo avisa (logger.warning) y la llamada continúa.
     """
     permitir_real = multi_model_habilitado()
+
+    verificar_presupuesto(agente)
     prov = proveedor_para(modelo, permitir_real=permitir_real)
     try:
-        return await prov.generar(
+        resp = await prov.generar(
             modelo=modelo, mensajes=mensajes, system=system, max_tokens=max_tokens
         )
-    except Exception as e:  # noqa: BLE001
-        if permitir_fallback and modelo != MODELO_POR_DEFECTO:
-            logger.warning(
-                "[MULTI_MODEL] %s falló (%s); fallback a %s",
-                modelo, type(e).__name__, MODELO_POR_DEFECTO,
-            )
-            provf = proveedor_para(MODELO_POR_DEFECTO, permitir_real=permitir_real)
-            return await provf.generar(
-                modelo=MODELO_POR_DEFECTO, mensajes=mensajes, system=system,
-                max_tokens=max_tokens,
-            )
+    except PresupuestoAgenteAgotadoError:
         raise
+    except Exception as e:  # noqa: BLE001
+        respaldo = _modelo_respaldo(modelo) if permitir_fallback else None
+        if respaldo is None:
+            raise
+        logger.warning(
+            "[MULTI_MODEL] %s falló (%s); fallback a %s (respaldo del catálogo)",
+            modelo, type(e).__name__, respaldo,
+        )
+        verificar_presupuesto(agente)  # el intento de respaldo también reserva
+        provf = proveedor_para(respaldo, permitir_real=permitir_real)
+        resp = await provf.generar(
+            modelo=respaldo, mensajes=mensajes, system=system, max_tokens=max_tokens,
+        )
+    registrar_gasto(agente, resp.costo_usd)
+    return resp
