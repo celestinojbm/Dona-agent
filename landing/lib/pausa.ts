@@ -11,7 +11,9 @@
 //
 // Sin dependencias de servidor: se puede importar desde componentes cliente.
 
-export const DONA_EN_PAUSA = true as const;
+// RAMA staging/despausa-preview: false SOLO para la preview de Vercel (protegida
+// por SSO del team). En main debe seguir en true. NO mergear esta línea.
+export const DONA_EN_PAUSA = false as const;
 
 export const CODIGO_PAUSA = "dona_en_pausa" as const;
 
