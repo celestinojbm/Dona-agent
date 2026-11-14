@@ -56,7 +56,9 @@ export default function RootLayout({
       <head>
         {/* Pausa: sin Facebook Pixel. Dona no hace campañas mientras está en
             pausa, así que no se recogen datos de visitantes para anuncios. */}
-        {!DONA_EN_PAUSA && (
+        {/* El pixel sólo carga en Production: las previews (p. ej. la rama
+            staging/despausa-preview, sin pausa) no deben enviar eventos reales. */}
+        {!DONA_EN_PAUSA && process.env.VERCEL_ENV === "production" && (
           <>
         {/* Facebook Pixel — único script de terceros. El snippet inline se
             permite por 'unsafe-inline' en script-src (ver next.config.ts).

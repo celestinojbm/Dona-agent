@@ -5,9 +5,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 describe("lib/pausa · interruptor central", () => {
-  it("Dona está en pausa", async () => {
+  // Rama staging/despausa-preview: false SOLO para la preview. En main este
+  // valor es true; si este test llega a main, falla a propósito (guard).
+  it("preview: la pausa está apagada en esta rama", async () => {
     const { DONA_EN_PAUSA } = await import("./pausa");
-    expect(DONA_EN_PAUSA).toBe(true);
+    expect(DONA_EN_PAUSA).toBe(false);
   });
 
   it("no depende de variables de entorno (una env no puede despausar)", async () => {
@@ -15,7 +17,7 @@ describe("lib/pausa · interruptor central", () => {
     vi.stubEnv("DONA_EN_PAUSA", "false");
     vi.stubEnv("NEXT_PUBLIC_DONA_EN_PAUSA", "false");
     const { DONA_EN_PAUSA } = await import("./pausa");
-    expect(DONA_EN_PAUSA).toBe(true);
+    expect(DONA_EN_PAUSA).toBe(false);
     vi.unstubAllEnvs();
 
     const fuente = readFileSync(join(process.cwd(), "lib/pausa.ts"), "utf-8");
