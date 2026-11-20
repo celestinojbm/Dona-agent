@@ -1,0 +1,97 @@
+name: Zona roja (human-reviewed)
+
+# Gate de la zona ROJA (docs/ops/zonificacion-autonomia.md, sección 3).
+# Falla si la PR modifica un archivo ROJO (incluido el nombre anterior en un
+# renombre) y no tiene la etiqueta 'human-reviewed'.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: zona-roja-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  zona-roja:
+    name: Zona roja (human-reviewed)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar archivos ROJOS contra la etiqueta human-reviewed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TIENE_ETIQUETA: ${{ contains(github.event.pull_request.labels.*.name, 'human-reviewed') }}
+        run: |
+          set -euo pipefail
+
+          # IMPORTANTE: esta lista debe mantenerse sincronizada con la lista ROJA
+          # de la sección 3 de docs/ops/zonificacion-autonomia.md. Si cambias
+          # una, cambia la otra en la misma PR.
+          cat > rojos.txt <<'EOF'
+          agent/billing.py
+          agent/automation/credits.py
+          agent/billing_commands.py
+          landing/app/api/webhook/route.ts
+          landing/app/api/checkout/route.ts
+          landing/app/api/billing-portal/route.ts
+          landing/app/api/cancel-subscription/route.ts
+          landing/lib/internal-bridge.ts
+          landing/lib/stripe.ts
+          agent/envio_gate.py
+          agent/automation/consent_terceros.py
+          agent/automation/executors/send_message.py
+          agent/automation/permissions.py
+          landing/app/api/automation/acciones/[id]/high-confirmar/route.ts
+          agent/brain.py
+          config/prompts.yaml
+          agent/main.py
+          agent/entorno.py
+          agent/rate_limiter.py
+          agent/inbound_tokens.py
+          agent/crypto.py
+          agent/dashboard_lockout.py
+          agent/readiness.py
+          landing/auth.ts
+          landing/lib/auth-lockout-bridge.ts
+          landing/lib/dashboard-auth.ts
+          landing/lib/auth-matcher.ts
+          agent/providers/whapi.py
+          agent/providers/meta.py
+          agent/providers/base.py
+          agent/legal_pages.py
+          EOF
+          # El heredoc conserva la indentación del YAML: se recorta.
+          sed -i 's/^[[:space:]]*//' rojos.txt
+
+          # Archivos de la PR (paginado), incluido previous_filename en renombres.
+          gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)' \
+            | sort -u > cambiados.txt
+
+          # Comparación literal de rutas completas.
+          tocados="$(grep -F -x -f rojos.txt cambiados.txt || true)"
+
+          if [ -z "$tocados" ]; then
+            echo "La PR no modifica archivos de la zona ROJA."
+            exit 0
+          fi
+
+          echo "Archivos de la zona ROJA modificados en esta PR:"
+          echo "$tocados" | sed 's/^/  - /'
+
+          if [ "$TIENE_ETIQUETA" = "true" ]; then
+            echo "La PR tiene la etiqueta 'human-reviewed'. Gate superado."
+            exit 0
+          fi
+
+          while IFS= read -r f; do
+            echo "::error file=$f::Archivo de la zona ROJA modificado sin la etiqueta 'human-reviewed'."
+          done <<< "$tocados"
+          echo "::error::Esta PR modifica archivos de la zona ROJA (docs/ops/zonificacion-autonomia.md, sección 3). Requiere revisión humana: un humano debe revisarla y añadir la etiqueta 'human-reviewed'."
+          exit 1
