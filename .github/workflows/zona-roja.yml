@@ -65,6 +65,8 @@ jobs:
           agent/providers/meta.py
           agent/providers/base.py
           agent/legal_pages.py
+          .github/workflows/zona-roja.yml
+          docs/ops/zonificacion-autonomia.md
           EOF
           # El heredoc conserva la indentación del YAML: se recorta.
           sed -i 's/^[[:space:]]*//' rojos.txt
