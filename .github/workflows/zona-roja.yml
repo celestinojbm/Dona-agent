@@ -1,16 +1,32 @@
 name: Zona roja (human-reviewed)
 
-# Gate de la zona ROJA (docs/ops/zonificacion-autonomia.md, sección 3).
-# Falla si la PR modifica un archivo ROJO (incluido el nombre anterior en un
-# renombre) y no tiene la etiqueta 'human-reviewed'.
+# Gate de la zona ROJA (docs/ops/zonificacion-autonomia.md, secciones 3 y 5.1).
+# Falla si la PR, sin una etiqueta 'human-reviewed' vigente:
+#   1. modifica un archivo ROJO de la §3 (incluido el nombre anterior en un
+#      renombre);
+#   2. modifica un workflow de CI (§2 y §5.1: editar `.github/workflows/*`
+#      debilita el propio gate). Excepción: agent-runs-validation.yml (verde);
+#   3. borra, renombra o quita líneas con asserts en los tests protegidos de la
+#      §5.1.
+#
+# Por qué pull_request_target y no pull_request: con pull_request corre la
+# versión del workflow que trae la PR, así que una PR podía editar este archivo
+# (quitar una ruta de la lista) y su propia ejecución pasaba. Con
+# pull_request_target corre siempre la versión de la rama base. Es seguro
+# porque el job NO hace checkout ni ejecuta código de la PR: solo lee
+# metadatos por la API.
+#
+# La etiqueta caduca con cada push: en 'synchronize', si la PR toca zona roja,
+# se retira y el check falla hasta que un humano revise el diff nuevo y la
+# vuelva a poner.
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write  # solo para retirar la etiqueta caducada tras un push
 
 concurrency:
   group: zona-roja-${{ github.event.pull_request.number }}
@@ -26,9 +42,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          TIENE_ETIQUETA: ${{ contains(github.event.pull_request.labels.*.name, 'human-reviewed') }}
+          ACCION: ${{ github.event.action }}
         run: |
           set -euo pipefail
+          ETIQUETA="human-reviewed"
 
           # IMPORTANTE: esta lista debe mantenerse sincronizada con la lista ROJA
           # de la sección 3 de docs/ops/zonificacion-autonomia.md. Si cambias
@@ -69,14 +86,34 @@ jobs:
           # El heredoc conserva la indentación del YAML: se recorta.
           sed -i 's/^[[:space:]]*//' rojos.txt
 
-          # Archivos de la PR (paginado), incluido previous_filename en renombres.
-          gh api --paginate "repos/$REPO/pulls/$PR/files" \
-            --jq '.[] | .filename, (.previous_filename // empty)' \
-            | sort -u > cambiados.txt
+          # Tests protegidos de la §5.1 (borrarlos o quitarles asserts es ROJO;
+          # añadir cobertura sigue siendo verde).
+          RE_TESTS='^tests/test_(billing|tcpa|dedup|security_fixes|providers|fail_closed_entorno|readiness_secrets)[^/]*\.py$|^tests/test_automation_[^/]*(high|credits|execution)[^/]*\.py$'
 
-          # Comparación literal de rutas completas.
-          tocados="$(grep -F -x -f rojos.txt cambiados.txt || true)"
+          # Archivos de la PR (paginado): un objeto JSON por línea.
+          gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | tojson' > archivos.jsonl
+          jq -r '.filename, (.previous_filename // empty)' archivos.jsonl | sort -u > cambiados.txt
 
+          # 1. Comparación literal de rutas completas.
+          grep -F -x -f rojos.txt cambiados.txt > tocados.txt || true
+
+          # 2. Workflows de CI (excepto el auxiliar verde de la §2).
+          grep -E '^\.github/workflows/' cambiados.txt \
+            | grep -v -F -x '.github/workflows/agent-runs-validation.yml' >> tocados.txt || true
+
+          # 3. Tests de la §5.1: borrados, renombrados, sin parche visible (diff
+          #    demasiado grande) o con alguna línea quitada que contenga un assert.
+          jq -r --arg re "$RE_TESTS" '
+            select((.filename | test($re)) or ((.previous_filename // "") | test($re)))
+            | select(
+                .status == "removed" or .status == "renamed" or (.patch == null)
+                or ([.patch | split("\n")[]
+                     | select(startswith("-") and test("assert|pytest\\.(raises|fail)"))]
+                    | length > 0)
+              )
+            | .filename' archivos.jsonl >> tocados.txt
+
+          tocados="$(sort -u tocados.txt)"
           if [ -z "$tocados" ]; then
             echo "La PR no modifica archivos de la zona ROJA."
             exit 0
@@ -85,13 +122,27 @@ jobs:
           echo "Archivos de la zona ROJA modificados en esta PR:"
           echo "$tocados" | sed 's/^/  - /'
 
-          if [ "$TIENE_ETIQUETA" = "true" ]; then
-            echo "La PR tiene la etiqueta 'human-reviewed'. Gate superado."
+          # Etiquetas actuales leídas por la API (no del payload del evento, que
+          # queda congelado si se relanza una ejecución vieja).
+          tiene_etiqueta=false
+          if gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name' | grep -F -x -q "$ETIQUETA"; then
+            tiene_etiqueta=true
+          fi
+
+          if [ "$tiene_etiqueta" = "true" ] && [ "$ACCION" = "synchronize" ]; then
+            # La revisión humana cubría el diff anterior, no este push.
+            gh api -X DELETE "repos/$REPO/issues/$PR/labels/$ETIQUETA" > /dev/null || true
+            echo "::error::Nuevo push en una PR de zona ROJA: se retiró la etiqueta '$ETIQUETA'. Revisa el diff nuevo y vuelve a ponerla."
+            exit 1
+          fi
+
+          if [ "$tiene_etiqueta" = "true" ]; then
+            echo "La PR tiene la etiqueta '$ETIQUETA'. Gate superado."
             exit 0
           fi
 
           while IFS= read -r f; do
-            echo "::error file=$f::Archivo de la zona ROJA modificado sin la etiqueta 'human-reviewed'."
+            echo "::error file=$f::Archivo de la zona ROJA modificado sin la etiqueta '$ETIQUETA'."
           done <<< "$tocados"
-          echo "::error::Esta PR modifica archivos de la zona ROJA (docs/ops/zonificacion-autonomia.md, sección 3). Requiere revisión humana: un humano debe revisarla y añadir la etiqueta 'human-reviewed'."
+          echo "::error::Esta PR modifica archivos de la zona ROJA (docs/ops/zonificacion-autonomia.md, secciones 3 y 5.1). Requiere revisión humana: un humano debe revisarla y añadir la etiqueta '$ETIQUETA'."
           exit 1

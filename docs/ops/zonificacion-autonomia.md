@@ -102,6 +102,12 @@ que toca `tests/` (verde) **y** `agent/billing.py` (rojo) es ROJO.
 **Legal**
 - `agent/legal_pages.py` — Privacy/ToS/DMCA vinculantes (CCPA/CPRA).
 
+**El propio gate de CI** (ver §5.1)
+- `.github/workflows/*` excepto `agent-runs-validation.yml` (verde, §2) — editar
+  un workflow puede saltar pruebas o desactivar este mismo gate.
+- Los tests protegidos de §5.1 cuando se borran, se renombran o pierden una
+  línea con `assert`/`pytest.raises`. Añadir cobertura sigue siendo verde.
+
 ## 4. 🟡 GRIS — efecto acotado (gate = CI del módulo verde + revisión humana focalizada)
 
 | Archivo / módulo | Invariante a vigilar | Gate |
@@ -148,5 +154,8 @@ que toca `tests/` (verde) **y** `agent/billing.py` (rojo) es ROJO.
 - PR que toca 🟡 → CI verde + Celestino revisa el invariante listado.
 - PR que toca 🔴 → Celestino revisa línea por línea; para acciones HIGH/CRITICAL
   aplica además el exit dossier F.
-- Sugerido para CI: un check que falle si un PR sin label `human-reviewed`
-  modifica archivos de la lista 🔴 o reduce asserts en los tests de §5.1.
+- Check de CI `.github/workflows/zona-roja.yml`: falla si un PR sin label
+  `human-reviewed` modifica archivos de la lista 🔴 o reduce asserts en los
+  tests de §5.1. La etiqueta caduca con cada push (el check la retira) y el
+  workflow corre con `pull_request_target`, así que un PR no puede aflojar su
+  propio gate. Su lista debe coincidir con la §3.
