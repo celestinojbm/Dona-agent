@@ -30,9 +30,8 @@ import re
 from dataclasses import dataclass
 
 _ENV_FLAG = "DONA_WHATSAPP_SOLO_AVISOS_ENABLED"
-# Solo un valor explícito en minúsculas enciende (spec #328 §6: "TRUE" no
-# cuenta). OJO: a diferencia de agent/efectos.py y del resto de flags DONA_*
-# (que aplican .lower()), aquí "TRUE" deja el flag APAGADO.
+# Igual que agent/efectos.py y el resto de flags DONA_*: `1`/`true`/`yes`/`on`,
+# sin distinguir mayúsculas (tras strip). Ausente, vacío u otro valor → apagado.
 _VERDADEROS = frozenset({"true", "1", "yes", "on"})
 
 PROPOSITOS_WHATSAPP = frozenset({"aviso", "aprobacion", "cumplimiento_tcpa"})
@@ -91,8 +90,8 @@ class DecisionCanal:
 
 def flag_solo_avisos_activo() -> bool:
     """True solo si DONA_WHATSAPP_SOLO_AVISOS_ENABLED es `true`/`1`/`yes`/`on`
-    (minúsculas tras strip). Ausente, vacío u otro valor → False."""
-    return os.getenv(_ENV_FLAG, "").strip() in _VERDADEROS
+    (sin distinguir mayúsculas, tras strip). Ausente, vacío u otro valor → False."""
+    return os.getenv(_ENV_FLAG, "").strip().lower() in _VERDADEROS
 
 
 def _normalizar_proposito(proposito: object) -> str:

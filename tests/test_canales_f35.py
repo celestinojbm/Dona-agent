@@ -45,12 +45,12 @@ class TestFlag:
     def test_ausente_es_apagado(self, _flag_off):
         assert flag_solo_avisos_activo() is False
 
-    @pytest.mark.parametrize("valor", ["", "   ", "false", "0", "no", "off", "TRUE", "True", "sí", "2"])
+    @pytest.mark.parametrize("valor", ["", "   ", "false", "0", "no", "off", "sí", "2"])
     def test_valores_que_no_encienden(self, monkeypatch, valor):
         monkeypatch.setenv(_ENV, valor)
         assert flag_solo_avisos_activo() is False
 
-    @pytest.mark.parametrize("valor", ["true", "1", "yes", "on", "  true  "])
+    @pytest.mark.parametrize("valor", ["true", "1", "yes", "on", "  true  ", "TRUE", "True"])
     def test_valores_que_encienden(self, monkeypatch, valor):
         monkeypatch.setenv(_ENV, valor)
         assert flag_solo_avisos_activo() is True
