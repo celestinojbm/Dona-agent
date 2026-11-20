@@ -103,6 +103,11 @@ que toca `tests/` (verde) **y** `agent/billing.py` (rojo) es ROJO.
 - `agent/legal_pages.py` — Privacy/ToS/DMCA vinculantes (CCPA/CPRA).
 
 **El propio gate de CI** (ver §5.1)
+- `.github/workflows/zona-roja.yml`, `docs/ops/zonificacion-autonomia.md` — el
+  propio gate y su definición (autoprotección). El workflow corre con
+  `pull_request_target`, así que una PR ya no puede aflojarlo en su propia
+  ejecución, pero cambiar la lista ROJA o su definición sigue exigiendo revisión
+  humana.
 - `.github/workflows/*` excepto `agent-runs-validation.yml` (verde, §2) — editar
   un workflow puede saltar pruebas o desactivar este mismo gate.
 - Los tests protegidos de §5.1 cuando se borran, se renombran o pierden una
