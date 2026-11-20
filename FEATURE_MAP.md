@@ -247,6 +247,20 @@ Checks obligatorios en `main` (branch protection): `Suite completa (pytest)`,
 - **Tests:** `tests/test_safe_module.py` (parcial).
 - **Verificar:** no tocar sin clasificar primero (ver §4 de la zonificación).
 
+### 27. Canales secundarios: WhatsApp solo para avisos y aprobaciones (F35) — sin clasificar → 🔴 (propuesto 🟡)
+- **Archivos:** `agent/canales/` (`politica_whatsapp.py`: `decidir_canal`,
+  `PROPOSITOS_WHATSAPP`, `redactar_aviso`, `redactar_aprobacion`). Política pura:
+  no envía, no importa `envio_gate` ni proveedores y **no está cableada** al gate
+  de salida. Flag `DONA_WHATSAPP_SOLO_AVISOS_ENABLED` (apagado por defecto).
+- **Invariante:** fail-closed con el flag encendido (solo `aviso`, `aprobacion`
+  y `cumplimiento_tcpa` van a WhatsApp; lo demás, incluido lo desconocido, va a
+  la app). Con el flag apagado todo queda permitido (`razon="flag_apagado"`).
+  TCPA, quiet hours y opt-out siguen siendo exclusivos de `envio_gate.py`.
+- **Zona:** propuesta 🟡 gris en el PR de F35; la fila de §4 de
+  `docs/ops/zonificacion-autonomia.md` (archivo ROJO) la aplica Celestino.
+- **Tests:** `tests/test_canales_f35.py`.
+- **Verificar:** `pytest tests/test_canales_f35.py`.
+
 ## Mantener este mapa
 
 - Al añadir un módulo o test nuevo, agrega o actualiza su fila aquí en la misma PR.
