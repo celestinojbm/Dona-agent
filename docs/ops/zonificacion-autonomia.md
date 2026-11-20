@@ -102,6 +102,11 @@ que toca `tests/` (verde) **y** `agent/billing.py` (rojo) es ROJO.
 **Legal**
 - `agent/legal_pages.py` — Privacy/ToS/DMCA vinculantes (CCPA/CPRA).
 
+**Gate de zona roja (autoprotección)**
+- `.github/workflows/zona-roja.yml`, `docs/ops/zonificacion-autonomia.md` — el
+  propio gate y su definición: sin esto, una PR podría editar la lista ROJA (o el
+  check) y pasar el gate en la misma PR.
+
 ## 4. 🟡 GRIS — efecto acotado (gate = CI del módulo verde + revisión humana focalizada)
 
 | Archivo / módulo | Invariante a vigilar | Gate |
