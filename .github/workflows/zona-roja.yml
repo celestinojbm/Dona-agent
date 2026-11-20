@@ -19,14 +19,20 @@ name: Zona roja (human-reviewed)
 # La etiqueta caduca con cada push: en 'synchronize', si la PR toca zona roja,
 # se retira y el check falla hasta que un humano revise el diff nuevo y la
 # vuelva a poner.
+#
+# Cambio de rama base ('edited' con changes.base): pull_request_target corre la
+# versión del workflow de la rama BASE de la PR. Sin re-ejecutar aquí, bastaba
+# con apuntar la PR a una rama propia con un gate aflojado, empujar (el check
+# pasa en ese SHA) y volver a apuntarla a main. Por eso se re-ejecuta y la
+# etiqueta también caduca al cambiar la base.
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
 
 permissions:
   contents: read
-  pull-requests: write  # solo para retirar la etiqueta caducada tras un push
+  pull-requests: write  # solo para retirar la etiqueta caducada (push o cambio de base)
 
 concurrency:
   group: zona-roja-${{ github.event.pull_request.number }}
@@ -43,6 +49,8 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           ACCION: ${{ github.event.action }}
+          # Rama base anterior; solo viene en 'edited' cuando cambió la base.
+          BASE_ANTERIOR: ${{ github.event.changes.base.ref.from }}
         run: |
           set -euo pipefail
           ETIQUETA="human-reviewed"
@@ -131,10 +139,17 @@ jobs:
             tiene_etiqueta=true
           fi
 
-          if [ "$tiene_etiqueta" = "true" ] && [ "$ACCION" = "synchronize" ]; then
-            # La revisión humana cubría el diff anterior, no este push.
+          caduca=false
+          if [ "$ACCION" = "synchronize" ]; then
+            caduca=true
+          elif [ "$ACCION" = "edited" ] && [ -n "${BASE_ANTERIOR:-}" ]; then
+            caduca=true
+          fi
+
+          if [ "$tiene_etiqueta" = "true" ] && [ "$caduca" = "true" ]; then
+            # La revisión humana cubría el diff y la base anteriores, no estos.
             gh api -X DELETE "repos/$REPO/issues/$PR/labels/$ETIQUETA" > /dev/null || true
-            echo "::error::Nuevo push en una PR de zona ROJA: se retiró la etiqueta '$ETIQUETA'. Revisa el diff nuevo y vuelve a ponerla."
+            echo "::error::Nuevo push o cambio de rama base en una PR de zona ROJA: se retiró la etiqueta '$ETIQUETA'. Revisa el diff nuevo y vuelve a ponerla."
             exit 1
           fi
 

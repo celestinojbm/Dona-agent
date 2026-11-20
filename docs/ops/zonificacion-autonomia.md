@@ -161,6 +161,6 @@ que toca `tests/` (verde) **y** `agent/billing.py` (rojo) es ROJO.
   aplica además el exit dossier F.
 - Check de CI `.github/workflows/zona-roja.yml`: falla si un PR sin label
   `human-reviewed` modifica archivos de la lista 🔴 o reduce asserts en los
-  tests de §5.1. La etiqueta caduca con cada push (el check la retira) y el
-  workflow corre con `pull_request_target`, así que un PR no puede aflojar su
-  propio gate. Su lista debe coincidir con la §3.
+  tests de §5.1. La etiqueta caduca con cada push y con cada cambio de rama
+  base (el check la retira) y el workflow corre con `pull_request_target`, así
+  que un PR no puede aflojar su propio gate. Su lista debe coincidir con la §3.
