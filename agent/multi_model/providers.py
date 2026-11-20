@@ -23,6 +23,19 @@ logger = logging.getLogger("dona")
 TIMEOUT_SEGUNDOS = float(os.getenv("DONA_MODEL_TIMEOUT_S", "30"))
 MAX_REINTENTOS = int(os.getenv("DONA_MODEL_MAX_RETRIES", "2"))
 
+
+def multi_model_habilitado() -> bool:
+    """Flag maestro de F23. Apagado por defecto (fail-closed): se lee en cada
+    llamada (nunca se cachea) para respetar `monkeypatch.setenv` en tests y
+    para que un toggle en caliente surta efecto sin redeploy de código."""
+    return os.getenv("DONA_MULTI_MODEL_ENABLED", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 # Nombres de excepción transitoria (no se importan los SDK sólo para esto).
 _TRANSITORIOS_POR_NOMBRE = frozenset(
     {
@@ -225,17 +238,24 @@ def forzar_proveedor(proveedor: ProveedorModelo | None) -> None:
     _proveedor_forzado = proveedor
 
 
-def proveedor_para(modelo_id: str, *, permitir_real: bool = True) -> ProveedorModelo:
+def proveedor_para(modelo_id: str, *, permitir_real: bool = False) -> ProveedorModelo:
     """Devuelve el proveedor para un modelo.
 
     - Si hay un proveedor forzado (pruebas/demo), se usa siempre.
-    - Si `permitir_real` es False (flag DONA_MULTI_MODEL_ENABLED apagado), se
-      devuelve el proveedor SIMULADO → nunca se llama a un proveedor real.
-    - Si no, el real según el catálogo.
+    - Si `permitir_real` es False (default — fail-closed, patrón C8 del audit:
+      un caller que olvide pasar el flag NUNCA dispara una llamada real por
+      accidente), se devuelve el proveedor SIMULADO.
+    - Sólo con `permitir_real=True` EXPLÍCITO (seleccion.generar lo pasa ya
+      resuelto desde `multi_model_habilitado()`) se usa el real del catálogo.
     """
     if _proveedor_forzado is not None:
         return _proveedor_forzado
     if not permitir_real:
+        return ProveedorSimulado(etiqueta="flag-off")
+    if not multi_model_habilitado():
+        # Defensa en profundidad: aunque algún caller pase permitir_real=True
+        # por error, el flag de verdad manda — nunca se llama a un proveedor
+        # real con el flag apagado (riesgo 1 de PR #306 / issue #310).
         return ProveedorSimulado(etiqueta="flag-off")
     info = info_modelo(modelo_id)
     if info is None:
