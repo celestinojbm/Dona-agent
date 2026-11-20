@@ -30,7 +30,9 @@ import re
 from dataclasses import dataclass
 
 _ENV_FLAG = "DONA_WHATSAPP_SOLO_AVISOS_ENABLED"
-# Mismo criterio que agent/efectos.py: solo un valor explícito enciende.
+# Solo un valor explícito en minúsculas enciende (spec #328 §6: "TRUE" no
+# cuenta). OJO: a diferencia de agent/efectos.py y del resto de flags DONA_*
+# (que aplican .lower()), aquí "TRUE" deja el flag APAGADO.
 _VERDADEROS = frozenset({"true", "1", "yes", "on"})
 
 PROPOSITOS_WHATSAPP = frozenset({"aviso", "aprobacion", "cumplimiento_tcpa"})
@@ -58,8 +60,23 @@ _SUFIJO_APROBACION = "Revísalo y autorízalo en la app."
 _AVISO_SIN_TITULO = "Tienes un aviso nuevo"
 _APROBACION_SIN_TITULO = "una acción pendiente"
 # Marcadores de formato de WhatsApp que convertirían el aviso en markdown.
-_MARCADORES_FORMATO = re.compile(r"[*~`]")
+# `_` solo cuando delimita (`_cursiva_`); dentro de una palabra (snake_case) se
+# conserva.
+_MARCADORES_FORMATO = re.compile(r"[*~`]|(?<!\w)_|_(?!\w)")
+# Cita (`>`) o viñeta (`- `, `• `) al inicio: WhatsApp las renderiza como bloque.
+_MARCADOR_INICIAL = re.compile(r"^(?:>+|[-•]\s)\s*")
 _ESPACIOS = re.compile(r"\s+")
+# El título viene del llamador y el copy sale por WhatsApp: no puede arrastrar
+# enlaces (magic links, tokens en query string) ni teléfonos (spec #328 §4.3).
+_URLS = re.compile(
+    r"(?:\b[a-z][a-z0-9+.-]*://|\bwww\.)\S+"  # con esquema o www.
+    r"|\b[\w-]+(?:\.[\w-]+)+/\S*",  # dominio con ruta: usadona.com/firmar?t=…
+    re.IGNORECASE,
+)
+_TELEFONOS = re.compile(
+    r"\+\d[\d\s().-]{6,}\d"  # internacional: +1 305 555 0199, +5215512345678
+    r"|(?<!\w)\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\w)"  # EE. UU.: (305) 555-0199
+)
 
 
 @dataclass(frozen=True)
@@ -112,12 +129,16 @@ def decidir_canal(proposito: str, *, flag: bool | None = None) -> DecisionCanal:
 
 
 def _limpiar_titulo(titulo: object) -> str:
-    """Una sola línea, sin marcadores de formato ni punto final."""
+    """Una sola línea, sin enlaces, teléfonos, marcadores de formato ni
+    puntuación colgante al final (`.`, `,`, `;`, `:`)."""
     if not isinstance(titulo, str):
         return ""
-    texto = _MARCADORES_FORMATO.sub("", titulo)
+    texto = _URLS.sub(" ", titulo)
+    texto = _TELEFONOS.sub(" ", texto)
+    texto = _MARCADORES_FORMATO.sub("", texto)
     texto = _ESPACIOS.sub(" ", texto).strip()
-    return texto.rstrip(" .")
+    texto = _MARCADOR_INICIAL.sub("", texto)
+    return texto.rstrip(" .,;:")
 
 
 def _recortar(texto: str, maximo: int) -> str:
@@ -137,11 +158,18 @@ def redactar_aviso(titulo: str, *, detalle_en_app: bool = True) -> str:
     """Aviso breve para WhatsApp (no se envía aquí; no consulta el flag).
 
     Con `detalle_en_app` añade «Revisa el detalle en la app.», el mismo tono
-    que `plan_vivo.formato.notificacion_terminal`. Máximo
+    que `plan_vivo.formato.notificacion_terminal`. Si el título ya trae esa
+    frase (p. ej. el aviso terminal de F14 tal cual), no la repite. Máximo
     `LARGO_MAXIMO_COPY` caracteres; un título largo se recorta con elipsis.
     """
+    cuerpo = _limpiar_titulo(titulo)
+    base_sufijo = _SUFIJO_DETALLE_APP.rstrip(".")
+    if detalle_en_app and cuerpo.lower().endswith(base_sufijo.lower()):
+        # Se quita del cuerpo y se vuelve a poner como sufijo: así sobrevive al
+        # recorte de un título largo y no aparece dos veces.
+        cuerpo = cuerpo[: -len(base_sufijo)].rstrip(" .,;:")
+    cuerpo = cuerpo or _AVISO_SIN_TITULO
     sufijo = f" {_SUFIJO_DETALLE_APP}" if detalle_en_app else ""
-    cuerpo = _limpiar_titulo(titulo) or _AVISO_SIN_TITULO
     cuerpo = _recortar(cuerpo, LARGO_MAXIMO_COPY - len(sufijo) - 1)
     return f"{_cerrar(cuerpo)}{sufijo}"
 

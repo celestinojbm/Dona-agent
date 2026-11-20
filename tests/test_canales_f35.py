@@ -7,6 +7,8 @@ y que el módulo no depende del gate de envío ni de los proveedores.
 """
 
 import ast
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -183,6 +185,57 @@ class TestCopy:
             assert "http://" not in texto and "https://" not in texto
             assert "token" not in texto.lower()
 
+    @pytest.mark.parametrize(
+        "titulo",
+        [
+            "Firma aquí https://usadona.com/firmar?token=abc123",
+            "Firma en http://ejemplo.com/x",
+            "Abre www.ejemplo.com/aprobar ya",
+            "Autoriza en usadona.com/a?t=deadbeef",
+            "Escríbeme a wa.me/13055550199",
+            "HTTPS://EJEMPLO.COM/X",
+        ],
+    )
+    def test_titulo_con_url_no_la_arrastra(self, titulo):
+        # Regresión: el título viene del llamador y antes pasaba tal cual
+        # (magic links y tokens en query string acababan en WhatsApp).
+        for texto in (redactar_aviso(titulo), redactar_aprobacion(titulo)):
+            bajo = texto.lower()
+            assert "http" not in bajo and "www." not in bajo and "/" not in bajo
+            assert "token" not in bajo and "deadbeef" not in bajo and "abc123" not in bajo
+
+    @pytest.mark.parametrize(
+        "titulo",
+        ["Llama al +1 (305) 555-0199", "Llama al (305) 555-0199", "Llama al 305.555.0199",
+         "Llama al 3055550199", "Llama al +5215512345678"],
+    )
+    def test_titulo_con_telefono_no_lo_arrastra(self, titulo):
+        for texto in (redactar_aviso(titulo), redactar_aprobacion(titulo)):
+            assert "555" not in texto and "5512345678" not in texto
+
+    @pytest.mark.parametrize(
+        "titulo", ["Reunión 2026-11-20 10:30", "Factura #4821 por 1,250 USD", "-5 % de descuento"]
+    )
+    def test_fechas_e_importes_se_conservan(self, titulo):
+        assert redactar_aviso(titulo, detalle_en_app=False) == f"{titulo}."
+
+    def test_quita_cursiva_pero_conserva_snake_case(self):
+        texto = redactar_aviso("_urgente_ revisar cumplimiento_tcpa", detalle_en_app=False)
+        assert texto == "urgente revisar cumplimiento_tcpa."
+
+    @pytest.mark.parametrize("titulo", ["> Plan cambiado", "- Plan cambiado", "• Plan cambiado"])
+    def test_quita_cita_y_vineta_inicial(self, titulo):
+        assert redactar_aviso(titulo, detalle_en_app=False) == "Plan cambiado."
+
+    @pytest.mark.parametrize("titulo", ["Pago:", "Hola,", "Listo;", "Listo ...", "Listo. "])
+    def test_no_deja_puntuacion_colgante(self, titulo):
+        texto = redactar_aviso(titulo, detalle_en_app=False)
+        assert texto in ("Pago.", "Hola.", "Listo.")
+
+    def test_solo_url_usa_texto_por_defecto(self):
+        assert redactar_aviso("https://usadona.com/x").startswith("Tienes un aviso nuevo.")
+        assert "una acción pendiente" in redactar_aprobacion("https://usadona.com/x")
+
     def test_copy_no_consulta_el_flag(self, monkeypatch):
         monkeypatch.setenv(_ENV, "true")
         con_flag = (redactar_aviso("Hola"), redactar_aprobacion("Hola"))
@@ -207,6 +260,25 @@ class TestEncajeF14:
         cierre_f14 = notificacion_terminal({"estado": "fallido"})
         assert cierre_f14.endswith("Revisa el detalle en la app.")
         assert redactar_aviso("No pude completar la tarea").endswith("Revisa el detalle en la app.")
+
+    @pytest.mark.parametrize("estado", ["completado", "parcial", "fallido", "cancelado"])
+    def test_envolver_aviso_f14_no_duplica_la_coletilla(self, estado):
+        # Regresión: redactar_aviso(notificacion_terminal(...)) repetía
+        # «Revisa el detalle en la app.» dos veces en parcial/fallido.
+        texto = redactar_aviso(notificacion_terminal({"estado": estado}))
+        assert texto.count("Revisa el detalle en la app") == 1
+        assert texto.endswith("Revisa el detalle en la app.")
+
+    @pytest.mark.parametrize("coletilla", ["Revisa el detalle en la app.", "revisa el detalle en la app"])
+    def test_titulo_largo_con_coletilla_la_conserva_una_vez(self, coletilla):
+        texto = redactar_aviso("x" * 300 + " " + coletilla)
+        assert len(texto) <= 200
+        assert texto.count("Revisa el detalle en la app") == 1
+        assert texto.endswith("… Revisa el detalle en la app.")
+
+    def test_solo_la_coletilla_usa_texto_por_defecto(self):
+        texto = redactar_aviso("Revisa el detalle en la app.")
+        assert texto == "Tienes un aviso nuevo. Revisa el detalle en la app."
 
 
 # ───────────────────── Aislamiento del gate de envío ─────────────────────
@@ -251,3 +323,31 @@ class TestAislamiento:
         for valor in vars(pol).values():
             nombre = getattr(valor, "__name__", "")
             assert not any(nombre.startswith(p) for p in _PROHIBIDOS)
+
+    def test_ningun_archivo_del_paquete_importa_prohibidos(self):
+        # Cubre también archivos que se añadan después a agent/canales/, no
+        # solo los dos de hoy.
+        archivos = sorted(Path(canales.__file__).parent.glob("*.py"))
+        assert archivos
+        for ruta in archivos:
+            importados = _imports(ruta)
+            for prohibido in _PROHIBIDOS:
+                assert not any(m == prohibido or m.startswith(prohibido + ".") for m in importados), (
+                    f"{ruta.name} importa {prohibido}"
+                )
+            fuente = ruta.read_text(encoding="utf-8")
+            # Importación dinámica: el análisis AST de arriba no la ve.
+            assert "importlib" not in fuente and "__import__" not in fuente, ruta.name
+
+    def test_importar_el_paquete_no_carga_nada_mas(self):
+        # Chequeo transitivo en un proceso limpio: otros tests ya cargaron
+        # envio_gate/providers en este, así que sys.modules aquí no sirve.
+        raiz = Path(canales.__file__).resolve().parents[2]
+        codigo = (
+            "import sys; import agent.canales; "
+            "print('\\n'.join(sorted(m for m in sys.modules if m.startswith('agent'))))"
+        )
+        salida = subprocess.run(
+            [sys.executable, "-c", codigo], cwd=raiz, capture_output=True, text=True, check=True
+        ).stdout.split()
+        assert set(salida) == {"agent", "agent.canales", "agent.canales.politica_whatsapp"}
