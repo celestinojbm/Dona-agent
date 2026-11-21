@@ -10,6 +10,8 @@
 //     pausa (lib/auth-pausa.test.ts).
 //   - api/webhook: Stripe firmado → acuse sin bridge (webhook/route.test.tsx).
 //   - api/engineering/login DELETE: solo borra la cookie del panel.
+//   - api/waitlist: lista de espera, abierta a propósito en pausa; no usa
+//     Stripe, sesión ni backend (waitlist/route.test.tsx).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readdirSync, statSync } from "node:fs";
@@ -52,7 +54,11 @@ function clave(p: string): string {
   return relative(API_DIR, p).split(sep).join("/");
 }
 
-const EXCLUIDAS = new Set(["auth/[...nextauth]/route.ts", "webhook/route.ts"]);
+const EXCLUIDAS = new Set([
+  "auth/[...nextauth]/route.ts",
+  "webhook/route.ts",
+  "waitlist/route.ts",
+]);
 const EXCLUIDOS_METODO = new Set(["engineering/login/route.ts DELETE"]);
 
 function estadoEsperado(ruta: string): number {
@@ -83,7 +89,8 @@ describe("inventario de rutas API", () => {
     expect(todas).toContain("checkout/route.ts");
     expect(todas).toContain("billing-portal/route.ts");
     expect(todas).toContain("whatsapp-webhook/route.ts");
-    expect(todas.length).toBe(20);
+    expect(todas).toContain("waitlist/route.ts");
+    expect(todas.length).toBe(21);
   });
 });
 
@@ -125,7 +132,7 @@ describe("cuerpo de la respuesta de pausa", () => {
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({
       error: "dona_en_pausa",
-      mensaje: "Dona está en pausa. No aceptamos nuevas suscripciones ni compras.",
+      mensaje: "Dona está completo. Todas las plazas están ocupadas y por ahora no aceptamos nuevas suscripciones ni compras.",
     });
   });
 });
