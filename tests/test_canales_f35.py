@@ -281,6 +281,46 @@ class TestCopy:
     def test_fechas_e_importes_se_conservan(self, titulo):
         assert redactar_aviso(titulo, detalle_en_app=False) == f"{titulo}."
 
+    @pytest.mark.parametrize(
+        "titulo",
+        [
+            # Caracteres invisibles (Cf) partían el dominio y el enlace salía entero.
+            "Firma en usadona\u200b.com/f/SECRETO123",
+            "Firma en usadona\u2060.com/f/SECRETO123",
+            "Firma en usadona\ufeff.com/f/SECRETO123",
+            "Firma en usadona\u00ad.com/f/SECRETO123",
+            "Firma en usadona\u202e.com/f/SECRETO123",
+            "Firma en https\u200b://usadona.com/f/SECRETO123",
+            # Fragmento con token sin dominio.
+            "Sesión #access_token=SECRETO123",
+            # Dominio suelto: WhatsApp lo convierte en enlace.
+            "Firma en usadona.com",
+            "Firma en bit.ly ya",
+            "Firma en usadona.com%2Ff%2FSECRETO123",
+        ],
+    )
+    def test_enlaces_ofuscados_no_salen(self, titulo):
+        for texto in (redactar_aviso(titulo), redactar_aprobacion(titulo)):
+            bajo = texto.lower()
+            assert "secreto" not in bajo and "usadona" not in bajo and "bit.ly" not in bajo
+            assert "\u200b" not in texto and "\u202e" not in texto
+
+    @pytest.mark.parametrize(
+        "titulo",
+        ["Llama al 55 1234 5678", "Cliente (55) 1234-5678 espera", "Tel. 55.1234.5678"],
+    )
+    def test_telefono_formato_mx_se_quita(self, titulo):
+        for texto in (redactar_aviso(titulo), redactar_aprobacion(titulo)):
+            assert "1234" not in texto and "5678" not in texto
+
+    @pytest.mark.parametrize(
+        "titulo",
+        ["Reporte plan.pdf listo", "Versión 2.5 y v3.1.4", "Pedido #4821 listo",
+         "Total 1.500,00 en 3 pagos", "Cita 21-11-2026 a las 10:30"],
+    )
+    def test_dominio_suelto_no_toca_archivos_versiones_ni_fechas(self, titulo):
+        assert redactar_aviso(titulo, detalle_en_app=False) == f"{titulo}."
+
     def test_quita_cursiva_pero_conserva_snake_case(self):
         texto = redactar_aviso("_urgente_ revisar cumplimiento_tcpa", detalle_en_app=False)
         assert texto == "urgente revisar cumplimiento_tcpa."
