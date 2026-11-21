@@ -28,6 +28,10 @@ export default function LoginForm() {
         router.refresh();
         return;
       }
+      if (res.status === 429) {
+        setError("Demasiados intentos. Espera un momento e intenta de nuevo.");
+        return;
+      }
       setError("Token inválido.");
     } catch {
       setError("No se pudo validar el token. Intenta de nuevo.");
