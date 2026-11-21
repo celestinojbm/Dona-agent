@@ -214,7 +214,69 @@ class TestCopy:
             assert "555" not in texto and "5512345678" not in texto
 
     @pytest.mark.parametrize(
-        "titulo", ["Reunión 2026-11-20 10:30", "Factura #4821 por 1,250 USD", "-5 % de descuento"]
+        "titulo",
+        [
+            # Seguimiento de #329: enlaces sin `/` y esquemas sin `//`.
+            "Autoriza en usadona.com?t=SECRETO123",
+            "Autoriza en usadona.com#t=SECRETO123",
+            "Autoriza en usadona.com:8443?t=SECRETO123",
+            "Firma: ?t=SECRETO123",
+            "Firma: &token=SECRETO123",
+            "Escribe a mailto:soporte@usadona.com?subject=SECRETO123",
+            "Pulsa javascript:alert(SECRETO123)",
+            "Llama tel:+13055550199",
+            "Llama tel:3055550199;SECRETO123",
+            "Abre data:text/html,SECRETO123",
+        ],
+    )
+    def test_titulo_con_enlace_sin_barra_no_lo_arrastra(self, titulo):
+        for texto in (redactar_aviso(titulo), redactar_aprobacion(titulo)):
+            bajo = texto.lower()
+            assert "secreto123" not in bajo
+            assert "usadona.com" not in bajo and "token" not in bajo
+            for esquema in ("mailto:", "javascript:", "tel:", "data:"):
+                assert esquema not in bajo
+            assert "555" not in bajo and "@" not in bajo
+
+    @pytest.mark.parametrize(
+        "titulo",
+        [
+            "Nuevo pedido de juan.perez@cliente.com",
+            "Nuevo pedido de Juan.Perez+vip@Cliente.co.uk.",
+            "Contacto: ana_l@sub.dominio.mx, pendiente",
+            "Pedido de juan.perez@cliente.com/x",
+        ],
+    )
+    def test_correos_del_cliente_no_salen(self, titulo):
+        for texto in (redactar_aviso(titulo), redactar_aprobacion(titulo)):
+            bajo = texto.lower()
+            assert "@" not in bajo
+            assert "juan" not in bajo and "perez" not in bajo and "ana_l" not in bajo
+            assert "cliente" not in bajo and "dominio" not in bajo
+
+    @pytest.mark.parametrize(
+        "titulo",
+        ["Pedido 4821903377 enviado", "Pedido #4821903377 enviado", "Orden 48219033771 lista",
+         "Referencia 1234567890"],
+    )
+    def test_numero_de_pedido_se_conserva(self, titulo):
+        # Antes cualquier número de 10 dígitos se borraba como teléfono y el
+        # aviso perdía la referencia del pedido.
+        assert redactar_aviso(titulo, detalle_en_app=False) == f"{titulo}."
+
+    @pytest.mark.parametrize(
+        "titulo",
+        ["Llama al 3055550199", "Tel. 3055550199", "Tel: 3055550199", "WhatsApp: 13055550199",
+         "Llámame al 305-555-0199", "Cliente 305 555 0199 espera", "Móvil 3055550199"],
+    )
+    def test_telefono_con_forma_o_pista_se_sigue_quitando(self, titulo):
+        for texto in (redactar_aviso(titulo), redactar_aprobacion(titulo)):
+            assert "555" not in texto and "0199" not in texto
+
+    @pytest.mark.parametrize(
+        "titulo",
+        ["Reunión 2026-11-20 10:30", "Factura #4821 por 1,250 USD", "-5 % de descuento",
+         "Versión 2.5 publicada"],
     )
     def test_fechas_e_importes_se_conservan(self, titulo):
         assert redactar_aviso(titulo, detalle_en_app=False) == f"{titulo}."
