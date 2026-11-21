@@ -86,6 +86,21 @@ _BASE: tuple[ModeloInfo, ...] = (
         nivel_coste=2,
         respaldo="claude-sonnet-4-5",  # proveedor distinto (anthropic) ante caída de OpenAI
     ),
+    # Respaldo del REVISOR en revision.trabajar_y_revisar (decisión de
+    # Celestino, 20-nov): si gpt-4o falla al revisar, la revisión la hace otro
+    # modelo NO Anthropic, para que Anthropic nunca revise lo que hizo
+    # Anthropic. Mismo adaptador y misma OPENAI_API_KEY que gpt-4o.
+    # `clases` vacío: el modo Auto nunca lo elige; sólo se usa como respaldo.
+    ModeloInfo(
+        id="gpt-4o-mini",
+        nombre="GPT-4o mini",
+        proveedor="openai",
+        precio_in_usd_mtok=Decimal("0.15"),
+        precio_out_usd_mtok=Decimal("0.6"),
+        clases=(),
+        nivel_coste=1,
+        respaldo=None,
+    ),
 )
 
 _POR_ID = {m.id: m for m in _BASE}

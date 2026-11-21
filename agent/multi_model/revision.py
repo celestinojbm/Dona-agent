@@ -16,6 +16,11 @@ Reglas:
   revisión). Si por un fallback de proveedor ambos pasos terminan atendidos por
   el mismo modelo, el veredicto queda `revision_no_independiente`: nunca se
   reporta como aprobado.
+- Respaldo del revisor (decisión de Celestino, 20-nov): si el revisor falla,
+  NO se usa el respaldo genérico del catálogo (para gpt-4o es Claude Sonnet,
+  y Anthropic acabaría revisando a Anthropic). Se usa `RESPALDO_REVISION`
+  (gpt-4o-mini), sólo si no es Anthropic ni del mismo proveedor que trabajó.
+  Si no hay respaldo válido, el error del revisor se propaga como antes.
 - Fail-closed en el veredicto: sólo `VEREDICTO: APROBADO` exacto en la primera
   línea no vacía del revisor cuenta como aprobado. Cualquier otra cosa (texto
   libre, veredicto en otra línea, respuesta vacía) → `sin_veredicto`.
@@ -45,7 +50,7 @@ import secrets
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
-from agent.multi_model.catalogo import existe
+from agent.multi_model.catalogo import existe, info_modelo
 from agent.multi_model.combinacion import (
     PasoEjecutado,
     ResultadoCombinacion,
@@ -69,6 +74,10 @@ SIN_VEREDICTO = "sin_veredicto"
 NO_INDEPENDIENTE = "revision_no_independiente"
 DETENIDO_POR_TOPE = "detenido_por_tope"
 VEREDICTOS = {APROBADO, CAMBIOS_PENDIENTES, SIN_VEREDICTO, NO_INDEPENDIENTE, DETENIDO_POR_TOPE}
+
+# Respaldo del revisor cuando el revisor falla (ver docstring del módulo).
+RESPALDO_REVISION = "gpt-4o-mini"
+_PROVEEDORES_EXCLUIDOS_REVISION = frozenset({"anthropic"})
 
 _RE_VEREDICTO = re.compile(r"^VEREDICTO:\s*(APROBADO|CAMBIOS)\s*$")
 
@@ -107,6 +116,52 @@ def interpretar_veredicto(texto: str) -> tuple[str, str]:
     observaciones = "\n".join(lineas[1:]).strip()
     veredicto = APROBADO if m.group(1) == "APROBADO" else CAMBIOS_PENDIENTES
     return veredicto, observaciones
+
+
+def _proveedor_catalogo(modelo: str) -> str | None:
+    info = info_modelo(modelo)
+    return info.proveedor if info else None
+
+
+def respaldo_revisor(modelo_revision: str, proveedores_trabajo: set[str]) -> str | None:
+    """Modelo que revisa si `modelo_revision` falla, o None si no hay uno válido.
+
+    Válido = existe en el catálogo, es distinto del revisor que falló, no es
+    Anthropic y no es del mismo proveedor que alguno de los pasos de trabajo."""
+    candidato = RESPALDO_REVISION
+    if candidato == modelo_revision or not existe(candidato):
+        return None
+    proveedor = _proveedor_catalogo(candidato)
+    if proveedor in _PROVEEDORES_EXCLUIDOS_REVISION or proveedor in proveedores_trabajo:
+        return None
+    return candidato
+
+
+async def _revisar(
+    *, modelo_revision: str, mensajes: list[dict], system: str, agente: str,
+    proveedores_trabajo: set[str],
+):
+    """Llama al revisor SIN el fallback genérico de generar(); si falla, cae a
+    `respaldo_revisor` (una sola vez). El presupuesto agotado se propaga."""
+    try:
+        return await generar(
+            modelo=modelo_revision, mensajes=mensajes, system=system,
+            agente=agente, permitir_fallback=False,
+        )
+    except PresupuestoAgenteAgotadoError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        respaldo = respaldo_revisor(modelo_revision, proveedores_trabajo)
+        if respaldo is None:
+            raise
+        logger.warning(
+            "[MULTI_MODEL] revisor %s falló (%s); revisa %s (respaldo no Anthropic)",
+            modelo_revision, type(e).__name__, respaldo,
+        )
+        return await generar(
+            modelo=respaldo, mensajes=mensajes, system=system,
+            agente=agente, permitir_fallback=False,
+        )
 
 
 def _mensaje_revision(borrador: str) -> dict:
@@ -206,6 +261,7 @@ async def trabajar_y_revisar(
     ))
     borrador = trabajo.texto
     modelos_trabajo = {trabajo.modelo}
+    proveedores_trabajo = {p for p in (_proveedor_catalogo(trabajo.modelo),) if p}
 
     for ronda in range(1, rondas_max + 1):
         if _presupuesto_agotado(gastado, tope):
@@ -214,11 +270,12 @@ async def trabajar_y_revisar(
             break
 
         try:
-            rev = await generar(
-                modelo=modelo_revision,
+            rev = await _revisar(
+                modelo_revision=modelo_revision,
                 mensajes=mensajes + [_mensaje_revision(borrador)],
                 system=system,
                 agente=agente,
+                proveedores_trabajo=proveedores_trabajo,
             )
         except PresupuestoAgenteAgotadoError:
             logger.warning("[MULTI_MODEL] presupuesto de agente agotado; se detiene la revisión")
@@ -266,6 +323,9 @@ async def trabajar_y_revisar(
         ))
         borrador = corr.texto
         modelos_trabajo.add(corr.modelo)
+        proveedor_corr = _proveedor_catalogo(corr.modelo)
+        if proveedor_corr:
+            proveedores_trabajo.add(proveedor_corr)
         # La corrección queda sin revisar hasta la siguiente ronda.
         res.veredicto = SIN_VEREDICTO
 

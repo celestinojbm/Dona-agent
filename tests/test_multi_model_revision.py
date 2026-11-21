@@ -268,23 +268,95 @@ class TestBorradorComoDatos:
 # ───────────────────── Independencia del revisor ─────────────────────
 
 class TestIndependencia:
-    async def test_fallback_al_mismo_modelo_no_aprueba(self, monkeypatch):
-        # El revisor (gpt-4o) falla y generar() cae a su respaldo del catálogo
-        # (claude-sonnet-4-5), que es el mismo que trabajó: la revisión no es
-        # independiente.
-        from agent.multi_model import seleccion
+    async def test_revisor_cae_a_respaldo_no_anthropic(self, monkeypatch):
+        # El revisor (gpt-4o) falla. Antes caía al respaldo genérico del
+        # catálogo (claude-sonnet-4-5): Anthropic revisando a Anthropic. Ahora
+        # revisa gpt-4o-mini (OpenAI) y su veredicto cuenta.
+        from agent.multi_model import catalogo, seleccion
 
         monkeypatch.setenv("DONA_MULTI_MODEL_ENABLED", "true")
         defecto = seleccion.MODELO_POR_DEFECTO
-        _forzar(_Guion(
-            {defecto: ["VEREDICTO: APROBADO"]},
+        prov = _forzar(_Guion(
+            {defecto: ["borrador"], revision.RESPALDO_REVISION: ["VEREDICTO: APROBADO"]},
             falla={REVISOR},
         ))
         res = await revision.trabajar_y_revisar(
             modelo_trabajo=defecto, modelo_revision=REVISOR, mensajes=MSG
         )
-        assert res.veredicto == revision.NO_INDEPENDIENTE
-        assert res.pasos[1].modelo == defecto
+        assert res.veredicto == revision.APROBADO
+        assert res.pasos[1].modelo == revision.RESPALDO_REVISION
+        assert catalogo.info_modelo(res.pasos[1].modelo).proveedor != "anthropic"
+        # Nunca se pidió a un modelo Anthropic que revisara.
+        revisiones = [m for m, txt in prov.llamadas if "VEREDICTO" in txt]
+        assert all(catalogo.info_modelo(m).proveedor != "anthropic" for m in revisiones)
+
+    async def test_revisor_y_respaldo_fallan_no_cae_a_anthropic(self, monkeypatch):
+        from agent.multi_model import seleccion
+
+        monkeypatch.setenv("DONA_MULTI_MODEL_ENABLED", "true")
+        defecto = seleccion.MODELO_POR_DEFECTO
+        prov = _forzar(_Guion(
+            {defecto: ["VEREDICTO: APROBADO"]},
+            falla={REVISOR, revision.RESPALDO_REVISION},
+        ))
+        with pytest.raises(RuntimeError):
+            await revision.trabajar_y_revisar(
+                modelo_trabajo=defecto, modelo_revision=REVISOR, mensajes=MSG
+            )
+        assert [m for m, _ in prov.llamadas] == [defecto, REVISOR, revision.RESPALDO_REVISION]
+
+    async def test_respaldo_del_revisor_no_es_del_proveedor_que_trabajo(self, monkeypatch):
+        # Trabaja gpt-4o (OpenAI) y revisa Sonnet. Si Sonnet falla, gpt-4o-mini
+        # sería OpenAI revisando a OpenAI: no hay respaldo válido y no se cae
+        # tampoco al respaldo genérico (gpt-4o revisándose a sí mismo).
+        monkeypatch.setenv("DONA_MULTI_MODEL_ENABLED", "true")
+        prov = _forzar(_Guion({REVISOR: ["borrador"]}, falla={"claude-sonnet-4-5"}))
+        with pytest.raises(RuntimeError):
+            await revision.trabajar_y_revisar(
+                modelo_trabajo=REVISOR, modelo_revision="claude-sonnet-4-5", mensajes=MSG
+            )
+        assert [m for m, _ in prov.llamadas] == [REVISOR, "claude-sonnet-4-5"]
+
+    def test_respaldo_revisor_reglas(self):
+        assert revision.respaldo_revisor(REVISOR, {"anthropic"}) == "gpt-4o-mini"
+        assert revision.respaldo_revisor(REVISOR, {"openai"}) is None
+        assert revision.respaldo_revisor("gpt-4o-mini", {"anthropic"}) is None
+
+    def test_respaldo_revisor_nunca_anthropic(self, monkeypatch):
+        monkeypatch.setattr(revision, "RESPALDO_REVISION", "claude-haiku-4-5-20251001")
+        assert revision.respaldo_revisor(REVISOR, set()) is None
+        monkeypatch.setattr(revision, "RESPALDO_REVISION", "no-existe")
+        assert revision.respaldo_revisor(REVISOR, set()) is None
+
+    async def test_respaldo_tras_correccion_considera_proveedor_de_la_correccion(
+        self, monkeypatch
+    ):
+        # Trabaja Haiku; la corrección cae a gpt-4o (respaldo del catálogo de
+        # Haiku). Si en la segunda revisión el revisor Sonnet falla,
+        # gpt-4o-mini no puede revisar (OpenAI ya trabajó).
+        monkeypatch.setenv("DONA_MULTI_MODEL_ENABLED", "true")
+
+        class _Secuencia(_Guion):
+            async def generar(self, *, modelo, mensajes, system="", max_tokens=1024, **kw):
+                n = len(self.llamadas)
+                if (modelo == TRABAJO and n >= 2) or (modelo == "claude-sonnet-4-5" and n >= 3):
+                    self.llamadas.append((modelo, mensajes[-1]["content"]))
+                    raise RuntimeError(f"boom:{modelo}")
+                return await super().generar(
+                    modelo=modelo, mensajes=mensajes, system=system, max_tokens=max_tokens
+                )
+
+        prov = _forzar(_Secuencia({
+            TRABAJO: ["v1"],
+            "claude-sonnet-4-5": ["VEREDICTO: CAMBIOS\n- x"],
+            REVISOR: ["v2"],
+        }))
+        with pytest.raises(RuntimeError):
+            await revision.trabajar_y_revisar(
+                modelo_trabajo=TRABAJO, modelo_revision="claude-sonnet-4-5",
+                mensajes=MSG, max_rondas=2,
+            )
+        assert "gpt-4o-mini" not in [m for m, _ in prov.llamadas]
 
     async def test_fallback_del_trabajo_al_modelo_revisor_no_aprueba(self, monkeypatch):
         # El que trabaja (Haiku) falla y su respaldo del catálogo es gpt-4o, el
