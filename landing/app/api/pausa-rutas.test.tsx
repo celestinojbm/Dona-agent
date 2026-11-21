@@ -15,6 +15,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
+// Rama staging/despausa-preview: la constante real es false (preview). Este
+// test verifica el comportamiento EN PAUSA, así que la fuerza a true.
+vi.mock("@/lib/pausa", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/pausa")>()),
+  DONA_EN_PAUSA: true,
+}));
+
 const authSpy = vi.fn();
 const getStripeSpy = vi.fn(() => {
   throw new Error("Stripe no debe usarse en pausa");

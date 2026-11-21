@@ -19,6 +19,13 @@ const { authSpy, notFoundSpy } = vi.hoisted(() => ({
 vi.mock("@/auth", () => ({ auth: authSpy }));
 vi.mock("next/navigation", () => ({ notFound: notFoundSpy, redirect: vi.fn() }));
 
+// Rama staging/despausa-preview: la constante real es false (preview). Este
+// test verifica el comportamiento EN PAUSA, así que la fuerza a true.
+vi.mock("@/lib/pausa", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/pausa")>()),
+  DONA_EN_PAUSA: true,
+}));
+
 import Home from "./page";
 import CheckoutPage from "./checkout/page";
 import SuccessPage from "./success/page";
@@ -35,7 +42,7 @@ const AVISO = "Dona está en pausa. No aceptamos nuevas suscripciones ni compras
 
 afterEach(() => cleanup());
 
-const paginas: [string, () => ReactElement][] = [
+const paginas: [string, () => ReactElement | Promise<ReactElement>][] = [
   ["/", Home],
   ["/checkout", CheckoutPage],
   ["/success", SuccessPage],
@@ -46,8 +53,8 @@ const paginas: [string, () => ReactElement][] = [
 ];
 
 describe.each(paginas)("página %s en pausa", (_ruta, Pagina) => {
-  it("muestra el aviso de pausa y enlaces a términos y privacidad", () => {
-    render(Pagina());
+  it("muestra el aviso de pausa y enlaces a términos y privacidad", async () => {
+    render(await Pagina());
     expect(screen.getByRole("heading", { name: "Dona está en pausa" })).toBeInTheDocument();
     expect(screen.getByText(AVISO)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Términos y condiciones" })).toHaveAttribute(
@@ -80,9 +87,9 @@ describe("páginas con lógica específica", () => {
     ).toBeInTheDocument();
   });
 
-  it("dashboard no lee la sesión: una sesión anterior no da acceso", () => {
+  it("dashboard no lee la sesión: una sesión anterior no da acceso", async () => {
     authSpy.mockResolvedValue({ user: { email: "usuario@example.com" } });
-    render(DashboardPage());
+    render(await DashboardPage());
     expect(authSpy).not.toHaveBeenCalled();
     expect(screen.getByText(AVISO)).toBeInTheDocument();
   });

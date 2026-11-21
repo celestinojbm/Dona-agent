@@ -33,6 +33,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowUp,
+  ChevronUp,
   Loader2,
   MessageSquare,
   Mic,
@@ -41,6 +42,8 @@ import {
   X,
 } from "lucide-react";
 import type { ChatResponse, MensajeChat } from "@/lib/chat-types";
+import { SelectorModelo } from "@/components/selector-modelo";
+import { MODELO_AUTO, MODELOS_CHAT, nombreModelo } from "@/lib/modelos-chat";
 
 // Mapea el `error` del route a un mensaje humano (sin exponer internals).
 function mensajeErrorChat(code: string): string {
@@ -218,6 +221,10 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
   // Bloquea el envío/adjuntar en esa ventana (si no, se enviaría un turno que
   // descarta el audio a medio finalizar).
   const [procesandoVoz, setProcesandoVoz] = useState(false);
+  // Selector de modelo (F23). Sólo UI por ahora: la elección no viaja al
+  // backend (ver TODO en lib/modelos-chat.ts).
+  const [modelo, setModelo] = useState<string>(MODELO_AUTO);
+  const [selectorAbierto, setSelectorAbierto] = useState(false);
 
   const finRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -586,6 +593,21 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
 
         {/* Composer */}
         <div className="border-t border-[color:var(--line)] p-4">
+          {selectorAbierto && (
+            <div id="selector-modelo-panel" className="mb-3">
+              <SelectorModelo
+                modelos={MODELOS_CHAT}
+                seleccionado={modelo}
+                onSeleccionar={(id) => {
+                  setModelo(id);
+                  setSelectorAbierto(false);
+                }}
+              />
+              <p className="mt-2 px-1 text-[11px] text-[color:var(--muted)]">
+                Vista previa: la elección todavía no se aplica en el backend.
+              </p>
+            </div>
+          )}
           <div className="rounded-2xl border border-[color:var(--line)] bg-[color:var(--surface)] shadow-[0_1px_2px_rgba(11,11,18,0.04),0_10px_28px_-22px_rgba(11,11,18,0.25)] transition-colors focus-within:border-[color:var(--brand)]">
             {adjunto && (
               <ChipAdjunto adjunto={adjunto} onQuitar={quitarAdjunto} />
@@ -629,6 +651,21 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
                   }`}
                 >
                   {grabando ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectorAbierto((v) => !v)}
+                  disabled={enviando || grabando}
+                  aria-expanded={selectorAbierto}
+                  aria-controls="selector-modelo-panel"
+                  aria-label={`Modelo: ${nombreModelo(modelo)}`}
+                  title="Cambiar modelo"
+                  className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] text-[color:var(--muted)] transition-colors hover:bg-[color:var(--fill)] hover:text-[color:var(--ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <span className="max-w-[110px] truncate">{nombreModelo(modelo)}</span>
+                  <ChevronUp
+                    className={`h-3 w-3 transition-transform ${selectorAbierto ? "" : "rotate-180"}`}
+                  />
                 </button>
                 {grabando ? (
                   <span className="flex items-center gap-1.5 pl-1 text-[11px] text-[color:var(--dato-neg)]">

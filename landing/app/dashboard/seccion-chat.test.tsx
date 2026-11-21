@@ -283,3 +283,18 @@ describe("SeccionChat · media (Fase 3)", () => {
     }
   });
 });
+
+describe("SeccionChat · selector de modelo (F23)", () => {
+  it("muestra el selector, arranca en Auto y permite cambiar de modelo", () => {
+    render(<SeccionChat />);
+    const boton = screen.getByLabelText("Modelo: Auto");
+    expect(screen.queryByRole("radiogroup", { name: "Modelo" })).toBeNull();
+
+    fireEvent.click(boton);
+    expect(screen.getByRole("radiogroup", { name: "Modelo" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: /GPT-4o/ }));
+    expect(screen.getByLabelText("Modelo: GPT-4o")).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "Modelo" })).toBeNull();
+  });
+});

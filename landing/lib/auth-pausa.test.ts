@@ -6,6 +6,13 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Rama staging/despausa-preview: la constante real es false (preview). Este
+// test verifica el comportamiento EN PAUSA, así que la fuerza a true.
+vi.mock("@/lib/pausa", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/pausa")>()),
+  DONA_EN_PAUSA: true,
+}));
+
 type Authorize = (c: Record<string, unknown>) => Promise<unknown>;
 let authorize: Authorize | undefined;
 
