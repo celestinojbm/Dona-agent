@@ -16,15 +16,30 @@ name: Zona roja (human-reviewed)
 # porque el job NO hace checkout ni ejecuta código de la PR: solo lee
 # metadatos por la API.
 #
-# La etiqueta caduca con cada push: en 'synchronize', si la PR toca zona roja,
-# se retira y el check falla hasta que un humano revise el diff nuevo y la
-# vuelva a poner.
+# La etiqueta caduca con cada push, sin depender del orden de los eventos. Al
+# ponerla una persona (evento 'labeled', emisor de tipo User), el gate deja un
+# SELLO: un commit status '$CONTEXTO' en success sobre el SHA de cabeza, creado
+# por github-actions[bot] y con la base en la descripción. Después, cualquier
+# ejecución (edited, labeled de otra etiqueta, reopened…) solo pasa si la
+# etiqueta sigue puesta Y el SHA de cabeza actual tiene ese sello con la base
+# actual. Un push cambia el SHA → no hay sello → falla y se retira la etiqueta.
+# Antes la caducidad dependía de que corriera la ejecución de 'synchronize', y
+# con cancel-in-progress cualquier evento posterior (p. ej. un agente que edita
+# la descripción de la PR justo después de empujar) la cancelaba: la etiqueta
+# vieja sobrevivía y el check pasaba sobre un diff que nadie revisó.
+#
+# Etiqueta puesta por un bot (claude[bot], github-actions…): no sella y se
+# retira. Límite conocido: un token personal se ve como User; el gate no
+# distingue a una persona de un agente que usa su token.
 #
 # Cambio de rama base ('edited' con changes.base): pull_request_target corre la
 # versión del workflow de la rama BASE de la PR. Sin re-ejecutar aquí, bastaba
 # con apuntar la PR a una rama propia con un gate aflojado, empujar (el check
-# pasa en ese SHA) y volver a apuntarla a main. Por eso se re-ejecuta y la
-# etiqueta también caduca al cambiar la base.
+# pasa en ese SHA) y volver a apuntarla a main. Por eso se re-ejecuta, la
+# etiqueta caduca al cambiar la base y se publica un estado 'failure' en el
+# contexto del sello (el último estado por contexto manda, así que anula
+# cualquier sello anterior sobre ese SHA). Además el sello lleva la base y se
+# compara con la base actual.
 
 on:
   pull_request_target:
@@ -33,10 +48,15 @@ on:
 permissions:
   contents: read
   pull-requests: write  # solo para retirar la etiqueta caducada (push o cambio de base)
+  statuses: write       # sello de la revisión humana ligado al SHA de cabeza
 
+# Sin cancel-in-progress: una ejecución en curso (p. ej. la que sella tras
+# 'labeled' o la que invalida tras un cambio de base) termina siempre. La
+# corrección ya no depende de esto (el sello va ligado al SHA), pero evita que
+# un evento cualquiera tire una ejecución a medias.
 concurrency:
   group: zona-roja-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   zona-roja:
@@ -51,9 +71,16 @@ jobs:
           ACCION: ${{ github.event.action }}
           # Rama base anterior; solo viene en 'edited' cuando cambió la base.
           BASE_ANTERIOR: ${{ github.event.changes.base.ref.from }}
+          # SHA de cabeza en el momento del evento (lo que vio quien etiquetó).
+          SHA_EVENTO: ${{ github.event.pull_request.head.sha }}
+          # Solo en 'labeled'/'unlabeled': qué etiqueta y qué tipo de cuenta.
+          ETIQUETA_EVENTO: ${{ github.event.label.name }}
+          TIPO_EMISOR: ${{ github.event.sender.type }}
         run: |
           set -euo pipefail
           ETIQUETA="human-reviewed"
+          CONTEXTO="zona-roja/revision-humana"
+          SELLADOR="github-actions[bot]"
 
           # IMPORTANTE: esta lista debe mantenerse sincronizada con la lista ROJA
           # de la sección 3 de docs/ops/zonificacion-autonomia.md. Si cambias
@@ -92,6 +119,7 @@ jobs:
           agent/legal_pages.py
           .github/workflows/zona-roja.yml
           docs/ops/zonificacion-autonomia.md
+          pytest.ini
           EOF
           # El heredoc conserva la indentación del YAML: se recorta.
           sed -i 's/^[[:space:]]*//' rojos.txt
@@ -99,26 +127,61 @@ jobs:
           # Tests protegidos de la §5.1 (borrarlos o quitarles asserts es ROJO;
           # añadir cobertura sigue siendo verde).
           RE_TESTS='^tests/test_(billing|tcpa|dedup|security_fixes|providers|fail_closed_entorno|readiness_secrets)[^/]*\.py$|^tests/test_automation_[^/]*(high|credits|execution)[^/]*\.py$'
+          # Líneas AÑADIDAS que desactivan tests sin quitar ningún assert.
+          RE_SALTO='pytest\.(skip|xfail|importorskip)|mark\.(skip|skipif|xfail)|pytestmark|collect_ignore'
+          # conftest.py: cualquier línea (añadida o quitada) que toque la recolección.
+          RE_CONFTEST_SALTO='skip|xfail|deselect|collect_ignore|ignore|modifyitems'
+
+          # Estado actual de la PR (no el payload del evento, que se congela).
+          gh api "repos/$REPO/pulls/$PR" > pr.json
+          SHA_ACTUAL="$(jq -r '.head.sha' pr.json)"
+          BASE_ACTUAL="$(jq -r '.base.ref' pr.json)"
+          TOTAL_ARCHIVOS="$(jq -r '.changed_files // 0' pr.json)"
+          DESCRIPCION_SELLO="Revisión humana · base=$BASE_ACTUAL"
 
           # Archivos de la PR (paginado): un objeto JSON por línea.
           gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | tojson' > archivos.jsonl
           jq -r '.filename, (.previous_filename // empty)' archivos.jsonl | sort -u > cambiados.txt
 
+          # 0. La API lista como máximo 3000 archivos: si la lista está
+          #    incompleta no se puede afirmar que no toca zona roja (fail-closed).
+          listados="$(wc -l < archivos.jsonl | tr -d ' ')"
+          : > tocados.txt
+          if [ "$listados" -lt "$TOTAL_ARCHIVOS" ]; then
+            echo "(lista de archivos incompleta: $listados de $TOTAL_ARCHIVOS)" >> tocados.txt
+          fi
+
           # 1. Comparación literal de rutas completas.
-          grep -F -x -f rojos.txt cambiados.txt > tocados.txt || true
+          grep -F -x -f rojos.txt cambiados.txt >> tocados.txt || true
 
           # 2. Workflows de CI (excepto el auxiliar verde de la §2).
           grep -E '^\.github/workflows/' cambiados.txt \
             | grep -v -F -x '.github/workflows/agent-runs-validation.yml' >> tocados.txt || true
 
           # 3. Tests de la §5.1: borrados, renombrados, sin parche visible (diff
-          #    demasiado grande) o con alguna línea quitada que contenga un assert.
-          jq -r --arg re "$RE_TESTS" '
+          #    demasiado grande), con alguna línea quitada que contenga un assert
+          #    o con alguna línea añadida que los salte (skip/xfail/pytestmark).
+          jq -r --arg re "$RE_TESTS" --arg salto "$RE_SALTO" '
             select((.filename | test($re)) or ((.previous_filename // "") | test($re)))
             | select(
                 .status == "removed" or .status == "renamed" or (.patch == null)
                 or ([.patch | split("\n")[]
-                     | select(startswith("-") and test("assert|pytest\\.(raises|fail)"))]
+                     | select(
+                         (startswith("-") and test("assert|pytest\\.(raises|fail)"))
+                         or (startswith("+") and test($salto))
+                       )]
+                    | length > 0)
+              )
+            | .filename' archivos.jsonl >> tocados.txt
+
+          # 4. conftest.py: puede saltar o deseleccionar tests protegidos sin
+          #    tocarlos (collect_ignore, pytest_collection_modifyitems…).
+          jq -r --arg salto "$RE_CONFTEST_SALTO" '
+            select((.filename | test("(^|/)conftest\\.py$")) or ((.previous_filename // "") | test("(^|/)conftest\\.py$")))
+            | select(
+                .status == "removed" or .status == "renamed" or (.patch == null)
+                or ([.patch | split("\n")[]
+                     | select((startswith("+") or startswith("-")) and test($salto))]
                     | length > 0)
               )
             | .filename' archivos.jsonl >> tocados.txt
@@ -139,23 +202,64 @@ jobs:
             tiene_etiqueta=true
           fi
 
-          caduca=false
-          if [ "$ACCION" = "synchronize" ]; then
-            caduca=true
-          elif [ "$ACCION" = "edited" ] && [ -n "${BASE_ANTERIOR:-}" ]; then
-            caduca=true
-          fi
-
-          if [ "$tiene_etiqueta" = "true" ] && [ "$caduca" = "true" ]; then
-            # La revisión humana cubría el diff y la base anteriores, no estos.
+          retirar_etiqueta() {
             gh api -X DELETE "repos/$REPO/issues/$PR/labels/$ETIQUETA" > /dev/null || true
-            echo "::error::Nuevo push o cambio de rama base en una PR de zona ROJA: se retiró la etiqueta '$ETIQUETA'. Revisa el diff nuevo y vuelve a ponerla."
+          }
+
+          publicar_sello() {  # $1 = success | failure
+            gh api -X POST "repos/$REPO/statuses/$SHA_ACTUAL" \
+              -f state="$1" -f context="$CONTEXTO" -f description="$DESCRIPCION_SELLO" > /dev/null
+          }
+
+          # El sello vale si el ÚLTIMO estado del contexto en el SHA actual es
+          # success, lo creó este workflow y lleva la base actual.
+          sello_valido() {
+            gh api "repos/$REPO/commits/$SHA_ACTUAL/statuses?per_page=100" > estados.json
+            jq -e --arg ctx "$CONTEXTO" --arg quien "$SELLADOR" --arg desc "$DESCRIPCION_SELLO" '
+              [.[] | select(.context == $ctx)] | first
+              | (. != null) and .state == "success" and .creator.login == $quien
+                and .description == $desc' estados.json > /dev/null
+          }
+
+          # Cambio de rama base: la revisión cubría otra base. Se invalida el
+          # sello (failure como último estado del contexto) y la etiqueta.
+          if [ "$ACCION" = "edited" ] && [ -n "${BASE_ANTERIOR:-}" ]; then
+            publicar_sello failure || true
+            if [ "$tiene_etiqueta" = "true" ]; then
+              retirar_etiqueta
+            fi
+            echo "::error::Cambio de rama base en una PR de zona ROJA: la revisión anterior ya no vale. Revisa el diff contra la base nueva y vuelve a poner '$ETIQUETA'."
             exit 1
           fi
 
-          if [ "$tiene_etiqueta" = "true" ]; then
-            echo "La PR tiene la etiqueta '$ETIQUETA'. Gate superado."
+          # Alguien acaba de poner la etiqueta: se sella el SHA que vio.
+          if [ "$ACCION" = "labeled" ] && [ "${ETIQUETA_EVENTO:-}" = "$ETIQUETA" ] && [ "$tiene_etiqueta" = "true" ]; then
+            if [ "${TIPO_EMISOR:-}" != "User" ]; then
+              retirar_etiqueta
+              echo "::error::La etiqueta '$ETIQUETA' la puso una cuenta de tipo '${TIPO_EMISOR:-desconocido}'. Solo cuenta si la pone una persona: se retiró."
+              exit 1
+            fi
+            if [ "${SHA_EVENTO:-}" != "$SHA_ACTUAL" ]; then
+              retirar_etiqueta
+              echo "::error::Hubo un push entre la revisión y la ejecución del gate (etiquetado en ${SHA_EVENTO:-?}, cabeza actual $SHA_ACTUAL). Revisa el diff nuevo y vuelve a poner '$ETIQUETA'."
+              exit 1
+            fi
+            publicar_sello success
+            echo "Etiqueta '$ETIQUETA' puesta por una persona sobre $SHA_ACTUAL (base $BASE_ACTUAL). Sello publicado. Gate superado."
             exit 0
+          fi
+
+          if [ "$tiene_etiqueta" = "true" ]; then
+            if sello_valido; then
+              echo "La PR tiene la etiqueta '$ETIQUETA' y el sello sobre $SHA_ACTUAL (base $BASE_ACTUAL). Gate superado."
+              exit 0
+            fi
+            # Sin sello para este SHA: hubo push o cambio de base después de la
+            # revisión, o la ejecución que sellaba no llegó a correr. Se retira
+            # para que volver a ponerla dispare 'labeled' y selle el SHA actual.
+            retirar_etiqueta
+            echo "::error::La etiqueta '$ETIQUETA' no tiene sello para el commit actual $SHA_ACTUAL (push o cambio de base posterior a la revisión, o la ejecución que sellaba no corrió). Se retiró: revisa el diff y vuelve a ponerla."
+            exit 1
           fi
 
           while IFS= read -r f; do

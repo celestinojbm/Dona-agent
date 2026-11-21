@@ -110,8 +110,15 @@ que toca `tests/` (verde) **y** `agent/billing.py` (rojo) es ROJO.
   humana.
 - `.github/workflows/*` excepto `agent-runs-validation.yml` (verde, §2) — editar
   un workflow puede saltar pruebas o desactivar este mismo gate.
-- Los tests protegidos de §5.1 cuando se borran, se renombran o pierden una
-  línea con `assert`/`pytest.raises`. Añadir cobertura sigue siendo verde.
+- Los tests protegidos de §5.1 cuando se borran, se renombran, pierden una
+  línea con `assert`/`pytest.raises` o ganan una línea que los salta
+  (`pytest.skip`, `mark.skip`/`skipif`/`xfail`, `pytestmark`,
+  `importorskip`). Añadir cobertura sigue siendo verde.
+- `pytest.ini` — un `--ignore`/`-k`/`--deselect` en `addopts` apaga tests
+  protegidos sin tocarlos.
+- Cualquier `conftest.py` cuando su diff toca la recolección (`skip`, `xfail`,
+  `deselect`, `ignore`, `collect_ignore`, `pytest_collection_modifyitems`).
+  Una fixture nueva sigue siendo verde.
 
 ## 4. 🟡 GRIS — efecto acotado (gate = CI del módulo verde + revisión humana focalizada)
 
@@ -160,7 +167,14 @@ que toca `tests/` (verde) **y** `agent/billing.py` (rojo) es ROJO.
 - PR que toca 🔴 → Celestino revisa línea por línea; para acciones HIGH/CRITICAL
   aplica además el exit dossier F.
 - Check de CI `.github/workflows/zona-roja.yml`: falla si un PR sin label
-  `human-reviewed` modifica archivos de la lista 🔴 o reduce asserts en los
-  tests de §5.1. La etiqueta caduca con cada push y con cada cambio de rama
-  base (el check la retira) y el workflow corre con `pull_request_target`, así
+  `human-reviewed` modifica archivos de la lista 🔴 o reduce/salta asserts en
+  los tests de §5.1. La etiqueta vale solo para el commit que se revisó: al
+  ponerla **una persona** (no un bot), el check deja un sello
+  (`zona-roja/revision-humana`, commit status ligado al SHA de cabeza y a la
+  base). Un push nuevo o un cambio de rama base dejan el SHA sin sello: el
+  check falla y retira la etiqueta, sin importar qué evento lo dispare ni si
+  otra ejecución se canceló. El workflow corre con `pull_request_target`, así
   que un PR no puede aflojar su propio gate. Su lista debe coincidir con la §3.
+- Límite conocido: el check no distingue a una persona de un agente que usa
+  su token personal (ambos son cuenta `User`). Los agentes no deben poner la
+  etiqueta `human-reviewed`.

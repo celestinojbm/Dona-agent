@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from dataclasses import dataclass
 
 _ENV_FLAG = "DONA_WHATSAPP_SOLO_AVISOS_ENABLED"
@@ -74,11 +75,18 @@ _URLS = re.compile(
     r"|\b(?:mailto|tel|sms|callto|whatsapp|javascript|data|vbscript|intent|file):\S*"
     # Dominio seguido de ruta, query o fragmento (con puerto opcional):
     # usadona.com/firmar?t=…, usadona.com?t=…, usadona.com#t=…, usadona.com:8080/x
-    r"|\b[\w-]+(?:\.[\w-]+)+(?::\d+)?[/?#]\S*",
+    r"|\b[\w-]+(?:\.[\w-]+)+(?::\d+)?[/?#]\S*"
+    # Dominio suelto con TLD conocido: WhatsApp lo convierte en enlace aunque no
+    # lleve ruta (usadona.com, bit.ly). Se lleva lo que venga pegado
+    # (usadona.com%2Ff%2FTOKEN, usadona.com\\f\\TOKEN). Lista cerrada para no
+    # tocar versiones, importes ni nombres de archivo (v2.5, 1.500,00, plan.pdf).
+    r"|\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|io|co|ai|app|dev|ly|mx|us|info|biz"
+    r"|xyz|link|site|online|store|shop|page|gl|gg|tv|cc)\b\S*",
     re.IGNORECASE,
 )
-# Query string suelta (`?t=SECRETO`, `&token=…`): token aunque no haya dominio.
-_QUERY_SUELTA = re.compile(r"[?&][\w.-]+=\S*")
+# Query string o fragmento sueltos (`?t=SECRETO`, `&token=…`, `#access_token=…`):
+# token aunque no haya dominio.
+_QUERY_SUELTA = re.compile(r"[?&#][\w.-]+=\S*")
 # Correos del cliente: PII que no debe salir por un canal secundario.
 _CORREOS = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
 # Teléfonos con forma de teléfono. Un número de 10-11 dígitos SIN separadores
@@ -87,6 +95,7 @@ _CORREOS = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
 _TELEFONOS = re.compile(
     r"\+\d[\d\s().-]{6,}\d"  # internacional: +1 305 555 0199, +5215512345678
     r"|(?<!\w)(?:\(\d{3}\)\s?|\d{3}[\s.-])\d{3}[\s.-]\d{4}(?!\w)"  # (305) 555-0199, 305.555.0199
+    r"|(?<!\w)(?:\(\d{2}\)\s?|\d{2}[\s.-])\d{4}[\s.-]\d{4}(?!\w)"  # MX: 55 1234 5678, (55) 1234-5678
 )
 _TELEFONO_CON_PISTA = re.compile(
     r"(?P<pista>\b(?:llam\w*|tel[eé]fono|tel|cel|celular|m[oó]vil|whatsapp|wa|phone|call|text|sms)"
@@ -149,6 +158,10 @@ def _limpiar_titulo(titulo: object) -> str:
     formato ni puntuación colgante al final (`.`, `,`, `;`, `:`)."""
     if not isinstance(titulo, str):
         return ""
+    # Primero, caracteres de formato invisibles (categoría Cf: U+200B, U+2060,
+    # U+FEFF, U+00AD, controles bidi): partían un dominio (`usadona\u200b.com/f/T`)
+    # y el enlace con su token salía tal cual.
+    titulo = "".join(c for c in titulo if unicodedata.category(c) != "Cf")
     # Orden: correos antes que enlaces (si no, `cliente.com/x` se llevaría el
     # dominio y dejaría el usuario); teléfonos antes que enlaces (si no,
     # `Tel:` caería como esquema y el número perdería su pista).
