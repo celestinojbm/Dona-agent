@@ -261,6 +261,24 @@ Checks obligatorios en `main` (branch protection): `Suite completa (pytest)`,
 - **Tests:** `tests/test_canales_f35.py`.
 - **Verificar:** `pytest tests/test_canales_f35.py`.
 
+### 28. Memoria de intenciones mencionadas una sola vez (F28 · subsección) — sin clasificar → 🔴 (propuesto 🟡)
+- **Archivos:** `agent/intenciones/` (`politica.py`: `evaluar_mensaje`,
+  `aceptar_propuesta`, `esta_vigente`, `es_sensible`, `redactar_sugerencia`).
+  Política pura: no persiste, no envía, no autoriza y **no está cableada** a
+  `main.py`, `brain.py` ni `memory.py`. Flag `DONA_MEMORIA_INTENCIONES_ENABLED`
+  (apagado por defecto).
+- **Invariantes:** una intención nunca es una autorización (sin campos de
+  permiso, nivel ni créditos; no importa `agent.autonomia` ni
+  `agent.automation`). Solo se propone como chip «¿Lo recuerdo?» con la frase de
+  origen; aceptada, vence a los 30 días. Salud, credenciales y datos de pago se
+  rechazan (fail-closed). Preguntas y «recuérdame…» (de `reminders_nl`) no
+  cuentan como intención.
+- **Zona:** propuesta 🟡 gris (toca memoria del usuario, aunque sin
+  persistencia); la fila de §4 de `docs/ops/zonificacion-autonomia.md` (archivo
+  ROJO) la aplica Celestino.
+- **Tests:** `tests/test_intenciones_f28.py`.
+- **Verificar:** `pytest tests/test_intenciones_f28.py`.
+
 ## Mantener este mapa
 
 - Al añadir un módulo o test nuevo, agrega o actualiza su fila aquí en la misma PR.
