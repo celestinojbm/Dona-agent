@@ -1,10 +1,10 @@
 // landing/lib/planes.ts — Catálogo de DISPLAY de los planes de suscripción.
 //
 // Única fuente de verdad para lo que se MUESTRA de cada plan (nombre, precio,
-// features) — la usan la sección de pricing de la landing (app/page.tsx) y la
-// página de checkout (app/checkout). Los price IDs y montos que Stripe cobra
-// viven aparte en lib/stripe.ts (server-side): este módulo es seguro de
-// importar desde el cliente.
+// features). La landing v2 no los usa: sus precios son un ejemplo marcado y
+// no abren checkout. Los price IDs y montos que Stripe cobra viven aparte en
+// lib/stripe.ts (server-side): este módulo es seguro de importar desde el
+// cliente.
 //
 // Las claves de `plan` son las que espera el backend/checkout: "premium"|"pro".
 
