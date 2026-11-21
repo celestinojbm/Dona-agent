@@ -66,15 +66,32 @@ _MARCADORES_FORMATO = re.compile(r"[*~`]|(?<!\w)_|_(?!\w)")
 _MARCADOR_INICIAL = re.compile(r"^(?:>+|[-•]\s)\s*")
 _ESPACIOS = re.compile(r"\s+")
 # El título viene del llamador y el copy sale por WhatsApp: no puede arrastrar
-# enlaces (magic links, tokens en query string) ni teléfonos (spec #328 §4.3).
+# enlaces (magic links, tokens en query string), correos ni teléfonos
+# (spec #328 §4.3).
 _URLS = re.compile(
     r"(?:\b[a-z][a-z0-9+.-]*://|\bwww\.)\S+"  # con esquema o www.
-    r"|\b[\w-]+(?:\.[\w-]+)+/\S*",  # dominio con ruta: usadona.com/firmar?t=…
+    # Esquemas sin `//` que WhatsApp convierte en enlace o que ejecutan algo.
+    r"|\b(?:mailto|tel|sms|callto|whatsapp|javascript|data|vbscript|intent|file):\S*"
+    # Dominio seguido de ruta, query o fragmento (con puerto opcional):
+    # usadona.com/firmar?t=…, usadona.com?t=…, usadona.com#t=…, usadona.com:8080/x
+    r"|\b[\w-]+(?:\.[\w-]+)+(?::\d+)?[/?#]\S*",
     re.IGNORECASE,
 )
+# Query string suelta (`?t=SECRETO`, `&token=…`): token aunque no haya dominio.
+_QUERY_SUELTA = re.compile(r"[?&][\w.-]+=\S*")
+# Correos del cliente: PII que no debe salir por un canal secundario.
+_CORREOS = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
+# Teléfonos con forma de teléfono. Un número de 10-11 dígitos SIN separadores
+# solo se trata como teléfono si va precedido de una pista («llama al», «tel.»,
+# «WhatsApp»…): así un número de pedido (`Pedido 4821903377`) se conserva.
 _TELEFONOS = re.compile(
     r"\+\d[\d\s().-]{6,}\d"  # internacional: +1 305 555 0199, +5215512345678
-    r"|(?<!\w)\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\w)"  # EE. UU.: (305) 555-0199
+    r"|(?<!\w)(?:\(\d{3}\)\s?|\d{3}[\s.-])\d{3}[\s.-]\d{4}(?!\w)"  # (305) 555-0199, 305.555.0199
+)
+_TELEFONO_CON_PISTA = re.compile(
+    r"(?P<pista>\b(?:llam\w*|tel[eé]fono|tel|cel|celular|m[oó]vil|whatsapp|wa|phone|call|text|sms)"
+    r"\b\.?\s*(?:(?:al|a|:)\s*)?)\d{10,11}(?!\w)",
+    re.IGNORECASE,
 )
 
 
@@ -128,12 +145,18 @@ def decidir_canal(proposito: str, *, flag: bool | None = None) -> DecisionCanal:
 
 
 def _limpiar_titulo(titulo: object) -> str:
-    """Una sola línea, sin enlaces, teléfonos, marcadores de formato ni
-    puntuación colgante al final (`.`, `,`, `;`, `:`)."""
+    """Una sola línea, sin enlaces, tokens, correos, teléfonos, marcadores de
+    formato ni puntuación colgante al final (`.`, `,`, `;`, `:`)."""
     if not isinstance(titulo, str):
         return ""
-    texto = _URLS.sub(" ", titulo)
+    # Orden: correos antes que enlaces (si no, `cliente.com/x` se llevaría el
+    # dominio y dejaría el usuario); teléfonos antes que enlaces (si no,
+    # `Tel:` caería como esquema y el número perdería su pista).
+    texto = _CORREOS.sub(" ", titulo)
     texto = _TELEFONOS.sub(" ", texto)
+    texto = _TELEFONO_CON_PISTA.sub(lambda m: m.group("pista"), texto)
+    texto = _URLS.sub(" ", texto)
+    texto = _QUERY_SUELTA.sub(" ", texto)
     texto = _MARCADORES_FORMATO.sub("", texto)
     texto = _ESPACIOS.sub(" ", texto).strip()
     texto = _MARCADOR_INICIAL.sub("", texto)
@@ -176,7 +199,7 @@ def redactar_aviso(titulo: str, *, detalle_en_app: bool = True) -> str:
 def redactar_aprobacion(titulo: str) -> str:
     """Pedido breve de aprobación: deja claro que se autoriza en la app.
 
-    Sin enlaces, tokens ni teléfonos. No consulta el flag: quien envíe debe
+    Sin enlaces, tokens, correos ni teléfonos. No consulta el flag: quien envíe debe
     haber pasado antes por `decidir_canal`. Máximo `LARGO_MAXIMO_COPY`.
     """
     sufijo = f" {_SUFIJO_APROBACION}"
