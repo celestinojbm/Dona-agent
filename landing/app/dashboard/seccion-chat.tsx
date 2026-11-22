@@ -548,9 +548,9 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
           {turnos.length === 0 && !enviando && (
             <div className="flex h-full flex-col items-center justify-center gap-5 py-10 text-center">
               <p className="max-w-sm text-[color:var(--muted)]">
-                Escríbele a Dona como lo harías por WhatsApp. Puede generar
-                imágenes, llevar tus números, redactar y enviar correos, y más —
-                con los mismos permisos y costos.
+                Pídele a Dona lo que necesitas: crear una imagen, registrar tus
+                ventas y gastos o preparar un correo. Antes de enviar algo o
+                gastar créditos, te muestra una vista previa.
               </p>
               <div className="flex flex-wrap justify-center gap-2">
                 {SUGERENCIAS.map((s) => (

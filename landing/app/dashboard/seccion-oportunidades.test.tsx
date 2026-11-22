@@ -130,8 +130,10 @@ describe("SeccionOportunidades · diagnóstico incompleto", () => {
     expect(
       screen.getByText(/2 de 6 campos completados/i),
     ).toBeInTheDocument();
+    // El texto del backend nombra WhatsApp: la web lo sustituye por el chat.
+    expect(screen.queryByText(/WhatsApp/i)).not.toBeInTheDocument();
     expect(
-      screen.getByText(/continuar diagnóstico/i),
+      screen.getByText(/Cuéntale a Dona en el chat/i),
     ).toBeInTheDocument();
     // El empty state genérico NO se muestra a la vez que el diagnóstico
     expect(

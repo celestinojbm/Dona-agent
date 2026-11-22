@@ -44,8 +44,9 @@ describe("SeccionChat", () => {
   it("muestra el empty state antes del primer mensaje", () => {
     render(<SeccionChat />);
     expect(
-      screen.getByText(/Escríbele a Dona como lo harías por WhatsApp/i),
+      screen.getByText(/Pídele a Dona lo que necesitas/i),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/WhatsApp/i)).not.toBeInTheDocument();
   });
 
   it("pinta el turno del usuario y la respuesta de Dona", async () => {
