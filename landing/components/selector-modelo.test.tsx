@@ -19,7 +19,7 @@ const MODELOS = [
 describe("SelectorModelo", () => {
   it("expone un radiogroup con Auto + modelos", () => {
     render(<SelectorModelo modelos={MODELOS} seleccionado="auto" onSeleccionar={() => {}} />);
-    expect(screen.getByRole("radiogroup", { name: "Modelo" })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Modelo de este chat" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /Automático/ })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /Claude Sonnet/ })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /GPT-4o/ })).toBeInTheDocument();
@@ -48,5 +48,14 @@ describe("SelectorModelo", () => {
     render(<SelectorModelo modelos={MODELOS} seleccionado="auto" onSeleccionar={onSel} />);
     fireEvent.click(screen.getByRole("radio", { name: /Claude Sonnet/ }));
     expect(onSel).toHaveBeenCalledWith("claude-sonnet-4-5");
+  });
+
+  it("el título es un encabezado dentro del panel, no un <legend> sobre el borde", () => {
+    const { container } = render(
+      <SelectorModelo modelos={MODELOS} seleccionado="auto" onSeleccionar={() => {}} />,
+    );
+    expect(container.querySelector("legend")).toBeNull();
+    expect(container.querySelector("fieldset")).toBeNull();
+    expect(screen.getByText("Modelo de este chat")).toBeInTheDocument();
   });
 });

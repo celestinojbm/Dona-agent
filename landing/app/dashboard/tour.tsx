@@ -202,13 +202,13 @@ export default function TourDashboard({
       />
 
       {/* Modal card */}
-      <div className="modal-panel relative z-10 max-w-md w-full p-8 text-[color:var(--ink)]">
+      <div className="modal-panel relative z-10 max-w-md w-full p-6 sm:p-8 text-[color:var(--ink)]">
         {/* Cerrar X arriba derecha */}
         <button
           type="button"
           aria-label="Saltar tour"
           onClick={cerrar}
-          className="absolute top-4 right-4 text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors cursor-pointer"
+          className="absolute top-2 right-2 grid h-11 w-11 place-items-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
@@ -230,7 +230,7 @@ export default function TourDashboard({
         >
           {current.titulo}
         </h2>
-        <p className="text-sm text-[color:var(--ink-2)] leading-relaxed mb-8">
+        <p className="text-sm text-[color:var(--ink-2)] leading-relaxed mb-6">
           {current.descripcion}
         </p>
 
@@ -250,45 +250,49 @@ export default function TourDashboard({
           ))}
         </div>
 
-        {/* Botones de navegación */}
-        <div className="flex items-center justify-between gap-3">
+        {/* Botones de navegación. En móvil se apilan a lo ancho (44 px de
+            alto mínimo): con tres botones en fila, "Empezar…" se partía en
+            dos líneas y "Listo" quedaba pegado al borde de la tarjeta. */}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"
             onClick={() => setStep((s) => Math.max(s - 1, 0))}
             disabled={esPrimero}
-            className="btn-ghost px-4 py-2.5 rounded-full text-sm flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed"
+            className={`btn-ghost min-h-11 px-4 rounded-full text-sm flex items-center justify-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed ${
+              esPrimero ? "hidden sm:flex" : ""
+            }`}
           >
             <ArrowLeft className="w-4 h-4" />
             Anterior
           </button>
 
           {esUltimo ? (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={cerrar}
+                className="btn-ghost min-h-11 px-4 rounded-full text-sm flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Listo
+              </button>
               <button
                 type="button"
                 onClick={() => {
                   onIrASeccion?.("chat");
                   cerrar();
                 }}
-                className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2"
+                className="btn-primary min-h-11 px-5 rounded-full text-sm flex items-center justify-center gap-2 whitespace-nowrap"
               >
                 <MessageSquare className="w-4 h-4" />
                 Ir al chat
-              </button>
-              <button
-                type="button"
-                onClick={cerrar}
-                className="btn-ghost px-4 py-2.5 rounded-full text-sm flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                Listo
               </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => setStep((s) => Math.min(s + 1, STEPS.length - 1))}
-              className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-1.5"
+              className="btn-primary min-h-11 px-5 rounded-full text-sm flex items-center justify-center gap-1.5"
             >
               Siguiente
               <ArrowRight className="w-4 h-4" />
@@ -296,12 +300,12 @@ export default function TourDashboard({
           )}
         </div>
 
-        {/* Saltar (texto pequeño) */}
+        {/* Saltar (texto pequeño, zona táctil completa) */}
         {!esUltimo && (
           <button
             type="button"
             onClick={cerrar}
-            className="block mx-auto mt-4 text-xs text-[color:var(--muted)] hover:text-[color:var(--ink-2)] transition-colors"
+            className="mx-auto mt-2 flex min-h-11 items-center px-4 text-sm text-[color:var(--ink-2)] underline-offset-4 hover:underline"
           >
             Saltar tour
           </button>
