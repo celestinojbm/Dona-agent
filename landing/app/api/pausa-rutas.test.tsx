@@ -10,6 +10,9 @@
 //     pausa (lib/auth-pausa.test.ts).
 //   - api/webhook: Stripe firmado → acuse sin bridge (webhook/route.test.tsx).
 //   - api/engineering/login DELETE: solo borra la cookie del panel.
+//   - api/lista-espera[/invitacion]: abiertas a propósito durante la pausa
+//     (issue #334): no venden, no cobran ni dan acceso; solo guardan un
+//     correo en el backend (api/lista-espera/route.test.tsx).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readdirSync, statSync } from "node:fs";
@@ -52,7 +55,12 @@ function clave(p: string): string {
   return relative(API_DIR, p).split(sep).join("/");
 }
 
-const EXCLUIDAS = new Set(["auth/[...nextauth]/route.ts", "webhook/route.ts"]);
+const EXCLUIDAS = new Set([
+  "auth/[...nextauth]/route.ts",
+  "webhook/route.ts",
+  "lista-espera/route.ts",
+  "lista-espera/invitacion/route.ts",
+]);
 const EXCLUIDOS_METODO = new Set(["engineering/login/route.ts DELETE"]);
 
 function estadoEsperado(ruta: string): number {
@@ -83,7 +91,8 @@ describe("inventario de rutas API", () => {
     expect(todas).toContain("checkout/route.ts");
     expect(todas).toContain("billing-portal/route.ts");
     expect(todas).toContain("whatsapp-webhook/route.ts");
-    expect(todas.length).toBe(20);
+    expect(todas).toContain("lista-espera/route.ts");
+    expect(todas.length).toBe(22);
   });
 });
 

@@ -3918,6 +3918,58 @@ async def internal_assets(request: Request):
     }
 
 
+# ── /internal/lista-espera · Lista de espera e invitaciones (issue #334) ────
+#
+# La web en pausa deja de ser un callejón sin salida: el visitante deja su
+# correo o canjea un código de invitación. Mismo HMAC bridge que el resto de
+# /internal/*: solo la landing (con INTERNAL_BRIDGE_SECRET) puede llamar.
+# No envía correos (agent/lista_espera/servicio.py, bandera apagada) ni da
+# acceso: reserva el lugar. Lógica y validación en agent/lista_espera.
+
+
+@app.post("/internal/lista-espera")
+async def internal_lista_espera(request: Request):
+    """Alta idempotente en la lista de espera.
+
+    Body: {"email": "..."}
+    Códigos: 401 firma · 400 email_invalido · 200 {"estado", "nuevo"}.
+    """
+    payload = await _verificar_y_parsear_internal(request)
+    from agent.lista_espera import servicio as lista_espera
+
+    try:
+        return await lista_espera.registrar(str(payload.get("email") or ""), "web")
+    except lista_espera.EmailInvalido:
+        raise HTTPException(status_code=400, detail="email_invalido")
+
+
+@app.post("/internal/lista-espera/invitacion")
+async def internal_lista_espera_invitacion(request: Request):
+    """Canje de un código de invitación (DONA_CODIGOS_INVITACION).
+
+    Body: {"email": "...", "codigo": "..."}
+    Códigos: 401 firma · 400 email_invalido · 403 codigo_invalido ·
+    429 demasiados_intentos · 200 {"estado": "invitado"}.
+    """
+    payload = await _verificar_y_parsear_internal(request)
+    from agent.lista_espera import servicio as lista_espera
+
+    try:
+        return await lista_espera.canjear_invitacion(
+            str(payload.get("email") or ""), str(payload.get("codigo") or "")
+        )
+    except lista_espera.EmailInvalido:
+        raise HTTPException(status_code=400, detail="email_invalido")
+    except lista_espera.CodigoInvalido:
+        raise HTTPException(status_code=403, detail="codigo_invalido")
+    except lista_espera.DemasiadosIntentos as e:
+        return JSONResponse(
+            {"detail": "demasiados_intentos"},
+            status_code=429,
+            headers={"Retry-After": str(e.retry_after_segundos)},
+        )
+
+
 # ── /internal/reportes · Reportes/Medición web (HMAC bridge, Fase 1) ────────
 #
 # El usuario ve en la web sus números de negocio (ventas, gastos, utilidad,
