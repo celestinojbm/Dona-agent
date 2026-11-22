@@ -301,7 +301,7 @@ describe("SeccionActionCenter · acciones presentes", () => {
     ).not.toBeInTheDocument();
     // Botón dedicado del próximo paso
     expect(
-      screen.getByRole("button", { name: /Confirmar envío HIGH/i }),
+      screen.getByRole("button", { name: /Confirmar envío de riesgo alto/i }),
     ).toBeInTheDocument();
     // El aviso explicativo sigue presente
     expect(
@@ -362,9 +362,9 @@ describe("SeccionActionCenter · acciones presentes", () => {
     await waitFor(() =>
       expect(screen.getByText(/Enviar mensaje WhatsApp real/)).toBeInTheDocument(),
     );
-    screen.getByRole("button", { name: /Confirmar envío HIGH/i }).click();
+    screen.getByRole("button", { name: /Confirmar envío de riesgo alto/i }).click();
     await waitFor(() =>
-      expect(screen.getByText(/Preview de envío HIGH/i)).toBeInTheDocument(),
+      expect(screen.getByText(/Vista previa del envío · riesgo alto/i)).toBeInTheDocument(),
     );
     expect(screen.getByText(/\+5\*\*\*\*4567/)).toBeInTheDocument();
     expect(screen.getByText(/Hola Ana, confirmo tu pedido/i)).toBeInTheDocument();
@@ -444,7 +444,7 @@ describe("SeccionActionCenter · acciones presentes", () => {
       ).not.toBeInTheDocument();
       // Botón dedicado del próximo paso sigue presente
       expect(
-        screen.getByRole("button", { name: /Confirmar envío HIGH/i }),
+        screen.getByRole("button", { name: /Confirmar envío de riesgo alto/i }),
       ).toBeInTheDocument();
     },
   );

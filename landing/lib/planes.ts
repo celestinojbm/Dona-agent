@@ -25,7 +25,7 @@ export const PLANES_DISPLAY: PlanDisplay[] = [
     periodo: "/mes",
     features: [
       "Studio, Flow y Memory",
-      "Acciones con preview y aprobación",
+      "Acciones con vista previa y aprobación",
       "Créditos incluidos cada mes",
       "Entrada por WhatsApp, web, app y voz",
       "Audit trail y límites de gasto",

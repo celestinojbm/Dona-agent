@@ -93,14 +93,14 @@ describe("DashboardShell · sidebar y navegación", () => {
   it("muestra las secciones principales en la sidebar tras cargar", async () => {
     render(<DashboardClient session={SESSION} />);
     const nav = await screen.findAllByRole("navigation", {
-      name: /secciones del dashboard/i,
+      name: /secciones de dona/i,
     });
     expect(nav.length).toBeGreaterThan(0);
     for (const label of [
       "Inicio",
       "Chat",
       "Analítica",
-      "Outputs",
+      "Galería",
       "Reportes",
       "Créditos y plan",
       "Integraciones",
