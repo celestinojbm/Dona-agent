@@ -284,3 +284,16 @@ describe("SeccionChat · media (Fase 3)", () => {
     }
   });
 });
+
+describe("SeccionChat · modo de modelo", () => {
+  it("va en Automático y no ofrece modelos que el backend no aplica", () => {
+    render(<SeccionChat />);
+    expect(screen.getByText("Automático")).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Modelo:/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/no se aplica en el backend/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/GPT-4o|Sonnet|Haiku/)).not.toBeInTheDocument();
+  });
+});
