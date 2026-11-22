@@ -180,6 +180,12 @@ describe("DashboardShell · gates", () => {
     render(<DashboardClient session={SESSION} />);
     expect((await screen.findAllByText(/Gmail/)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/WhatsApp/i)).not.toBeInTheDocument();
+    // "Conectar" no finge: está deshabilitado y explica por qué.
+    for (const boton of screen.getAllByRole("button", { name: "Conectar" })) {
+      expect(boton).toBeDisabled();
+      expect(boton).toHaveAttribute("aria-describedby", "conexiones-web-nota");
+    }
+    expect(screen.getByText(/desde la web todavía no está disponible/i)).toBeInTheDocument();
     window.history.replaceState(null, "", "/dashboard");
   });
 

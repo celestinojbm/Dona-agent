@@ -343,13 +343,13 @@ export default function DashboardClient({ session }: DashboardProps) {
       name: "Gmail",
       icon: Mail,
       connected: false,
-      desc: "Conecta tu correo para que Dona lea y responda correos",
+      desc: "Leer y preparar respuestas; enviar solo con tu aprobación",
     },
     {
       name: "Google Calendar",
       icon: Calendar,
       connected: false,
-      desc: "Sincroniza tu calendario para agendar y gestionar eventos",
+      desc: "Consultar tu agenda y crear eventos cuando se lo pidas",
     },
     // WhatsApp: integración opcional futura, apagada (lib/whatsapp-opcional).
     ...(WHATSAPP_HABILITADO
@@ -412,7 +412,7 @@ export default function DashboardClient({ session }: DashboardProps) {
               type="button"
               onClick={() => irA(item.id)}
               aria-current={activa ? "page" : undefined}
-              className={`flex w-full cursor-pointer items-center gap-2.5 rounded-full px-3.5 py-2 text-sm transition-colors ${
+              className={`flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-full px-3.5 py-2 text-sm transition-colors md:min-h-0 ${
                 activa
                   ? "pill-active font-medium"
                   : "text-[color:var(--ink-2)] hover:bg-[color:var(--bg-soft)] hover:text-[color:var(--ink)]"
@@ -455,7 +455,7 @@ export default function DashboardClient({ session }: DashboardProps) {
           </p>
           <button
             onClick={() => signOut({ redirectTo: "/" })}
-            className="mt-2 flex cursor-pointer items-center gap-1.5 text-sm text-[color:var(--muted)] transition-colors hover:text-[color:var(--ink)]"
+            className="mt-2 flex min-h-11 cursor-pointer items-center gap-1.5 text-sm text-[color:var(--muted)] transition-colors hover:text-[color:var(--ink)] md:min-h-0"
           >
             <LogOut className="h-4 w-4" />
             Salir
@@ -473,7 +473,10 @@ export default function DashboardClient({ session }: DashboardProps) {
     switch (seccion) {
       case "chat":
         return (
-          <div className="flex h-[calc(100dvh-11.5rem)] min-h-[420px] flex-col md:h-[calc(100dvh-6.5rem)]">
+          // Móvil: anula el padding de <main> y ocupa exactamente el alto
+          // visible bajo la cabecera (3.5rem). Así solo hace scroll la lista
+          // de mensajes, no la página (antes había scroll dentro de scroll).
+          <div className="-mx-5 -my-8 flex h-[calc(100dvh-3.5rem)] flex-col md:mx-0 md:my-0 md:h-[calc(100dvh-6.5rem)] md:min-h-[420px]">
             <SeccionChat fullHeight />
           </div>
         );
@@ -552,7 +555,7 @@ export default function DashboardClient({ session }: DashboardProps) {
           aria-label="Menú"
           aria-expanded={menuMovil}
           onClick={() => setMenuMovil((v) => !v)}
-          className="cursor-pointer text-[color:var(--ink-2)]"
+          className="-mr-2.5 grid h-11 w-11 cursor-pointer place-items-center text-[color:var(--ink-2)]"
         >
           {menuMovil ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
@@ -817,52 +820,60 @@ function SeccionIntegraciones({
         Conexiones
       </h2>
 
-      <div className="space-y-4">
-        {connections.map((conn) => {
-          const Icon = conn.icon;
-          return (
-            <div
-              key={conn.name}
-              className="surface-card px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4"
-            >
-              <div className="flex items-center gap-4">
-                <div className="icon-badge w-10 h-10">
-                  <Icon className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-[color:var(--ink)]">
-                      {conn.name}
-                    </span>
-                    {conn.connected ? (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600/10 text-emerald-700 font-medium">
-                        Conectado
-                      </span>
-                    ) : (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[color:var(--bg-soft)] border border-[color:var(--line)] text-[color:var(--muted)] font-medium">
-                        Desconectado
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-[color:var(--muted)] mt-0.5">
+      {/* Lista compacta (una superficie, filas) en vez de una tarjeta
+          enorme por servicio. Todos los botones comparten estilo. La
+          conexión de Gmail/Calendar todavía no existe en la web: el botón
+          lo dice en vez de fingir que hace algo. */}
+      <div className="surface-static overflow-hidden">
+        <ul className="divide-y divide-[color:var(--line)]">
+          {connections.map((conn) => {
+            const Icon = conn.icon;
+            return (
+              <li key={conn.name} className="flex items-center gap-3 px-4 py-3.5 sm:px-6">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[color:var(--fill)] text-[color:var(--ink-2)]">
+                  <Icon className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[color:var(--ink)]">
+                    {conn.name}
+                  </p>
+                  <p className="text-xs leading-snug text-[color:var(--muted)]">
                     {conn.desc}
                   </p>
+                  <p
+                    className={`mt-1 text-[11px] font-medium ${
+                      conn.connected ? "text-emerald-700" : "text-[color:var(--muted)]"
+                    }`}
+                  >
+                    {conn.connected ? "Conectado" : "Sin conectar"}
+                  </p>
                 </div>
-              </div>
-
-              <button
-                className={`text-sm px-5 py-2 rounded-full ${
-                  conn.connected
-                    ? "btn-ghost"
-                    : "btn-primary"
-                }`}
-              >
-                {conn.connected ? "Desconectar" : "Conectar"}
-              </button>
-            </div>
-          );
-        })}
+                {conn.connected ? (
+                  <button
+                    type="button"
+                    className="min-h-11 shrink-0 rounded-full px-3 text-sm text-[color:var(--dato-neg)]"
+                  >
+                    Desconectar
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    aria-describedby="conexiones-web-nota"
+                    className="btn-ghost min-h-11 shrink-0 rounded-full px-4 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Conectar
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       </div>
+      <p id="conexiones-web-nota" className="mt-3 px-1 text-xs text-[color:var(--muted)]">
+        Conectar Gmail y Google Calendar desde la web todavía no está disponible.
+        Dona no envía ningún correo sin tu aprobación.
+      </p>
     </section>
   );
 }
