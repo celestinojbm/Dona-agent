@@ -1,11 +1,16 @@
-// landing/app/page.tsx — Inicio durante la pausa.
+// landing/app/page.tsx — Inicio.
 //
-// Dona está retirada de circulación (ver lib/pausa.ts). La landing comercial
-// anterior queda en el historial de git; no se reactiva cambiando un flag:
-// el relanzamiento es un PR aparte con producto, precios y cobro aprobados.
+// En pausa (main) muestra la página de pausa. Con la pausa apagada —esta
+// rama, DONA_EN_PAUSA = false— no hay landing comercial: / manda a /login.
+// El relanzamiento comercial sigue siendo un PR aparte.
 
+import { redirect } from "next/navigation";
 import PaginaPausa from "@/components/pagina-pausa";
+import { DONA_EN_PAUSA } from "@/lib/pausa";
 
 export default function Home() {
-  return <PaginaPausa />;
+  if (DONA_EN_PAUSA) {
+    return <PaginaPausa />;
+  }
+  redirect("/login");
 }

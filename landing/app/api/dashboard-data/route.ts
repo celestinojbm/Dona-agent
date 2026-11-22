@@ -23,6 +23,7 @@ import {
   type UsuarioResumen,
 } from "@/lib/internal-bridge";
 import { getStripe } from "@/lib/stripe";
+import { datosMinimosPreview } from "@/lib/preview-login";
 import type Stripe from "stripe";
 
 /** Datos que aporta Stripe SDK que no están cacheados en backend. */
@@ -97,6 +98,15 @@ export async function GET() {
   const sessionEmail = session.user?.email ?? null;
 
   if (!subscriptionId) {
+    // Sesión del dueño en la preview: el shell necesita un JSON válido y
+    // no hay customer de Stripe. Fuera de VERCEL_ENV=preview se conserva
+    // el 403 de siempre.
+    if (
+      process.env.VERCEL_ENV === "preview" &&
+      (session as { preview?: boolean }).preview === true
+    ) {
+      return NextResponse.json(datosMinimosPreview(sessionEmail));
+    }
     return NextResponse.json(
       { error: "no_subscription_in_session" },
       { status: 403 },
