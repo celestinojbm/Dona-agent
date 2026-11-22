@@ -1,7 +1,14 @@
-// Allowlist temporal del Control Room interno.
-// Nota: esto corre en cliente y NO es una frontera de seguridad real.
-// El MVP solo muestra datos estáticos/no secretos. Si el Control Room
-// empieza a exponer información sensible, mover el gate a server-side.
+// landing/lib/control-room.ts — Quién puede abrir el Control Room interno.
+//
+// Solo servidor: `server-only` hace fallar el build si un componente cliente
+// lo importa. Así la allowlist (correos del equipo) nunca viaja en el bundle
+// JS que descarga cualquier usuario, y el gate se evalúa en el servidor
+// antes de renderizar nada del panel (ver app/interno/control-room/page.tsx).
+//
+// Ocultar el enlace en el menú no es una frontera de seguridad; esto sí.
+
+import "server-only";
+
 const CONTROL_ROOM_EMAILS = new Set(["celestinojbm@gmail.com"]);
 
 export function puedeVerControlRoomInterno(email?: string | null): boolean {
