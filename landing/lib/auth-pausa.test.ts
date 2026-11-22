@@ -4,7 +4,8 @@
 // credenciales de formato válido: debe devolver null sin consultar Stripe,
 // el lockout del backend ni la red.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { crearHashPreview } from "./preview-login";
 
 // Rama staging/despausa-preview: la constante real es false (preview). Este
 // test verifica el comportamiento EN PAUSA, así que la fuerza a true.
@@ -40,6 +41,10 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchSpy);
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("auth.ts · authorize en pausa", () => {
   it("rechaza un login con credenciales de formato válido sin consultar nada", async () => {
     await import("@/auth");
@@ -58,5 +63,24 @@ describe("auth.ts · authorize en pausa", () => {
     expect(recordLoginAttempt).not.toHaveBeenCalled();
     expect(encontrarCustomerConSub).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("en pausa tampoco acepta el bypass de preview", async () => {
+    await import("@/auth");
+    const password = "clave-preview-durante-pausa";
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("PREVIEW_LOGIN_EMAIL", "usuario@example.com");
+    vi.stubEnv("PREVIEW_LOGIN_PASSWORD_HASH", crearHashPreview(password));
+
+    const res = await authorize!({
+      email: "usuario@example.com",
+      password,
+    });
+
+    expect(res).toBeNull();
+    expect(getStripe).not.toHaveBeenCalled();
+    expect(checkLoginLockout).not.toHaveBeenCalled();
+    expect(recordLoginAttempt).not.toHaveBeenCalled();
+    expect(encontrarCustomerConSub).not.toHaveBeenCalled();
   });
 });

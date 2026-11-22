@@ -12,6 +12,7 @@ import {
   recordLoginAttempt,
 } from "@/lib/auth-lockout-bridge";
 import { DONA_EN_PAUSA } from "@/lib/pausa";
+import { autenticarPreview } from "@/lib/preview-login";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -32,6 +33,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const password = credentials?.password as string | undefined;
 
         if (!email || !password) return null;
+
+        // Dueño en la preview de Vercel: correo + hash scrypt, sin Stripe.
+        // Si VERCEL_ENV no es "preview" o faltan las variables, esto
+        // devuelve null y el flujo de abajo queda igual que en producción.
+        const preview = await autenticarPreview(email, password);
+        if (preview) return preview;
 
         // Gate de formato: un password que no matchea el formato derivado
         // ("dona-" + 12 hex) no puede ser válido. Rechazar acá evita pegarle a
@@ -105,6 +112,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.subscriptionId = (user as { subscriptionId?: string })
           .subscriptionId;
         token.plan = (user as { plan?: string }).plan;
+        if ((user as { preview?: boolean }).preview === true) {
+          token.preview = true;
+        }
       }
       return token;
     },
@@ -113,10 +123,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         stripeCustomerId?: unknown;
         subscriptionId?: unknown;
         plan?: unknown;
+        preview?: unknown;
       };
       s.stripeCustomerId = token.stripeCustomerId;
       s.subscriptionId = token.subscriptionId;
       s.plan = token.plan;
+      if (token.preview === true) s.preview = true;
       return session;
     },
   },

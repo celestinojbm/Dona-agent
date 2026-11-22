@@ -9,6 +9,12 @@
 # reemplazada por un valor construido en ejecución en 231844f.
 92d0b22b87490af6e680600764f8858dc4ac24ea:landing/lib/auth-pausa.test.ts:generic-api-key:43
 
+# Login de preview: el commit ff6faf0 metió dos fixtures de test (password
+# "dona-" + 12 hex y un customer id ficticio junto a passwordOwnerCustomerId).
+# 20eff78 ya los arma en ejecución. Estas huellas cubren solo ese commit.
+ff6faf051d41f049a5423bc561e64ab4a21f70fc:landing/lib/auth-preview.test.ts:generic-api-key:43
+ff6faf051d41f049a5423bc561e64ab4a21f70fc:landing/lib/auth-preview.test.ts:generic-api-key:62
+
 # ── Históricos de main (escaneo semanal de Security). Revisados uno a uno:
 # todos son fixtures de test con valores inventados, nunca credenciales.
 # Test del sanitizador de audit: "dona-secret123" como valor de la clave
