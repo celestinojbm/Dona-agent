@@ -175,6 +175,14 @@ describe("DashboardShell · gates", () => {
     window.history.replaceState(null, "", "/dashboard");
   });
 
+  it("Integraciones no ofrece WhatsApp (integración opcional apagada)", async () => {
+    window.history.replaceState(null, "", "/dashboard?s=integraciones");
+    render(<DashboardClient session={SESSION} />);
+    expect((await screen.findAllByText(/Gmail/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/WhatsApp/i)).not.toBeInTheDocument();
+    window.history.replaceState(null, "", "/dashboard");
+  });
+
   it("apaga Acciones y Oportunidades con suscripción cancelada", async () => {
     mockFetch({
       ...RESUMEN_BASE,

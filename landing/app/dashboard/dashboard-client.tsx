@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { UsuarioResumen } from "@/lib/dashboard-types";
+import { WHATSAPP_HABILITADO } from "@/lib/whatsapp-opcional";
 import TourDashboard from "./tour";
 import SeccionActionCenter from "./seccion-action-center";
 import SeccionOportunidades from "./seccion-oportunidades";
@@ -350,12 +351,17 @@ export default function DashboardClient({ session }: DashboardProps) {
       connected: false,
       desc: "Sincroniza tu calendario para agendar y gestionar eventos",
     },
-    {
-      name: "WhatsApp",
-      icon: MessageSquare,
-      connected: true,
-      desc: "Tu número de WhatsApp vinculado con Dona",
-    },
+    // WhatsApp: integración opcional futura, apagada (lib/whatsapp-opcional).
+    ...(WHATSAPP_HABILITADO
+      ? [
+          {
+            name: "WhatsApp",
+            icon: MessageSquare,
+            connected: true,
+            desc: "Tu número de WhatsApp vinculado con Dona",
+          },
+        ]
+      : []),
   ];
 
   // La suscripción cancelada apaga acciones/oportunidades (igual que en la
@@ -709,7 +715,7 @@ function SeccionInicio({
           <MessageSquare className="h-5 w-5" />
         </span>
         <span className="flex-1 text-sm text-[color:var(--muted)]">
-          Escríbele a Dona como lo harías por WhatsApp…
+          Pídele algo a Dona…
         </span>
         <span className="btn-primary flex h-9 w-9 items-center justify-center rounded-full">
           <ArrowRight className="h-4 w-4" />

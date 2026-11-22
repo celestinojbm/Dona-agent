@@ -10,9 +10,9 @@
 //   - Sin DB writes para mantener PR chico y reversible. localStorage
 //     basta para una experiencia de primer login. Si el usuario cambia
 //     de dispositivo / limpia caché, vuelve a verlo (aceptable).
-//   - El CTA "Empezar diagnóstico" abre wa.me con mensaje pre-llenado
-//     pero el usuario debe enviarlo manualmente. NO hay envío
-//     automático server-side.
+//   - El último paso lleva al chat de Dona dentro de la web (sin canales
+//     externos). WhatsApp quedó como integración opcional apagada
+//     (lib/whatsapp-opcional.ts).
 //   - Solo se renderiza si la suscripción está activa (estado='active'
 //     o 'past_due'); usuarios cancelados no necesitan tour, ven el
 //     CTA "Reactivar plan" del dashboard.
@@ -58,7 +58,7 @@ const STEPS: readonly Step[] = [
     icon: MessageSquare,
     titulo: "Chat con Dona",
     descripcion:
-      "Habla con Dona desde la web igual que por WhatsApp: mismas herramientas, mismos permisos y costos. Genera piezas, lleva tus números o pídele que prepare acciones.",
+      "Pídele lo que necesitas: preparar un correo, crear una imagen o registrar tus ventas y gastos. Antes de enviar algo o gastar créditos, te muestra una vista previa para que lo apruebes.",
     seccion: "chat",
   },
   {
@@ -98,30 +98,12 @@ const STEPS: readonly Step[] = [
   },
   {
     icon: MessageSquare,
-    titulo: "Próximo paso · diagnóstico por WhatsApp",
+    titulo: "Cuéntale a Dona sobre tu negocio",
     descripcion:
-      "Para que Dona te ayude de verdad, cuéntale sobre tu negocio. Abre WhatsApp y escribe 'hola' para empezar el diagnóstico inicial. Solo te tomará unos minutos a lo largo de los próximos días.",
+      "Dona trabaja mejor si sabe a qué te dedicas. Escríbele en el chat qué vendes, a quién y qué te quita más tiempo. Puedes hacerlo ahora o cuando quieras.",
     seccion: "chat",
   },
 ];
-
-const DEFAULT_DIAGNOSTICO_TEXT =
-  "hola Dona, quiero empezar el diagnóstico de mi negocio.";
-
-function dashboardWhatsAppUrl(): string {
-  // NEXT_PUBLIC_DONA_WHATSAPP_NUMBER es opcional. Si está presente, abre
-  // un chat directo con Dona con un texto pre-llenado. Si no, usa
-  // wa.me sin número, que abre WhatsApp y deja al usuario elegir el
-  // contacto de Dona ya guardado. Sin envío automático.
-  const num =
-    process.env.NEXT_PUBLIC_DONA_WHATSAPP_NUMBER?.trim().replace(/^\+/, "") ||
-    "";
-  const text = encodeURIComponent(DEFAULT_DIAGNOSTICO_TEXT);
-  if (num && /^\d{10,15}$/.test(num)) {
-    return `https://wa.me/${num}?text=${text}`;
-  }
-  return `https://wa.me/?text=${text}`;
-}
 
 interface TourDashboardProps {
   /** Si false, el tour no se monta. Útil si la sub está canceled. */
@@ -282,16 +264,17 @@ export default function TourDashboard({
 
           {esUltimo ? (
             <div className="flex items-center gap-2">
-              <a
-                href={dashboardWhatsAppUrl()}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={cerrar}
+              <button
+                type="button"
+                onClick={() => {
+                  onIrASeccion?.("chat");
+                  cerrar();
+                }}
                 className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2"
               >
                 <MessageSquare className="w-4 h-4" />
-                Empezar diagnóstico
-              </a>
+                Ir al chat
+              </button>
               <button
                 type="button"
                 onClick={cerrar}
@@ -329,4 +312,4 @@ export default function TourDashboard({
 }
 
 // Export del helper para tests / reuso futuro.
-export { dashboardWhatsAppUrl, STEPS, TOUR_STORAGE_KEY };
+export { STEPS, TOUR_STORAGE_KEY };

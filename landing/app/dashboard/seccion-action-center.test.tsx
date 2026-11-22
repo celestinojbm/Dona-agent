@@ -123,7 +123,7 @@ describe("SeccionActionCenter · loading inicial", () => {
 
 
 describe("SeccionActionCenter · perfil insuficiente (hotfix)", () => {
-  it("tras generar y recibir perfil_estado=missing muestra banner con CTA WhatsApp", async () => {
+  it("tras generar y recibir perfil_estado=missing muestra banner sin canal externo", async () => {
     // Mock: 1) initial GET acciones devuelve [] · 2) POST generar
     // devuelve perfil_estado=missing · 3) refetch GET sigue []
     const fetchSpy = vi.fn()
@@ -170,8 +170,13 @@ describe("SeccionActionCenter · perfil insuficiente (hotfix)", () => {
     expect(
       screen.getByText(/Aún no encontramos tu perfil de negocio/i),
     ).toBeInTheDocument();
+    // WhatsApp apagado: ni enlace wa.me ni texto del backend que lo nombre.
     expect(
-      screen.getByRole("link", { name: /Abrir WhatsApp/i }),
+      screen.queryByRole("link", { name: /Abrir WhatsApp/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/por WhatsApp/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Cuéntale a Dona en el chat/i),
     ).toBeInTheDocument();
   });
 
