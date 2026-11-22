@@ -35,7 +35,7 @@ _AHORA = datetime(2026, 11, 21, 15, 0, tzinfo=UTC)
 
 
 def _propuesta(texto: str):
-    decision = evaluar_mensaje(texto, flag=True)
+    decision = evaluar_mensaje(texto, flag=True, agente_habilitado=True)
     assert decision.razon == pol.RAZON_PROPUESTA, decision
     return decision.propuesta
 
@@ -66,13 +66,44 @@ class TestFlag:
 
     def test_flag_por_entorno(self, monkeypatch):
         monkeypatch.setenv(_ENV, "true")
-        assert evaluar_mensaje("Tengo que renovar el dominio").razon == pol.RAZON_PROPUESTA
+        assert (
+            evaluar_mensaje("Tengo que renovar el dominio", agente_habilitado=True).razon
+            == pol.RAZON_PROPUESTA
+        )
 
     def test_flag_explicito_ignora_entorno(self, monkeypatch):
         monkeypatch.setenv(_ENV, "true")
         assert evaluar_mensaje("Tengo que renovar el dominio", flag=False).propuesta is None
         monkeypatch.delenv(_ENV, raising=False)
-        assert evaluar_mensaje("Tengo que renovar el dominio", flag=True).propuesta is not None
+        assert (
+            evaluar_mensaje(
+                "Tengo que renovar el dominio", flag=True, agente_habilitado=True
+            ).propuesta
+            is not None
+        )
+
+    def test_agente_apagado_por_defecto(self, monkeypatch):
+        # Revisión de #332: olvidar `agente_habilitado` al cablear no enciende nada.
+        monkeypatch.setenv(_ENV, "true")
+        for kwargs in ({}, {"flag": True}):
+            decision = evaluar_mensaje("Tengo que renovar el dominio en noviembre", **kwargs)
+            assert decision.propuesta is None
+            assert decision.razon == pol.RAZON_AGENTE_APAGADO
+
+    def test_default_de_agente_es_false_en_la_firma(self):
+        import inspect
+
+        parametro = inspect.signature(evaluar_mensaje).parameters["agente_habilitado"]
+        assert parametro.default is False
+        assert parametro.kind is inspect.Parameter.KEYWORD_ONLY
+
+    @pytest.mark.parametrize("valor", [1, "true", "false", "si", object(), None])
+    def test_agente_solo_se_enciende_con_true_literal(self, valor):
+        decision = evaluar_mensaje(
+            "Tengo que renovar el dominio", flag=True, agente_habilitado=valor
+        )
+        assert decision.propuesta is None
+        assert decision.razon == pol.RAZON_AGENTE_APAGADO
 
     def test_apagado_por_agente(self):
         decision = evaluar_mensaje(
@@ -156,13 +187,13 @@ class TestDeteccion:
         ],
     )
     def test_no_es_intencion(self, mensaje):
-        decision = evaluar_mensaje(mensaje, flag=True)
+        decision = evaluar_mensaje(mensaje, flag=True, agente_habilitado=True)
         assert decision.propuesta is None
         assert decision.razon == pol.RAZON_SIN_INTENCION
 
     @pytest.mark.parametrize("valor", [None, 123, ["tengo que renovar el dominio"]])
     def test_entrada_no_string(self, valor):
-        decision = evaluar_mensaje(valor, flag=True)
+        decision = evaluar_mensaje(valor, flag=True, agente_habilitado=True)
         assert decision.propuesta is None
         assert decision.razon == pol.RAZON_SIN_INTENCION
 
@@ -209,14 +240,16 @@ class TestSensibles:
         ],
     )
     def test_rechaza(self, mensaje):
-        decision = evaluar_mensaje(mensaje, flag=True)
+        decision = evaluar_mensaje(mensaje, flag=True, agente_habilitado=True)
         assert decision.propuesta is None
         assert decision.razon == pol.RAZON_DATO_SENSIBLE
 
     def test_sensible_corta_todo_el_mensaje(self):
         # Fail-closed: no busca otra frase si la primera intención es sensible.
         decision = evaluar_mensaje(
-            "Tengo que ir al médico. Tengo que renovar el dominio", flag=True
+            "Tengo que ir al médico. Tengo que renovar el dominio",
+            flag=True,
+            agente_habilitado=True,
         )
         assert decision.razon == pol.RAZON_DATO_SENSIBLE
 
@@ -233,16 +266,79 @@ class TestSensibles:
         ],
     )
     def test_no_sobrebloquea(self, mensaje):
-        assert evaluar_mensaje(mensaje, flag=True).razon == pol.RAZON_PROPUESTA
+        assert (
+            evaluar_mensaje(mensaje, flag=True, agente_habilitado=True).razon == pol.RAZON_PROPUESTA
+        )
 
-    def test_es_sensible_no_string(self):
-        assert es_sensible(None) is False
-        assert es_sensible(42) is False
+    @pytest.mark.parametrize("valor", [None, 42, b"contrasena", ["texto"]])
+    def test_es_sensible_no_string_falla_cerrado(self, valor):
+        # Algo que no es texto no se pudo revisar: cuenta como sensible.
+        assert es_sensible(valor) is True
 
     def test_es_sensible_sin_acentos(self):
         assert es_sensible("CONTRASEÑA") is True
         assert es_sensible("medico") is True
         assert es_sensible("diagnóstico") is True
+
+
+class _PatronRoto:
+    """Simula un fallo del filtro (regex corrupto, bug futuro, etc.)."""
+
+    def search(self, _texto):
+        raise RuntimeError("filtro roto")
+
+
+class TestFallaCerrado:
+    """Revisión de #332: ante error del filtro, no se propone ni se guarda."""
+
+    def test_es_sensible_ante_excepcion_devuelve_true(self, monkeypatch):
+        monkeypatch.setattr(pol, "_SENSIBLES", (_PatronRoto(),))
+        assert es_sensible("Tengo que renovar el dominio") is True
+
+    def test_es_sensible_ante_error_de_normalizacion(self, monkeypatch):
+        def _roto(_texto):
+            raise UnicodeError("normalización rota")
+
+        monkeypatch.setattr(pol, "_normalizar", _roto)
+        assert es_sensible("Tengo que renovar el dominio") is True
+
+    def test_error_no_registra_el_texto(self, monkeypatch, caplog):
+        monkeypatch.setattr(pol, "_SENSIBLES", (_PatronRoto(),))
+        with caplog.at_level("WARNING", logger=pol.__name__):
+            es_sensible("Tengo que cambiar la contraseña Hunter2")
+        assert "RuntimeError" in caplog.text
+        assert "Hunter2" not in caplog.text
+
+    def test_evaluar_con_filtro_roto_no_propone(self, monkeypatch):
+        monkeypatch.setattr(pol, "_SENSIBLES", (_PatronRoto(),))
+        decision = evaluar_mensaje(
+            "Tengo que renovar el dominio en noviembre", flag=True, agente_habilitado=True
+        )
+        assert decision.propuesta is None
+        assert decision.razon == pol.RAZON_DATO_SENSIBLE
+
+    def test_evaluar_ante_error_inesperado_no_propone(self, monkeypatch):
+        def _roto(_texto):
+            raise RuntimeError("detección rota")
+
+        monkeypatch.setattr(pol, "_frases", _roto)
+        decision = evaluar_mensaje(
+            "Tengo que renovar el dominio en noviembre", flag=True, agente_habilitado=True
+        )
+        assert decision.propuesta is None
+        assert decision.razon == pol.RAZON_ERROR
+
+    def test_aceptar_con_filtro_roto_no_guarda(self, monkeypatch):
+        propuesta = _propuesta("Tengo que renovar el dominio")
+        monkeypatch.setattr(pol, "_SENSIBLES", (_PatronRoto(),))
+        with pytest.raises(ValueError, match="sensibles"):
+            aceptar_propuesta(propuesta, ahora=_AHORA)
+
+    def test_aceptar_con_campo_no_string_no_guarda(self):
+        # Una propuesta construida a mano con basura no debe pasar el filtro.
+        propuesta = PropuestaIntencion(texto=None, frase_origen="Tengo que renovar el dominio")
+        with pytest.raises(ValueError, match="sensibles"):
+            aceptar_propuesta(propuesta, ahora=_AHORA)
 
 
 # ───────────────────────── Aceptar y vencimiento ─────────────────────────

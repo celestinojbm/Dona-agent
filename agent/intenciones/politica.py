@@ -14,7 +14,12 @@ Qué NO hace (invariantes del roadmap, sección F28):
 - **No persiste.** No escribe en BD ni en memoria vectorial. Guardar y mostrar
   la intención en la pantalla Memoria de la app es un PR aparte.
 - **No guarda datos sensibles.** Salud, credenciales y datos de pago se
-  rechazan antes de proponer (fail-closed: ante la duda, se rechaza).
+  rechazan antes de proponer y otra vez al aceptar. El filtro es una lista
+  negra conservadora: lo que no reconoce, pasa. Lo que sí es fail-closed es el
+  manejo de errores: si el filtro falla o recibe algo que no es texto, se trata
+  como sensible y no se guarda nada.
+- **Apagado por agente por defecto.** `agente_habilitado` vale `False` salvo
+  que se pase `True` literal: olvidar el argumento al cablear no enciende nada.
 - **No envía.** WhatsApp solo avisaría o pediría aprobación (F35); este módulo
   no llama a ningún canal.
 
@@ -25,11 +30,14 @@ sin cachear, para que `monkeypatch.setenv` funcione en tests.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 _ENV_FLAG = "DONA_MEMORIA_INTENCIONES_ENABLED"
 # Igual que agent/efectos.py y agent/canales: `1`/`true`/`yes`/`on`, sin
@@ -48,6 +56,7 @@ RAZON_FLAG_APAGADO = "flag_apagado"
 RAZON_AGENTE_APAGADO = "agente_apagado"
 RAZON_SIN_INTENCION = "sin_intencion"
 RAZON_DATO_SENSIBLE = "dato_sensible"
+RAZON_ERROR = "error_evaluacion"
 RAZON_PROPUESTA = "propuesta"
 
 # Disparadores sobre texto normalizado (minúsculas, sin acentos). «necesito» no
@@ -70,7 +79,7 @@ _RECORDATORIO_EXPLICITO = re.compile(r"\b(?:recuerdame|recordame|recordarme|reco
 _FIN_DE_FRASE = re.compile(r"[.!?;]+(?=\s|$)|\n+")
 _ESPACIOS = re.compile(r"\s+")
 
-# ── Datos sensibles (texto normalizado). Ante la duda, se rechaza. ──
+# ── Datos sensibles (texto normalizado). Lista negra: lo que no está, pasa. ──
 _SALUD = re.compile(
     r"\b(?:medic[oa]s?|doctor[ae]?s?|dr[ae]?|hospital\w*|clinica\w*|salud|enfermedad\w*"
     r"|medicamento\w*|medicina\w*|pastilla\w*|receta medica|diagnostic\w*|tratamiento\w*"
@@ -146,11 +155,23 @@ def _una_linea(texto: str) -> str:
 
 
 def es_sensible(texto: str) -> bool:
-    """True si el texto trae salud, credenciales o datos de pago."""
+    """True si el texto trae salud, credenciales o datos de pago.
+
+    Fail-closed ante error: si `texto` no es `str` o el filtro lanza una
+    excepción, devuelve True. Así quien llama descarta la intención en vez de
+    guardarla sin haberla revisado.
+    """
     if not isinstance(texto, str):
-        return False
-    normalizado = _normalizar(texto)
-    return any(patron.search(normalizado) for patron in _SENSIBLES)
+        return True
+    try:
+        normalizado = _normalizar(texto)
+        return any(patron.search(normalizado) for patron in _SENSIBLES)
+    except Exception as exc:  # noqa: BLE001 — cualquier fallo cuenta como sensible
+        # Solo el tipo de error: el texto puede traer justo el dato sensible.
+        logger.warning(
+            "intenciones: filtro de sensibles falló (%s); se descarta", type(exc).__name__
+        )
+        return True
 
 
 def _frases(texto: str) -> list[tuple[str, bool]]:
@@ -179,26 +200,39 @@ def _extraer(frase: str) -> str | None:
 
 
 def evaluar_mensaje(
-    texto: str, *, flag: bool | None = None, agente_habilitado: bool = True
+    texto: str, *, flag: bool | None = None, agente_habilitado: bool = False
 ) -> DecisionIntencion:
     """Evalúa un mensaje del usuario y, si procede, propone recordar una intención.
 
     - `flag=None` lee `DONA_MEMORIA_INTENCIONES_ENABLED`; `True`/`False`
       explícito ignora el entorno. Apagado → nunca propone.
-    - `agente_habilitado=False` apaga la función para ese agente.
+    - `agente_habilitado` es `False` por defecto: la función queda apagada
+      para el agente salvo que se pase `True` literal (un valor «truthy» como
+      `"false"` o `1` no la enciende).
     - Devuelve la primera intención no sensible del mensaje; las preguntas
       («¿tengo que pagar?») y los recordatorios explícitos no cuentan.
     - Si una frase con intención trae un dato sensible, se rechaza el mensaje
-      completo (`dato_sensible`) en vez de buscar otra frase: fail-closed.
+      completo (`dato_sensible`) en vez de buscar otra frase.
+    - Cualquier error durante la evaluación devuelve `error_evaluacion` sin
+      propuesta: ante error, no se propone ni se guarda nada.
     """
     activo = flag_intenciones_activo() if flag is None else bool(flag)
     if not activo:
         return DecisionIntencion(None, RAZON_FLAG_APAGADO)
-    if not agente_habilitado:
+    if agente_habilitado is not True:
         return DecisionIntencion(None, RAZON_AGENTE_APAGADO)
     if not isinstance(texto, str) or not texto.strip():
         return DecisionIntencion(None, RAZON_SIN_INTENCION)
+    try:
+        return _evaluar_texto(texto)
+    except Exception as exc:  # noqa: BLE001 — fail-closed: ante error, nada
+        logger.warning(
+            "intenciones: error al evaluar mensaje (%s); sin propuesta", type(exc).__name__
+        )
+        return DecisionIntencion(None, RAZON_ERROR)
 
+
+def _evaluar_texto(texto: str) -> DecisionIntencion:
     for frase, es_pregunta in _frases(texto):
         if es_pregunta:
             continue
@@ -223,7 +257,8 @@ def _exigir_zona_horaria(ahora: datetime) -> None:
 def aceptar_propuesta(propuesta: PropuestaIntencion, *, ahora: datetime) -> Intencion:
     """El usuario aceptó el chip: crea la intención con vencimiento de 30 días.
 
-    Revalida que no sea sensible (la propuesta pudo construirse a mano).
+    Revalida que no sea sensible (la propuesta pudo construirse a mano). Si el
+    filtro falla, `es_sensible` devuelve True y la intención no se crea.
     """
     if not isinstance(propuesta, PropuestaIntencion):
         raise TypeError("se esperaba una PropuestaIntencion")

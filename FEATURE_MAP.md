@@ -271,8 +271,11 @@ Checks obligatorios en `main` (branch protection): `Suite completa (pytest)`,
   permiso, nivel ni créditos; no importa `agent.autonomia` ni
   `agent.automation`). Solo se propone como chip «¿Lo recuerdo?» con la frase de
   origen; aceptada, vence a los 30 días. Salud, credenciales y datos de pago se
-  rechazan (fail-closed). Preguntas y «recuérdame…» (de `reminders_nl`) no
-  cuentan como intención.
+  rechazan con una lista negra conservadora (lo que no reconoce, pasa). Ante un
+  error del filtro o una entrada que no es texto, falla cerrado: no propone ni
+  guarda. `agente_habilitado` es `False` por defecto y solo `True` literal lo
+  enciende. Preguntas y «recuérdame…» (de `reminders_nl`) no cuentan como
+  intención.
 - **Zona:** propuesta 🟡 gris (toca memoria del usuario, aunque sin
   persistencia); la fila de §4 de `docs/ops/zonificacion-autonomia.md` (archivo
   ROJO) la aplica Celestino.
