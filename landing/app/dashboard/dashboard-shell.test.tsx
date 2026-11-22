@@ -7,7 +7,7 @@
 //   - navegación: sidebar con secciones, pill activa, cambio de sección
 //   - deep-link: ?s=chat monta la sección Chat
 //   - badge de acciones pendientes (estados no terminales)
-//   - gates: Control Room solo allowlist; acciones/oportunidades fuera
+//   - gates: el Control Room ya no vive en el shell; acciones/oportunidades fuera
 //     con sub cancelada
 // Los fetch se mockean por URL; el tour se marca "visto" en localStorage
 // para que su modal no interfiera con las queries.
@@ -156,20 +156,23 @@ describe("DashboardShell · sidebar y navegación", () => {
 });
 
 describe("DashboardShell · gates", () => {
-  it("oculta Control Room para emails fuera de la allowlist", async () => {
-    render(<DashboardClient session={SESSION} />);
-    await screen.findAllByRole("button", { name: /Inicio/i });
-    expect(
-      screen.queryByRole("button", { name: /Control Room/i }),
-    ).not.toBeInTheDocument();
+  it("no ofrece el Control Room a nadie, ni a la allowlist interna", async () => {
+    for (const sesion of [SESSION, SESSION_INTERNA]) {
+      render(<DashboardClient session={sesion} />);
+      await screen.findAllByRole("button", { name: /Inicio/i });
+      expect(
+        screen.queryByRole("button", { name: /Control Room/i }),
+      ).not.toBeInTheDocument();
+      cleanup();
+    }
   });
 
-  it("muestra Control Room (marcado interno) para la allowlist", async () => {
+  it("?s=control-room no monta el panel interno", async () => {
+    window.history.replaceState(null, "", "/dashboard?s=control-room");
     render(<DashboardClient session={SESSION_INTERNA} />);
-    expect(
-      (await screen.findAllByRole("button", { name: /Control Room/i })).length,
-    ).toBeGreaterThan(0);
-    expect(screen.getAllByText(/interno/i).length).toBeGreaterThan(0);
+    await screen.findAllByRole("button", { name: /Inicio/i });
+    expect(screen.queryByText(/Dona Control Room/i)).not.toBeInTheDocument();
+    window.history.replaceState(null, "", "/dashboard");
   });
 
   it("apaga Acciones y Oportunidades con suscripción cancelada", async () => {

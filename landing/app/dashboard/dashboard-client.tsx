@@ -12,7 +12,8 @@
 // Los gates de negocio se conservan tal cual eran en la página única:
 //   - inicio / créditos dependen de /api/dashboard-data (skeleton → error).
 //   - acciones / oportunidades solo con suscripción no cancelada.
-//   - Control Room solo para la allowlist interna (lib/control-room).
+//   - El Control Room interno NO vive aquí: es /interno/control-room, con
+//     gate de servidor (ni enlace, ni datos, ni allowlist en este bundle).
 // Las secciones con fetch propio (chat, outputs, reportes) no dependen del
 // load global: si dashboard-data falla, siguen disponibles.
 
@@ -41,17 +42,14 @@ import {
   Image as ImageIcon,
   BarChart3,
   LineChart,
-  Activity,
   Menu,
   X,
   ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
 import type { UsuarioResumen } from "@/lib/dashboard-types";
-import { puedeVerControlRoomInterno } from "@/lib/control-room";
 import TourDashboard from "./tour";
 import SeccionActionCenter from "./seccion-action-center";
-import SeccionControlRoom from "./seccion-control-room";
 import SeccionOportunidades from "./seccion-oportunidades";
 import SeccionReportes from "./seccion-reportes";
 import SeccionGaleria from "./seccion-galeria";
@@ -79,7 +77,6 @@ const SECCIONES_VALIDAS = [
   "outputs",
   "creditos",
   "integraciones",
-  "control-room",
 ] as const;
 
 export type SeccionId = (typeof SECCIONES_VALIDAS)[number];
@@ -178,9 +175,6 @@ const TOPUP_PAQUETES = [
 
 
 export default function DashboardClient({ session }: DashboardProps) {
-  const mostrarControlRoomInterno = puedeVerControlRoomInterno(
-    session.user?.email,
-  );
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [openingPortal, setOpeningPortal] = useState(false);
   const [comprandoTopup, setComprandoTopup] = useState<string | null>(null);
@@ -441,28 +435,6 @@ export default function DashboardClient({ session }: DashboardProps) {
   function renderFooterNav() {
     return (
       <div className="space-y-4">
-        {mostrarControlRoomInterno && (
-          <button
-            type="button"
-            onClick={() => irA("control-room")}
-            aria-current={seccion === "control-room" ? "page" : undefined}
-            className={`flex w-full cursor-pointer items-center gap-2.5 rounded-full px-3.5 py-2 text-sm transition-colors ${
-              seccion === "control-room"
-                ? "pill-active font-medium"
-                : "text-[color:var(--muted)] hover:bg-[color:var(--bg-soft)] hover:text-[color:var(--ink)]"
-            }`}
-          >
-            <Activity className="h-4 w-4 shrink-0" />
-            Control Room
-            <span
-              className={`ml-auto text-[10px] font-semibold uppercase tracking-[0.12em] ${
-                seccion === "control-room" ? "text-[color:var(--bg)]/70" : "text-[color:var(--muted)]"
-              }`}
-            >
-              interno
-            </span>
-          </button>
-        )}
         <div className="border-t border-[color:var(--line)] px-3.5 pt-4">
           {load.status === "ready" && (
             <p className="mb-2 text-xs text-[color:var(--muted)]">
@@ -545,12 +517,6 @@ export default function DashboardClient({ session }: DashboardProps) {
             />
             <SeccionHistorial data={load.data} />
           </div>
-        );
-      case "control-room":
-        return mostrarControlRoomInterno ? (
-          <SeccionControlRoom />
-        ) : (
-          <SeccionNoDisponible />
         );
       case "inicio":
       default:
