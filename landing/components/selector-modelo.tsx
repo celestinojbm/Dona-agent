@@ -30,7 +30,7 @@ export function SelectorModelo({
   recomendado,
 }: SelectorModeloProps) {
   const opciones: ModeloOpcion[] = [
-    { id: "auto", nombre: "Auto (elige por tarea y coste)", proveedor: "dona" },
+    { id: "auto", nombre: "Auto (elige por tarea y costo)", proveedor: "dona" },
     ...modelos,
   ];
   return (

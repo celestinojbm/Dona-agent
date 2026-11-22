@@ -151,7 +151,7 @@ function mensajeError(code: string): string {
     case "subscription_not_found":
       return "No encontramos tu suscripción. Si crees que es un error, escríbenos.";
     case "backend_timeout":
-      return "El backend no respondió a tiempo. Intenta de nuevo en un momento.";
+      return "El servidor no respondió a tiempo. Intenta de nuevo en un momento.";
     case "backend_auth_error":
       return "Hay un problema de configuración en el servidor. Ya estamos al tanto.";
     case "network_error":
@@ -342,7 +342,7 @@ export default function DashboardClient({ session }: DashboardProps) {
       name: "Gmail",
       icon: Mail,
       connected: false,
-      desc: "Conecta tu correo para que Dona lea y responda emails",
+      desc: "Conecta tu correo para que Dona lea y responda correos",
     },
     {
       name: "Google Calendar",
@@ -354,7 +354,7 @@ export default function DashboardClient({ session }: DashboardProps) {
       name: "WhatsApp",
       icon: MessageSquare,
       connected: true,
-      desc: "Tu numero de WhatsApp vinculado con Dona",
+      desc: "Tu número de WhatsApp vinculado con Dona",
     },
   ];
 
@@ -389,14 +389,14 @@ export default function DashboardClient({ session }: DashboardProps) {
       : []),
     { id: "analitica", label: "Analítica", icon: LineChart },
     { id: "reportes", label: "Reportes", icon: BarChart3 },
-    { id: "outputs", label: "Outputs", icon: ImageIcon },
+    { id: "outputs", label: "Galería", icon: ImageIcon },
     { id: "creditos", label: "Créditos y plan", icon: Wallet },
     { id: "integraciones", label: "Integraciones", icon: Link2 },
   ];
 
   function renderNav() {
     return (
-      <nav aria-label="Secciones del dashboard" className="space-y-1">
+      <nav aria-label="Secciones de Dona" className="space-y-1">
         {navPrincipal.map((item) => {
           const Icon = item.icon;
           const activa = seccion === item.id;

@@ -49,7 +49,7 @@ interface Step {
 const STEPS: readonly Step[] = [
   {
     icon: Wallet,
-    titulo: "Bienvenido a tu dashboard",
+    titulo: "Te damos la bienvenida a Dona",
     descripcion:
       "Aquí encuentras todo lo que pasa con tu cuenta de Dona en un solo lugar. La barra lateral te lleva a cada sección — veamos las principales en 30 segundos.",
     seccion: "inicio",
@@ -65,7 +65,7 @@ const STEPS: readonly Step[] = [
     icon: Zap,
     titulo: "Acciones",
     descripcion:
-      "Todo lo que Dona prepara aparece aquí antes de ejecutarse: con preview, costo en créditos y nivel de riesgo. Tú apruebas o rechazas — nada irreversible sale sin tu OK.",
+      "Todo lo que Dona prepara aparece aquí antes de ejecutarse: con vista previa, costo en créditos y nivel de riesgo. Tú apruebas o rechazas — nada irreversible sale sin tu OK.",
     seccion: "acciones",
   },
   {
