@@ -1,6 +1,8 @@
 "use client";
 
-// Selector de modelo (F23) — por chat/agente, con modo Auto y modelo recomendado.
+// Selector de modelo (F23) — por chat/agente, con modo Automático por defecto.
+// Solo recibe modelos que funcionan de verdad (ver lib/modelos-chat.ts); si
+// no hay ninguno, el chat no monta este selector y muestra "Automático".
 // Presentacional: recibe el catálogo y el estado por props (sin red). El cambio
 // a mitad de conversación no pierde contexto (el historial vive en el backend y
 // es model-agnostic); este control sólo elige qué modelo atiende el próximo turno.
@@ -30,7 +32,7 @@ export function SelectorModelo({
   recomendado,
 }: SelectorModeloProps) {
   const opciones: ModeloOpcion[] = [
-    { id: "auto", nombre: "Auto (elige por tarea y costo)", proveedor: "dona" },
+    { id: "auto", nombre: "Automático", proveedor: "dona" },
     ...modelos,
   ];
   return (
@@ -58,7 +60,11 @@ export function SelectorModelo({
               {m.nombre}
               {m.proveedor !== "dona" ? (
                 <span className="ml-2 text-[12px] text-[#6B726F]">{m.proveedor}</span>
-              ) : null}
+              ) : (
+                <span className="block text-[12px] text-[#A8B0AD]">
+                  Dona elige el modelo según la tarea
+                </span>
+              )}
             </span>
             {esRecom ? (
               <span className="rounded-full border border-[#00E5B0]/30 bg-[#00E5B0]/10 px-2 py-0.5 text-[12px] text-[#00E5B0]">

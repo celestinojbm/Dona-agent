@@ -37,10 +37,18 @@ import {
   MessageSquare,
   Mic,
   Paperclip,
+  Sparkles,
   Square,
   X,
 } from "lucide-react";
 import type { ChatResponse, MensajeChat } from "@/lib/chat-types";
+import { SelectorModelo } from "@/components/selector-modelo";
+import {
+  HAY_SELECCION_DE_MODELO,
+  MODELO_AUTO,
+  MODELOS_CHAT,
+  nombreModelo,
+} from "@/lib/modelos-chat";
 
 // Mapea el `error` del route a un mensaje humano (sin exponer internals).
 function mensajeErrorChat(code: string): string {
@@ -218,6 +226,12 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
   // Bloquea el envío/adjuntar en esa ventana (si no, se enviaría un turno que
   // descarta el audio a medio finalizar).
   const [procesandoVoz, setProcesandoVoz] = useState(false);
+  // Modo de modelo (F23). "Automático" por defecto: Dona elige en el backend.
+  // El selector solo se monta si hay modelos que funcionan de verdad
+  // (lib/modelos-chat.ts); hoy no hay ninguno, así que no se ofrece una
+  // elección que el backend ignoraría.
+  const [modelo, setModelo] = useState<string>(MODELO_AUTO);
+  const [selectorAbierto, setSelectorAbierto] = useState(false);
 
   const finRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -586,6 +600,18 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
 
         {/* Composer */}
         <div className="border-t border-[color:var(--line)] p-4">
+          {HAY_SELECCION_DE_MODELO && selectorAbierto && (
+            <div id="selector-modelo-panel" className="mb-3">
+              <SelectorModelo
+                modelos={MODELOS_CHAT}
+                seleccionado={modelo}
+                onSeleccionar={(id) => {
+                  setModelo(id);
+                  setSelectorAbierto(false);
+                }}
+              />
+            </div>
+          )}
           <div className="rounded-2xl border border-[color:var(--line)] bg-[color:var(--surface)] shadow-[0_1px_2px_rgba(11,11,18,0.04),0_10px_28px_-22px_rgba(11,11,18,0.25)] transition-colors focus-within:border-[color:var(--brand)]">
             {adjunto && (
               <ChipAdjunto adjunto={adjunto} onQuitar={quitarAdjunto} />
@@ -630,6 +656,29 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
                 >
                   {grabando ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                 </button>
+                {HAY_SELECCION_DE_MODELO ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectorAbierto((v) => !v)}
+                    disabled={enviando || grabando}
+                    aria-expanded={selectorAbierto}
+                    aria-controls="selector-modelo-panel"
+                    aria-label={`Modelo: ${nombreModelo(modelo)}`}
+                    className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] text-[color:var(--muted)] transition-colors hover:bg-[color:var(--fill)] hover:text-[color:var(--ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    <span className="max-w-[110px] truncate">{nombreModelo(modelo)}</span>
+                  </button>
+                ) : (
+                  <span
+                    title="Dona elige el modelo según la tarea"
+                    className="flex h-8 shrink-0 items-center gap-1 px-2 text-[11px] text-[color:var(--muted)]"
+                  >
+                    <Sparkles className="h-3 w-3" aria-hidden="true" />
+                    Automático
+                    <span className="sr-only">: Dona elige el modelo según la tarea</span>
+                  </span>
+                )}
                 {grabando ? (
                   <span className="flex items-center gap-1.5 pl-1 text-[11px] text-[color:var(--dato-neg)]">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[color:var(--dato-neg)]" />
