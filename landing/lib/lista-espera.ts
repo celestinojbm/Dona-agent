@@ -14,6 +14,21 @@ export function emailValido(email: unknown): email is string {
   return typeof email === "string" && email.trim().length <= 254 && EMAIL_RE.test(email.trim());
 }
 
+/**
+ * IP del visitante para los límites por IP del backend.
+ *
+ * En Vercel, `x-real-ip` y `x-forwarded-for` los pone la plataforma (pisa lo
+ * que mande el cliente). Si algún día hay otro proxy delante (p. ej.
+ * Cloudflare), esta IP sería la del proxy y todos compartirían límite: revisar.
+ * Vacía si no hay cabecera: el backend la trata como un cubo compartido.
+ */
+export function ipCliente(req: Request): string {
+  const real = req.headers.get("x-real-ip")?.trim();
+  const reenviada = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const ip = real || reenviada || "";
+  return ip.length <= 64 ? ip : "";
+}
+
 /** Lee el JSON del cuerpo con tope de tamaño. null si no es un objeto. */
 export async function leerCuerpo(req: Request): Promise<Record<string, unknown> | null> {
   if (!(req.headers.get("content-type") ?? "").includes("application/json")) return null;

@@ -636,6 +636,7 @@ _MIGRACIONES = [
     "ALTER TABLE notificaciones_plan ENABLE ROW LEVEL SECURITY",
     # ── #334 · lista de espera: RLS backend-only (correos; sólo PostgreSQL).
     "ALTER TABLE lista_espera ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE lista_espera_limite ENABLE ROW LEVEL SECURITY",
     # ── Tablas nuevas (respaldo explícito) ──────────────────────────────────
     # TEMA 7.1/7.2 — solicitudes verificadas de privacidad (CCPA export/delete).
     """
@@ -900,6 +901,7 @@ async def inicializar_db():
     )
     from agent.dashboard_lockout import DashboardLoginIntento  # noqa: F401
     from agent.entorno import es_entorno_estricto
+    from agent.lista_espera.limites import ListaEsperaLimite  # noqa: F401  (#334: límites)
     from agent.lista_espera.models import ListaEspera  # noqa: F401  (#334: lista de espera)
     from agent.multi_model.models import PreferenciaModelo  # noqa: F401  (F23)
     from agent.plan_vivo.models import (  # noqa: F401  (F14: registra sus tablas)

@@ -19,7 +19,7 @@ type Estado =
 const MENSAJES_ERROR: Record<string, string> = {
   email_invalido: "Revisa el correo: no parece válido.",
   codigo_invalido: "Ese código no es válido. Revísalo o pide uno nuevo a quien te invitó.",
-  demasiados_intentos: "Demasiados intentos con este correo. Espera unos minutos y vuelve a probar.",
+  demasiados_intentos: "Demasiados intentos. Espera un rato y vuelve a probar.",
 };
 const ERROR_GENERICO = "No pudimos guardar tu correo ahora mismo. Inténtalo de nuevo en un momento.";
 

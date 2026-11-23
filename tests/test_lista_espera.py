@@ -57,6 +57,7 @@ async def setup(tmp_path, monkeypatch):
     monkeypatch.setenv("DONA_CODIGOS_INVITACION", f"{CODIGO}, corto")
 
     import agent.dashboard_lockout as _lock
+    import agent.lista_espera.limites as _limites
     import agent.lista_espera.models as _modelos
     import agent.lista_espera.servicio as _servicio
     import agent.memory
@@ -65,6 +66,7 @@ async def setup(tmp_path, monkeypatch):
     # antes de inicializar_db() para que create_all cree sus tablas.
     importlib.reload(agent.memory)
     importlib.reload(_modelos)
+    importlib.reload(_limites)
     importlib.reload(_lock)
     importlib.reload(_servicio)
     await agent.memory.inicializar_db()

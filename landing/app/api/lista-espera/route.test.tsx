@@ -16,10 +16,10 @@ import { POST as invitacion } from "./invitacion/route";
 const SECRET = "secreto-de-prueba-lista";
 const fetchSpy = vi.fn();
 
-function req(cuerpo: unknown, tipo = "application/json") {
+function req(cuerpo: unknown, tipo = "application/json", extra: Record<string, string> = {}) {
   return new Request("http://localhost/api/lista-espera", {
     method: "POST",
-    headers: { "content-type": tipo },
+    headers: { "content-type": tipo, ...extra },
     body: typeof cuerpo === "string" ? cuerpo : JSON.stringify(cuerpo),
   });
 }
@@ -50,10 +50,36 @@ describe("POST /api/lista-espera", () => {
 
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe("https://backend.example.com/internal/lista-espera");
-    expect(init.body).toBe(JSON.stringify({ email: "ana@negocio.com" }));
+    expect(init.body).toBe(JSON.stringify({ email: "ana@negocio.com", ip: "" }));
     const firma = crypto.createHmac("sha256", SECRET).update(init.body).digest("hex");
     expect(init.headers["X-Internal-Signature"]).toBe(firma);
     expect(authSpy).not.toHaveBeenCalled();
+  });
+
+  it("manda la IP del visitante dentro del cuerpo firmado (límite por IP)", async () => {
+    backendResponde(200, { estado: "en_espera", nuevo: true });
+    await alta(req({ email: "ana@negocio.com" }, "application/json", { "x-real-ip": "203.0.113.7" }));
+    backendResponde(200, { estado: "en_espera", nuevo: true });
+    await alta(
+      req({ email: "ana@negocio.com" }, "application/json", {
+        "x-forwarded-for": "198.51.100.9, 10.0.0.1",
+      }),
+    );
+    backendResponde(200, { estado: "en_espera", nuevo: true });
+    await alta(req({ email: "ana@negocio.com" }, "application/json", { "x-real-ip": "1".repeat(80) }));
+
+    const ips = fetchSpy.mock.calls.map(([, init]) => JSON.parse(init.body).ip);
+    expect(ips).toEqual(["203.0.113.7", "198.51.100.9", ""]);
+    const [, init] = fetchSpy.mock.calls[0];
+    const firma = crypto.createHmac("sha256", SECRET).update(init.body).digest("hex");
+    expect(init.headers["X-Internal-Signature"]).toBe(firma);
+  });
+
+  it("traduce el 429 del backend (límite por IP o global)", async () => {
+    backendResponde(429, { detail: "demasiados_intentos" });
+    const r = await alta(req({ email: "ana@negocio.com" }));
+    expect(r.status).toBe(429);
+    expect(await r.json()).toEqual({ ok: false, error: "demasiados_intentos" });
   });
 
   it("rechaza correos inválidos y cuerpos no JSON sin llamar al backend", async () => {
@@ -84,11 +110,19 @@ describe("POST /api/lista-espera", () => {
 describe("POST /api/lista-espera/invitacion", () => {
   it("código válido → invitado", async () => {
     backendResponde(200, { estado: "invitado" });
-    const r = await invitacion(req({ email: "ana@negocio.com", codigo: "DONA-PILOTO-2026" }));
-    expect(await r.json()).toEqual({ ok: true, estado: "invitado" });
-    expect(fetchSpy.mock.calls[0][0]).toBe(
-      "https://backend.example.com/internal/lista-espera/invitacion",
+    const r = await invitacion(
+      req({ email: "ana@negocio.com", codigo: "DONA-PILOTO-2026" }, "application/json", {
+        "x-real-ip": "203.0.113.7",
+      }),
     );
+    expect(await r.json()).toEqual({ ok: true, estado: "invitado" });
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://backend.example.com/internal/lista-espera/invitacion");
+    expect(JSON.parse(init.body)).toEqual({
+      email: "ana@negocio.com",
+      codigo: "DONA-PILOTO-2026",
+      ip: "203.0.113.7",
+    });
   });
 
   it("código corto se rechaza sin llamar al backend", async () => {

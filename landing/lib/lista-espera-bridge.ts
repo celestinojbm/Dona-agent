@@ -2,8 +2,9 @@
 //
 // Mismo patrón que reportes-bridge.ts: firma HMAC-SHA256(body,
 // INTERNAL_BRIDGE_SECRET) y llama /internal/lista-espera[/invitacion] en el
-// backend. Solo servidor: el secret nunca llega al cliente. Los logs no
-// incluyen el correo ni el código.
+// backend. Solo servidor: el secret nunca llega al cliente. La IP del
+// visitante viaja dentro del cuerpo firmado (límites por IP del backend). Los
+// logs no incluyen el correo, el código ni la IP.
 
 import "server-only";
 
@@ -68,10 +69,10 @@ async function llamar(
   }
 }
 
-export function registrarEnListaEspera(email: string) {
-  return llamar("/internal/lista-espera", { email });
+export function registrarEnListaEspera(email: string, ip: string) {
+  return llamar("/internal/lista-espera", { email, ip });
 }
 
-export function canjearInvitacion(email: string, codigo: string) {
-  return llamar("/internal/lista-espera/invitacion", { email, codigo });
+export function canjearInvitacion(email: string, codigo: string, ip: string) {
+  return llamar("/internal/lista-espera/invitacion", { email, codigo, ip });
 }

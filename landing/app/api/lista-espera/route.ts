@@ -4,7 +4,7 @@
 // `empresa`: si viene relleno es un bot; respondemos 200 sin guardar nada.
 
 import { registrarEnListaEspera } from "@/lib/lista-espera-bridge";
-import { emailValido, leerCuerpo, respuesta, respuestaDesdeBridge } from "@/lib/lista-espera";
+import { emailValido, ipCliente, leerCuerpo, respuesta, respuestaDesdeBridge } from "@/lib/lista-espera";
 
 export const dynamic = "force-dynamic";
 
@@ -15,5 +15,5 @@ export async function POST(req: Request) {
     return respuesta({ ok: true, estado: "en_espera" }, 200);
   }
   if (!emailValido(cuerpo.email)) return respuesta({ ok: false, error: "email_invalido" }, 400);
-  return respuestaDesdeBridge(await registrarEnListaEspera(cuerpo.email.trim()));
+  return respuestaDesdeBridge(await registrarEnListaEspera(cuerpo.email.trim(), ipCliente(req)));
 }
