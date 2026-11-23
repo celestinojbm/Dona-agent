@@ -57,6 +57,7 @@ async def setup(tmp_path, monkeypatch):
     monkeypatch.setenv("DONA_CODIGOS_INVITACION", f"{CODIGO}, corto")
 
     import agent.dashboard_lockout as _lock
+    import agent.lista_espera.limites as _limites
     import agent.lista_espera.models as _modelos
     import agent.lista_espera.servicio as _servicio
     import agent.memory
@@ -65,6 +66,7 @@ async def setup(tmp_path, monkeypatch):
     # antes de inicializar_db() para que create_all cree sus tablas.
     importlib.reload(agent.memory)
     importlib.reload(_modelos)
+    importlib.reload(_limites)
     importlib.reload(_lock)
     importlib.reload(_servicio)
     await agent.memory.inicializar_db()
@@ -223,18 +225,21 @@ async def setup_pg(monkeypatch):
     from sqlalchemy import text
 
     import agent.dashboard_lockout as _lock
+    import agent.lista_espera.limites as _limites
     import agent.lista_espera.models as _modelos
     import agent.lista_espera.servicio as _servicio
     import agent.memory
 
     importlib.reload(agent.memory)
     importlib.reload(_modelos)
+    importlib.reload(_limites)
     importlib.reload(_lock)
     importlib.reload(_servicio)
     await agent.memory.inicializar_db()
     async with agent.memory.engine.begin() as conn:
         await conn.execute(text("DELETE FROM lista_espera"))
         await conn.execute(text("DELETE FROM dashboard_login_intentos"))
+        await conn.execute(text("DELETE FROM lista_espera_limite"))
     yield _servicio, agent.memory
     await agent.memory.engine.dispose()
 
@@ -242,3 +247,25 @@ async def setup_pg(monkeypatch):
 async def test_concurrencia_mismo_correo_postgres(setup_pg):
     servicio, memory = setup_pg
     await _altas_y_canjes_concurrentes(servicio, memory)
+
+
+async def test_limite_por_ip_concurrente_postgres(setup_pg):
+    """El UPSERT del contador es atómico: con N canjes simultáneos desde una IP
+    pasan exactamente CANJE_POR_IP (correos distintos: el bloqueo por correo
+    no interviene)."""
+    import asyncio
+
+    from agent.lista_espera import limites
+
+    servicio, _memory = setup_pg
+    total = limites.CANJE_POR_IP + 5
+    res = await asyncio.gather(
+        *[
+            servicio.canjear_invitacion(f"c{i}@negocio.com", "MALO-MALO-1", ip="203.0.113.7")
+            for i in range(total)
+        ],
+        return_exceptions=True,
+    )
+    tipos = [type(r).__name__ for r in res]
+    assert tipos.count("CodigoInvalido") == limites.CANJE_POR_IP, tipos
+    assert tipos.count("DemasiadosIntentos") == 5, tipos

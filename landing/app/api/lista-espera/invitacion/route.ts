@@ -4,7 +4,7 @@
 // por intentos fallidos). Reserva el lugar; no da acceso mientras dure la pausa.
 
 import { canjearInvitacion } from "@/lib/lista-espera-bridge";
-import { emailValido, leerCuerpo, respuesta, respuestaDesdeBridge } from "@/lib/lista-espera";
+import { emailValido, ipCliente, leerCuerpo, respuesta, respuestaDesdeBridge } from "@/lib/lista-espera";
 
 export const dynamic = "force-dynamic";
 
@@ -16,5 +16,5 @@ export async function POST(req: Request) {
   if (codigo.length < 8 || codigo.length > 64) {
     return respuesta({ ok: false, error: "codigo_invalido" }, 403);
   }
-  return respuestaDesdeBridge(await canjearInvitacion(cuerpo.email.trim(), codigo));
+  return respuestaDesdeBridge(await canjearInvitacion(cuerpo.email.trim(), codigo, ipCliente(req)));
 }

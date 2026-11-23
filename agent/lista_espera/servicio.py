@@ -8,7 +8,9 @@ Reglas:
     válido (fail-closed). Se comparan con hmac.compare_digest, sin distinguir
     mayúsculas, y deben tener al menos 8 caracteres.
   - Fuerza bruta: los intentos fallidos usan el lockout persistente del
-    dashboard con una clave propia ("invitacion:<correo>").
+    dashboard con una clave propia ("invitacion:<correo>"). Como rotar
+    correos lo esquiva, además hay límite por IP y global (limites.py) en
+    el alta y en el canje.
   - Correos: no se envía nada. El aviso de alta queda detrás de
     LISTA_ESPERA_ENVIO_CORREO_ACTIVO (constante en código: encenderla exige
     PR revisado, como DONA_EN_PAUSA en la landing).
@@ -24,6 +26,7 @@ from datetime import datetime
 
 from sqlalchemy import select, update
 
+from agent.lista_espera import limites
 from agent.lista_espera.models import ListaEspera, insert_para
 from agent.memory import async_session
 
@@ -87,13 +90,26 @@ async def _notificar_alta(email: str, estado: str) -> bool:
     raise NotImplementedError("Envío de correos de la lista de espera sin proveedor")
 
 
-async def registrar(email: str, origen: str = "web") -> dict:
+async def _consumir_limite(ambito: str, ip: str | None) -> None:
+    try:
+        await limites.consumir(ambito, ip)
+    except limites.LimiteExcedido as exc:
+        logger.warning(f"[LISTA-ESPERA] límite {ambito} excedido · motivo={exc.motivo}")
+        raise DemasiadosIntentos(exc.retry_after_segundos) from exc
+
+
+async def registrar(email: str, origen: str = "web", ip: str | None = None) -> dict:
     """Alta idempotente. Devuelve {"estado": ..., "nuevo": bool}.
+
+    Lanza EmailInvalido o DemasiadosIntentos (límite por IP o global). El
+    límite se cuenta también para correos ya registrados: si no, repetir un
+    correo serviría para sondear estados sin coste.
 
     INSERT ... ON CONFLICT DO NOTHING: dos altas simultáneas del mismo correo
     no chocan con el UNIQUE (antes, SELECT + INSERT daba 500 en PostgreSQL).
     """
     e = normalizar_email(email)
+    await _consumir_limite("alta", ip)
     origen = origen if origen in _ORIGENES else "web"
     async with async_session() as session:
         insert = insert_para(session.bind.dialect.name)
@@ -115,14 +131,17 @@ async def registrar(email: str, origen: str = "web") -> dict:
     return {"estado": estado, "nuevo": nuevo}
 
 
-async def canjear_invitacion(email: str, codigo: str) -> dict:
+async def canjear_invitacion(email: str, codigo: str, ip: str | None = None) -> dict:
     """Marca el correo como invitado si el código es válido.
 
-    Lanza EmailInvalido, CodigoInvalido o DemasiadosIntentos.
+    Lanza EmailInvalido, CodigoInvalido o DemasiadosIntentos. El límite por
+    IP y global cuenta cada intento antes de mirar el código (con éxito o
+    sin él), así no revela nada sobre qué códigos valen.
     """
     from agent.dashboard_lockout import registrar_resultado, verificar_lockout
 
     e = normalizar_email(email)
+    await _consumir_limite("canje", ip)
     clave = f"invitacion:{e}"
     lock = await verificar_lockout(clave)
     if lock.get("bloqueado"):

@@ -3931,23 +3931,32 @@ async def internal_assets(request: Request):
 async def internal_lista_espera(request: Request):
     """Alta idempotente en la lista de espera.
 
-    Body: {"email": "..."}
-    Códigos: 401 firma · 400 email_invalido · 200 {"estado", "nuevo"}.
+    Body: {"email": "...", "ip": "..."} (ip del visitante, la pone la landing)
+    Códigos: 401 firma · 400 email_invalido · 429 demasiados_intentos ·
+    200 {"estado", "nuevo"}.
     """
     payload = await _verificar_y_parsear_internal(request)
     from agent.lista_espera import servicio as lista_espera
 
     try:
-        return await lista_espera.registrar(str(payload.get("email") or ""), "web")
+        return await lista_espera.registrar(
+            str(payload.get("email") or ""), "web", ip=str(payload.get("ip") or "")
+        )
     except lista_espera.EmailInvalido:
         raise HTTPException(status_code=400, detail="email_invalido")
+    except lista_espera.DemasiadosIntentos as e:
+        return JSONResponse(
+            {"detail": "demasiados_intentos"},
+            status_code=429,
+            headers={"Retry-After": str(e.retry_after_segundos)},
+        )
 
 
 @app.post("/internal/lista-espera/invitacion")
 async def internal_lista_espera_invitacion(request: Request):
     """Canje de un código de invitación (DONA_CODIGOS_INVITACION).
 
-    Body: {"email": "...", "codigo": "..."}
+    Body: {"email": "...", "codigo": "...", "ip": "..."}
     Códigos: 401 firma · 400 email_invalido · 403 codigo_invalido ·
     429 demasiados_intentos · 200 {"estado": "invitado"}.
     """
@@ -3956,7 +3965,9 @@ async def internal_lista_espera_invitacion(request: Request):
 
     try:
         return await lista_espera.canjear_invitacion(
-            str(payload.get("email") or ""), str(payload.get("codigo") or "")
+            str(payload.get("email") or ""),
+            str(payload.get("codigo") or ""),
+            ip=str(payload.get("ip") or ""),
         )
     except lista_espera.EmailInvalido:
         raise HTTPException(status_code=400, detail="email_invalido")
