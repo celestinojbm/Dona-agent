@@ -24,3 +24,19 @@ class ListaEspera(Base):
     origen: Mapped[str] = mapped_column(String(30), default="web")
     creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     invitado_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+def insert_para(dialecto: str):
+    """``insert`` del dialecto con ON CONFLICT (SQLite y PostgreSQL).
+
+    Las altas y canjes concurrentes del mismo correo no pueden hacer
+    leer-y-luego-insertar: en PostgreSQL la segunda petición choca con el
+    UNIQUE y termina en 500.
+    """
+    if dialecto == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialecto == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    else:  # pragma: no cover - el repo solo usa PostgreSQL y SQLite
+        raise RuntimeError(f"[LISTA-ESPERA] dialecto sin soporte de UPSERT: {dialecto}")
+    return insert

@@ -165,3 +165,107 @@ async def test_no_envia_correos(setup, monkeypatch):
     monkeypatch.setattr(servicio, "_notificar_alta", _espia)
     _post(client, "/internal/lista-espera", email="e@negocio.com")
     assert llamadas == ["en_espera"]
+
+
+# ── Concurrencia: el mismo correo a la vez no puede acabar en 500 ───────────
+#
+# Antes: SELECT y luego INSERT. En PostgreSQL, dos altas (o canjes) simultáneos
+# del mismo correo pasaban ambos el SELECT y el segundo INSERT chocaba con el
+# UNIQUE → IntegrityError → 500 ("No pudimos guardar tu correo"). SQLite
+# serializa las escrituras y no lo reproduce; el test con PostgreSQL real corre
+# solo si DONA_TEST_PG_URL apunta a una base desechable (se vacían las tablas).
+
+
+async def _altas_y_canjes_concurrentes(servicio, memory):
+    import asyncio
+
+    altas = await asyncio.gather(
+        *[servicio.registrar("mismo@negocio.com") for _ in range(8)], return_exceptions=True
+    )
+    canjes = await asyncio.gather(
+        *[servicio.canjear_invitacion("otro@negocio.com", CODIGO) for _ in range(8)],
+        return_exceptions=True,
+    )
+    errores = [repr(x) for x in altas + canjes if isinstance(x, BaseException)]
+    assert not errores, errores
+    assert sum(1 for a in altas if a["nuevo"]) == 1
+    assert {a["estado"] for a in altas} == {"en_espera"}
+    assert {c["estado"] for c in canjes} == {"invitado"}
+    filas = {f.email: f for f in await _filas(memory, servicio)}
+    assert set(filas) == {"mismo@negocio.com", "otro@negocio.com"}
+    assert filas["otro@negocio.com"].estado == "invitado"
+    assert filas["otro@negocio.com"].invitado_en is not None
+
+
+async def test_concurrencia_mismo_correo_sin_errores(setup):
+    _client, servicio, memory = setup
+    await _altas_y_canjes_concurrentes(servicio, memory)
+
+
+async def test_canje_conserva_primer_invitado_en(setup):
+    _client, servicio, memory = setup
+    await servicio.canjear_invitacion("ana@negocio.com", CODIGO)
+    primero = (await _filas(memory, servicio))[0].invitado_en
+    await servicio.canjear_invitacion("ana@negocio.com", CODIGO)
+    filas = await _filas(memory, servicio)
+    assert len(filas) == 1 and filas[0].invitado_en == primero
+
+
+@pytest.fixture
+async def setup_pg(monkeypatch):
+    import os
+
+    url = os.getenv("DONA_TEST_PG_URL", "").strip()
+    if not url:
+        pytest.skip("DONA_TEST_PG_URL no definida (PostgreSQL desechable para concurrencia)")
+    monkeypatch.setenv("DATABASE_URL", url)
+    monkeypatch.setenv("INTERNAL_BRIDGE_SECRET", SECRET_TEST)
+    monkeypatch.setenv("DONA_CODIGOS_INVITACION", CODIGO)
+
+    from sqlalchemy import text
+
+    import agent.dashboard_lockout as _lock
+    import agent.lista_espera.limites as _limites
+    import agent.lista_espera.models as _modelos
+    import agent.lista_espera.servicio as _servicio
+    import agent.memory
+
+    importlib.reload(agent.memory)
+    importlib.reload(_modelos)
+    importlib.reload(_limites)
+    importlib.reload(_lock)
+    importlib.reload(_servicio)
+    await agent.memory.inicializar_db()
+    async with agent.memory.engine.begin() as conn:
+        await conn.execute(text("DELETE FROM lista_espera"))
+        await conn.execute(text("DELETE FROM dashboard_login_intentos"))
+        await conn.execute(text("DELETE FROM lista_espera_limite"))
+    yield _servicio, agent.memory
+    await agent.memory.engine.dispose()
+
+
+async def test_concurrencia_mismo_correo_postgres(setup_pg):
+    servicio, memory = setup_pg
+    await _altas_y_canjes_concurrentes(servicio, memory)
+
+
+async def test_limite_por_ip_concurrente_postgres(setup_pg):
+    """El UPSERT del contador es atómico: con N canjes simultáneos desde una IP
+    pasan exactamente CANJE_POR_IP (correos distintos: el bloqueo por correo
+    no interviene)."""
+    import asyncio
+
+    from agent.lista_espera import limites
+
+    servicio, _memory = setup_pg
+    total = limites.CANJE_POR_IP + 5
+    res = await asyncio.gather(
+        *[
+            servicio.canjear_invitacion(f"c{i}@negocio.com", "MALO-MALO-1", ip="203.0.113.7")
+            for i in range(total)
+        ],
+        return_exceptions=True,
+    )
+    tipos = [type(r).__name__ for r in res]
+    assert tipos.count("CodigoInvalido") == limites.CANJE_POR_IP, tipos
+    assert tipos.count("DemasiadosIntentos") == 5, tipos

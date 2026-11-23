@@ -123,6 +123,13 @@ describe("POST /api/lista-espera", () => {
     expect(await r.json()).toEqual({ ok: false, error: "demasiados_intentos" });
   });
 
+  it("no revela si un correo ya canjeó una invitación", async () => {
+    backendResponde(200, { estado: "invitado", nuevo: false });
+    const r = await alta(req({ email: "ajeno@negocio.com" }));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ ok: true, estado: "en_espera" });
+  });
+
   it("rechaza correos inválidos y cuerpos no JSON sin llamar al backend", async () => {
     expect((await alta(req({ email: "sin-arroba" }))).status).toBe(400);
     expect((await alta(req("email=a@b.com", "application/x-www-form-urlencoded"))).status).toBe(400);

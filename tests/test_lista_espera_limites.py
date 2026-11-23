@@ -243,8 +243,17 @@ async def test_ventana_se_reinicia_y_limpia_filas_viejas(setup, monkeypatch):
     assert int(r.headers["Retry-After"]) == limites.VENTANA_SEGUNDOS - 10
     viejas = {f.clave for f in await _todas(memory, limites.ListaEsperaLimite)}
 
+    # Ventana siguiente: el contador se reinicia, pero las filas de la
+    # ventana anterior se conservan (otra petición en vuelo en el cambio de
+    # hora puede seguir sumando en ellas).
     monkeypatch.setattr(limites, "_ahora_epoch", lambda: t0 + limites.VENTANA_SEGUNDOS)
     assert _post(client, ALTA, email="w-extra@negocio.com", ip="203.0.113.7").status_code == 200
+    claves = {f.clave for f in await _todas(memory, limites.ListaEsperaLimite)}
+    assert viejas <= claves
+
+    # Dos ventanas después: las filas de la primera ya se borran.
+    monkeypatch.setattr(limites, "_ahora_epoch", lambda: t0 + 2 * limites.VENTANA_SEGUNDOS)
+    assert _post(client, ALTA, email="w-otra@negocio.com", ip="203.0.113.7").status_code == 200
     nuevas = {f.clave for f in await _todas(memory, limites.ListaEsperaLimite)}
     assert nuevas and not (nuevas & viejas)
 

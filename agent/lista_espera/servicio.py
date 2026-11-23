@@ -24,10 +24,10 @@ import os
 import re
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from agent.lista_espera import limites
-from agent.lista_espera.models import ListaEspera
+from agent.lista_espera.models import ListaEspera, insert_para
 from agent.memory import async_session
 
 logger = logging.getLogger("dona")
@@ -104,21 +104,31 @@ async def registrar(email: str, origen: str = "web", ip: str | None = None) -> d
     Lanza EmailInvalido o DemasiadosIntentos (límite por IP o global). El
     límite se cuenta también para correos ya registrados: si no, repetir un
     correo serviría para sondear estados sin coste.
+
+    INSERT ... ON CONFLICT DO NOTHING: dos altas simultáneas del mismo correo
+    no chocan con el UNIQUE (antes, SELECT + INSERT daba 500 en PostgreSQL).
     """
     e = normalizar_email(email)
     await _consumir_limite("alta", ip)
     origen = origen if origen in _ORIGENES else "web"
     async with async_session() as session:
-        fila = (
-            await session.execute(select(ListaEspera).where(ListaEspera.email == e))
-        ).scalar_one_or_none()
-        if fila is not None:
-            return {"estado": fila.estado, "nuevo": False}
-        fila = ListaEspera(email=e, estado="en_espera", origen=origen)
-        session.add(fila)
+        insert = insert_para(session.bind.dialect.name)
+        creada = await session.execute(
+            insert(ListaEspera)
+            .values(email=e, estado="en_espera", origen=origen, creado=datetime.utcnow())
+            .on_conflict_do_nothing(index_elements=[ListaEspera.email])
+            .returning(ListaEspera.id)
+        )
+        nuevo = creada.scalar_one_or_none() is not None
+        estado = "en_espera"
+        if not nuevo:
+            estado = (
+                await session.execute(select(ListaEspera.estado).where(ListaEspera.email == e))
+            ).scalar_one()
         await session.commit()
-    await _notificar_alta(e, "en_espera")
-    return {"estado": "en_espera", "nuevo": True}
+    if nuevo:
+        await _notificar_alta(e, "en_espera")
+    return {"estado": estado, "nuevo": nuevo}
 
 
 async def canjear_invitacion(email: str, codigo: str, ip: str | None = None) -> dict:
@@ -146,15 +156,19 @@ async def canjear_invitacion(email: str, codigo: str, ip: str | None = None) -> 
     await registrar_resultado(clave, True)
     ahora = datetime.utcnow()
     async with async_session() as session:
-        fila = (
-            await session.execute(select(ListaEspera).where(ListaEspera.email == e))
-        ).scalar_one_or_none()
-        if fila is None:
-            fila = ListaEspera(email=e, origen="invitacion")
-            session.add(fila)
-        if fila.estado != "invitado":
-            fila.estado = "invitado"
-            fila.invitado_en = ahora
+        insert = insert_para(session.bind.dialect.name)
+        # Atómico: crea la fila si no existe y marca invitado solo si no lo
+        # estaba (conserva el primer invitado_en). Sin leer-y-escribir.
+        await session.execute(
+            insert(ListaEspera)
+            .values(email=e, estado="en_espera", origen="invitacion", creado=ahora)
+            .on_conflict_do_nothing(index_elements=[ListaEspera.email])
+        )
+        await session.execute(
+            update(ListaEspera)
+            .where(ListaEspera.email == e, ListaEspera.estado != "invitado")
+            .values(estado="invitado", invitado_en=ahora)
+        )
         await session.commit()
     await _notificar_alta(e, "invitado")
     return {"estado": "invitado"}

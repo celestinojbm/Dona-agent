@@ -39,6 +39,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import DateTime, Integer, String, delete
 from sqlalchemy.orm import Mapped, mapped_column
 
+from agent.lista_espera.models import insert_para
 from agent.memory import Base, async_session
 
 VENTANA_SEGUNDOS = 60 * 60
@@ -108,19 +109,9 @@ def _clave_opaca(valor: str) -> str:
     return hmac.new(secreto.encode("utf-8"), valor.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
 
 
-def _insert_para(dialecto: str):
-    if dialecto == "postgresql":
-        from sqlalchemy.dialects.postgresql import insert
-    elif dialecto == "sqlite":
-        from sqlalchemy.dialects.sqlite import insert
-    else:  # pragma: no cover - el repo solo usa PostgreSQL y SQLite
-        raise RuntimeError(f"[LISTA-ESPERA] dialecto sin soporte de UPSERT: {dialecto}")
-    return insert
-
-
 async def _incrementar(session, clave: str, expira_en: datetime) -> int:
     """UPSERT atómico: crea la fila con 1 o suma 1. Devuelve el conteo nuevo."""
-    insert = _insert_para(session.bind.dialect.name)
+    insert = insert_para(session.bind.dialect.name)
     stmt = (
         insert(ListaEsperaLimite)
         .values(clave=clave, conteo=1, expira_en=expira_en)
@@ -154,8 +145,14 @@ async def consumir(ambito: str, ip: str | None) -> None:
         conteo_ip = await _incrementar(session, clave_ip, expira_en)
         if conteo_ip == 1:
             # Primera vez en esta ventana para esta IP: limpiar ventanas viejas.
+            # Solo las que caducaron hace más de una ventana: en el cambio de
+            # hora otra petición puede seguir sumando en la ventana anterior y
+            # borrar esas filas aquí las bloquearía en cruz (deadlock en
+            # PostgreSQL → 500).
             await session.execute(
-                delete(ListaEsperaLimite).where(ListaEsperaLimite.expira_en <= ahora)
+                delete(ListaEsperaLimite).where(
+                    ListaEsperaLimite.expira_en <= ahora - timedelta(seconds=VENTANA_SEGUNDOS)
+                )
             )
         if conteo_ip > por_ip:
             await session.commit()
