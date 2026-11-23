@@ -13,16 +13,16 @@ export const metadata: Metadata = {
 
 export default function NotFound() {
   return (
-    <main className="relative z-[2] flex min-h-screen items-center justify-center bg-[color:var(--bg)] px-6 py-16 text-[color:var(--ink)]">
-      <div className="surface-static w-full max-w-lg p-10 sm:p-12">
-        <p className="text-2xl font-semibold tracking-tight">Dona</p>
-        <h1 className="mt-8 text-3xl font-medium tracking-tight">Página no encontrada</h1>
-        <p className="mt-4 text-base leading-relaxed text-[color:var(--muted)]">
+    <main className="tipo-landing relative z-[2] flex min-h-screen items-center justify-center bg-[color:var(--bg)] px-5 py-16 text-[color:var(--ink)] sm:px-8 sm:py-20">
+      <div className="surface-static w-full max-w-3xl p-8 sm:p-12 md:p-14">
+        <p className="tipo-marca font-semibold">Dona</p>
+        <h1 className="tipo-hero mt-8 font-medium">Página no encontrada</h1>
+        <p className="tipo-cuerpo mt-6 text-[color:var(--muted)]">
           La dirección que buscas no existe o ya no está disponible.
         </p>
         <Link
           href="/"
-          className="btn-primary mt-8 inline-flex items-center rounded-full px-6 py-3 text-sm font-medium"
+          className="btn-primary tipo-boton mt-10 inline-flex items-center rounded-full font-medium"
         >
           Volver al inicio
         </Link>

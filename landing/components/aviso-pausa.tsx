@@ -10,7 +10,7 @@ export default function AvisoPausa() {
   return (
     <div
       role="status"
-      className="w-full border-b border-[color:var(--line)] bg-[color:var(--surface)] px-6 py-3 text-center text-sm text-[color:var(--ink)]"
+      className="tipo-landing tipo-cuerpo w-full border-b border-[color:var(--line)] bg-[color:var(--surface)] px-5 py-4 text-center text-[color:var(--ink)] sm:px-8 sm:py-5"
     >
       {MENSAJE_PAUSA}
     </div>
