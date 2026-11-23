@@ -16,7 +16,7 @@ export const DONA_EN_PAUSA = true as const;
 export const CODIGO_PAUSA = "dona_en_pausa" as const;
 
 export const MENSAJE_PAUSA =
-  "Dona está en pausa. No aceptamos nuevas suscripciones ni compras.";
+  "Dona está completo. Todas las plazas están ocupadas y por ahora no aceptamos nuevas suscripciones ni compras.";
 
 /** Cuerpo JSON estándar de las rutas API bloqueadas por la pausa. */
 export const CUERPO_PAUSA = {
