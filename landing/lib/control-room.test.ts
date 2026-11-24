@@ -1,18 +1,55 @@
-import { describe, expect, it } from "vitest";
-import { puedeVerControlRoomInterno } from "./control-room";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { correoEnAllowlist, puedeVerControlRoomInterno } from "./control-room";
 
-describe("puedeVerControlRoomInterno", () => {
+const TOKEN = "token-del-dueno-de-prueba";
+
+describe("correoEnAllowlist", () => {
   it("permite el email interno de Celestino", () => {
-    expect(puedeVerControlRoomInterno("celestinojbm@gmail.com")).toBe(true);
+    expect(correoEnAllowlist("celestinojbm@gmail.com")).toBe(true);
   });
 
   it("normaliza espacios y mayúsculas", () => {
-    expect(puedeVerControlRoomInterno("  CELESTINOJBM@GMAIL.COM ")).toBe(true);
+    expect(correoEnAllowlist("  CELESTINOJBM@GMAIL.COM ")).toBe(true);
   });
 
   it("bloquea usuarios sin allowlist", () => {
-    expect(puedeVerControlRoomInterno("cliente@example.com")).toBe(false);
-    expect(puedeVerControlRoomInterno(null)).toBe(false);
+    expect(correoEnAllowlist("cliente@example.com")).toBe(false);
+    expect(correoEnAllowlist(null)).toBe(false);
+  });
+});
+
+describe("puedeVerControlRoomInterno", () => {
+  beforeEach(() => {
+    vi.stubEnv("PANEL_INGENIERIA_TOKEN", TOKEN);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("permite correo en allowlist con el token del dueño", () => {
+    expect(puedeVerControlRoomInterno("celestinojbm@gmail.com", TOKEN)).toBe(true);
+  });
+
+  // El correo de la sesión sale del customer de Stripe y no está verificado:
+  // quien pague con el correo del dueño obtiene una sesión con ese correo.
+  it("bloquea el correo del dueño sin token", () => {
+    expect(puedeVerControlRoomInterno("celestinojbm@gmail.com", undefined)).toBe(false);
+    expect(puedeVerControlRoomInterno("celestinojbm@gmail.com", "")).toBe(false);
+  });
+
+  it("bloquea el correo del dueño con un token incorrecto", () => {
+    expect(puedeVerControlRoomInterno("celestinojbm@gmail.com", "otro")).toBe(false);
+  });
+
+  it("bloquea el token correcto con un correo fuera de la allowlist", () => {
+    expect(puedeVerControlRoomInterno("cliente@example.com", TOKEN)).toBe(false);
+    expect(puedeVerControlRoomInterno(null, TOKEN)).toBe(false);
+  });
+
+  it("fail-closed: sin PANEL_INGENIERIA_TOKEN configurado nadie entra", () => {
+    vi.stubEnv("PANEL_INGENIERIA_TOKEN", "");
+    expect(puedeVerControlRoomInterno("celestinojbm@gmail.com", "")).toBe(false);
+    expect(puedeVerControlRoomInterno("celestinojbm@gmail.com", TOKEN)).toBe(false);
   });
 });
 
