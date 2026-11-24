@@ -5,8 +5,9 @@ Reglas:
     un estado "invitado" a "en_espera".
   - Códigos de invitación: vienen de DONA_CODIGOS_INVITACION (lista separada
     por comas, en el entorno del backend). Lista vacía = ningún código es
-    válido (fail-closed). Se comparan con hmac.compare_digest, sin distinguir
-    mayúsculas, y deben tener al menos 8 caracteres.
+    válido (fail-closed). Cada código debe tener 80 bits (16 símbolos Crockford
+    base32, ver codigos.py); uno débil se ignora. Se comparan con
+    hmac.compare_digest tras normalizar (mayúsculas, sin guiones, O→0, I/L→1).
   - Fuerza bruta: los intentos fallidos usan el lockout persistente del
     dashboard con una clave propia ("invitacion:<correo>"). Como rotar
     correos lo esquiva, además hay límite por IP y global (limites.py) en
@@ -26,7 +27,7 @@ from datetime import datetime
 
 from sqlalchemy import select, update
 
-from agent.lista_espera import limites
+from agent.lista_espera import codigos, limites
 from agent.lista_espera.models import ListaEspera, insert_para
 from agent.memory import async_session
 
@@ -35,7 +36,6 @@ logger = logging.getLogger("dona")
 LISTA_ESPERA_ENVIO_CORREO_ACTIVO = False
 
 _EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,189}\.[^@\s]{2,63}$")
-_MIN_LARGO_CODIGO = 8
 _ORIGENES = ("web", "invitacion")
 
 
@@ -60,19 +60,15 @@ def normalizar_email(email: str) -> str:
     return e
 
 
-def _codigos_configurados() -> list[str]:
-    crudos = os.getenv("DONA_CODIGOS_INVITACION", "")
-    return [
-        c.strip().upper()
-        for c in crudos.split(",")
-        if len(c.strip()) >= _MIN_LARGO_CODIGO
-    ]
+def _codigos_configurados() -> tuple[str, ...]:
+    return codigos.cargar(os.getenv("DONA_CODIGOS_INVITACION", ""))
 
 
 def codigo_valido(codigo: str) -> bool:
     """True si el código coincide con alguno configurado (tiempo constante por código)."""
-    candidato = (codigo or "").strip().upper()
-    if len(candidato) < _MIN_LARGO_CODIGO:
+    candidato = codigos.normalizar(codigo)
+    # El formato no es secreto: un candidato mal formado se descarta sin comparar.
+    if codigos.motivo_debil(candidato) is not None:
         return False
     valido = False
     for c in _codigos_configurados():

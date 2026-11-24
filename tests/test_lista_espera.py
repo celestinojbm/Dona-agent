@@ -34,7 +34,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 SECRET_TEST = "test-secret-not-real-lista-espera"
-CODIGO = "DONA-PILOTO-2026"
+CODIGO = "7KQ2-M9XW-4HTB-RZ8D"
 
 
 def _firmar(body: bytes, secret: str = SECRET_TEST) -> str:

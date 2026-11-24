@@ -159,7 +159,7 @@ describe("POST /api/lista-espera/invitacion", () => {
   it("código válido → invitado", async () => {
     backendResponde(200, { estado: "invitado" });
     const r = await invitacion(
-      req({ email: "ana@negocio.com", codigo: "DONA-PILOTO-2026" }, "application/json", {
+      req({ email: "ana@negocio.com", codigo: "7KQ2-M9XW-4HTB-RZ8D" }, "application/json", {
         "x-real-ip": "203.0.113.7",
       }),
     );
@@ -168,7 +168,7 @@ describe("POST /api/lista-espera/invitacion", () => {
     expect(url).toBe("https://backend.example.com/internal/lista-espera/invitacion");
     expect(JSON.parse(init.body)).toEqual({
       email: "ana@negocio.com",
-      codigo: "DONA-PILOTO-2026",
+      codigo: "7KQ2-M9XW-4HTB-RZ8D",
       ip: "203.0.113.7",
     });
   });
