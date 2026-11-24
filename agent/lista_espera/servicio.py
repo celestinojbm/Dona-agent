@@ -66,12 +66,17 @@ def _codigos_configurados() -> tuple[str, ...]:
 
 def codigo_valido(codigo: str) -> bool:
     """True si el código coincide con alguno configurado (tiempo constante por código)."""
+    # Cargar la configuración ANTES de mirar el candidato: así el error de un
+    # código configurado débil sale en el primer canje, sea cual sea. Si no,
+    # con los códigos viejos todavía configurados (y usuarios escribiendo esos
+    # mismos códigos viejos) el aviso no saldría nunca.
+    configurados = _codigos_configurados()
     candidato = codigos.normalizar(codigo)
     # El formato no es secreto: un candidato mal formado se descarta sin comparar.
     if codigos.motivo_debil(candidato) is not None:
         return False
     valido = False
-    for c in _codigos_configurados():
+    for c in configurados:
         # Sin cortocircuito: se comparan todos para no filtrar cuál coincide.
         valido = hmac.compare_digest(c.encode("utf-8"), candidato.encode("utf-8")) or valido
     return valido

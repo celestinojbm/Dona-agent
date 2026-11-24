@@ -130,3 +130,18 @@ def test_codigo_generado_es_canjeable(servicio, monkeypatch):
 def test_sin_codigos_ninguno_vale(servicio, monkeypatch):
     monkeypatch.setenv("DONA_CODIGOS_INVITACION", "")
     assert servicio.codigo_valido(FUERTE) is False
+
+
+def test_codigo_viejo_configurado_avisa_aunque_el_candidato_sea_viejo(servicio, monkeypatch, caplog):
+    """Escenario del despliegue: siguen configurados los códigos de antes y el
+    usuario escribe uno de esos. El candidato tampoco cumple el formato, pero
+    el log tiene que avisar igual: si no, nadie se entera de que el canje está
+    apagado hasta que alguien escriba por casualidad un código bien formado."""
+    monkeypatch.setenv("DONA_CODIGOS_INVITACION", "DONA-PILOTO-2026")
+    with caplog.at_level(logging.ERROR, logger="dona"):
+        assert servicio.codigo_valido("DONA-PILOTO-2026") is False
+    mensajes = [
+        r.getMessage() for r in caplog.records if "DONA_CODIGOS_INVITACION" in r.getMessage()
+    ]
+    assert len(mensajes) == 1 and "#1" in mensajes[0]
+    assert "PILOTO" not in mensajes[0]
