@@ -443,6 +443,7 @@ describe("encontrarCustomerConSub", () => {
       const c1 = makeCustomer("cus_1", "m@x.com");
       const c2 = makeCustomer("cus_2", "m@x.com");
       const c3 = makeCustomer("cus_3", "m@x.com");
+      const llamadasSubs: string[] = [];
       const deps = makeDeps(
         {
           customersByEmail: { "m@x.com": [c1, c2, c3] },
@@ -457,10 +458,14 @@ describe("encontrarCustomerConSub", () => {
           cus_2: "dona-222222222222",
           cus_3: "dona-333333333333",
         },
+        true,
+        llamadasSubs,
       );
       expect(
         await encontrarCustomerConSub("m@x.com", "dona-222222222222", deps),
       ).toBeNull();
+      // Con el password de cus_2 (sin sub) no se mira la sub de cus_1 ni cus_3.
+      expect(llamadasSubs).toEqual(["cus_2"]);
       const r3 = await encontrarCustomerConSub(
         "m@x.com",
         "dona-333333333333",
