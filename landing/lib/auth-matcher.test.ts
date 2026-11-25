@@ -90,6 +90,8 @@ function makeDeps(
   stub: StripeStub,
   passwordTable: Record<string, string>,
   secretAvailable = true,
+  /** Si se pasa, registra cada customer_id cuya sub se consultó. */
+  llamadasSubs?: string[],
 ): AuthMatcherDeps {
   return {
     customers: {
@@ -98,9 +100,10 @@ function makeDeps(
       }),
     },
     subscriptions: {
-      list: async ({ customer }) => ({
-        data: stub.subsByCustomer[customer] ?? [],
-      }),
+      list: async ({ customer }) => {
+        llamadasSubs?.push(customer);
+        return { data: stub.subsByCustomer[customer] ?? [] };
+      },
     },
     derivePassword: (cid: string) => {
       if (!secretAvailable) return null;
@@ -168,9 +171,10 @@ describe("encontrarCustomerConSub", () => {
     expect(r?.passwordOwnerCustomerId).toBe("cus_NEW");
   });
 
-  it("RECOVERY · password viejo de cus_OLD + sub activa en cus_NEW autoriza con recovery=true", async () => {
+  it("SIN RECOVERY · password viejo de cus_OLD + sub activa en cus_NEW → null (fail-closed, issue #345)", async () => {
     const cViejo = makeCustomer("cus_OLD", "celes@x.com");
     const cNuevo = makeCustomer("cus_NEW", "celes@x.com");
+    const llamadasSubs: string[] = [];
     const deps = makeDeps(
       {
         customersByEmail: { "celes@x.com": [cViejo, cNuevo] },
@@ -183,21 +187,35 @@ describe("encontrarCustomerConSub", () => {
         cus_OLD: "dona-oldpass1234",
         cus_NEW: "dona-newpass5678",
       },
+      true,
+      llamadasSubs,
     );
     // El usuario solo conoce el password de cus_OLD (su welcome viejo).
+    // Ya no basta: conocer el password de un customer sin sub no prueba
+    // titularidad del email. La recuperación va por fuera del login
+    // (scripts/derive-dashboard-password.ts para cus_NEW).
     const r = await encontrarCustomerConSub(
       "celes@x.com",
       "dona-oldpass1234",
       deps,
     );
-    expect(r).not.toBeNull();
-    expect(r?.customer.id).toBe("cus_NEW"); // dashboard del customer con sub
-    expect(r?.subscription.id).toBe("sub_NEW");
-    expect(r?.recovery).toBe(true);
-    expect(r?.passwordOwnerCustomerId).toBe("cus_OLD");
+    expect(r).toBeNull();
+    // Ni siquiera se consulta la sub de cus_NEW.
+    expect(llamadasSubs).toEqual(["cus_OLD"]);
+
+    // El mismo usuario con el password de cus_NEW sí entra.
+    const ok = await encontrarCustomerConSub(
+      "celes@x.com",
+      "dona-newpass5678",
+      deps,
+    );
+    expect(ok?.customer.id).toBe("cus_NEW");
+    expect(ok?.subscription.id).toBe("sub_NEW");
+    expect(ok?.recovery).toBe(false);
+    expect(ok?.passwordOwnerCustomerId).toBe("cus_NEW");
   });
 
-  it("RECOVERY · si NINGÚN password de los customers del email coincide, no autoriza ni siquiera con sub activa presente (sin ownership)", async () => {
+  it("si NINGÚN password de los customers del email coincide, no autoriza aunque haya sub activa", async () => {
     const cViejo = makeCustomer("cus_OLD", "x@x.com");
     const cNuevo = makeCustomer("cus_NEW", "x@x.com");
     const deps = makeDeps(
@@ -213,7 +231,7 @@ describe("encontrarCustomerConSub", () => {
         cus_NEW: "dona-realnew5678",
       },
     );
-    // password no coincide con ninguno · sin ownership demostrado
+    // password no coincide con ninguno
     const r = await encontrarCustomerConSub(
       "x@x.com",
       "dona-attacker0000",
@@ -222,7 +240,7 @@ describe("encontrarCustomerConSub", () => {
     expect(r).toBeNull();
   });
 
-  it("RECOVERY · ownership demostrado pero NINGÚN customer del email tiene sub válida → null", async () => {
+  it("password coincide con un customer pero NINGÚN customer del email tiene sub válida → null", async () => {
     const cViejo = makeCustomer("cus_OLD", "x@x.com");
     const cNuevo = makeCustomer("cus_NEW", "x@x.com");
     const deps = makeDeps(
@@ -342,6 +360,116 @@ describe("encontrarCustomerConSub", () => {
   it("retorna null si password vacío", async () => {
     const deps = makeDeps({ customersByEmail: {}, subsByCustomer: {} }, {});
     expect(await encontrarCustomerConSub("a@x.com", "", deps)).toBeNull();
+  });
+
+  // ─── Ataque del issue #345: customer atacante sin sub + email de la víctima ───
+
+  describe("ATAQUE · customer propio sin sub válida con el email de la víctima", () => {
+    const EMAIL_VICTIMA = "victima@x.com";
+    const PWD_ATACANTE = "dona-atk000000000";
+    const PWD_VICTIMA = "dona-vic111111111";
+
+    function escenario(
+      subsAtacante: Stripe.Subscription[],
+      orden: "atacante-primero" | "victima-primero" = "atacante-primero",
+      llamadasSubs?: string[],
+    ) {
+      const cAtk = makeCustomer("cus_ATK", EMAIL_VICTIMA);
+      const cVic = makeCustomer("cus_VIC", EMAIL_VICTIMA);
+      const lista = orden === "atacante-primero" ? [cAtk, cVic] : [cVic, cAtk];
+      return makeDeps(
+        {
+          customersByEmail: { [EMAIL_VICTIMA]: lista },
+          subsByCustomer: {
+            cus_ATK: subsAtacante,
+            cus_VIC: [makeSub("sub_VIC", "cus_VIC", "active")],
+          },
+        },
+        { cus_ATK: PWD_ATACANTE, cus_VIC: PWD_VICTIMA },
+        true,
+        llamadasSubs,
+      );
+    }
+
+    it("atacante sin ninguna sub + su propio password → null, no devuelve la sesión de la víctima", async () => {
+      const llamadasSubs: string[] = [];
+      const r = await encontrarCustomerConSub(
+        EMAIL_VICTIMA,
+        PWD_ATACANTE,
+        escenario([], "atacante-primero", llamadasSubs),
+      );
+      expect(r).toBeNull();
+      // Fail-closed estructural: nunca se consulta la sub de un customer
+      // cuyo password no coincidió.
+      expect(llamadasSubs).not.toContain("cus_VIC");
+    });
+
+    it("mismo ataque con la víctima listada primero → null", async () => {
+      const llamadasSubs: string[] = [];
+      const r = await encontrarCustomerConSub(
+        EMAIL_VICTIMA,
+        PWD_ATACANTE,
+        escenario([], "victima-primero", llamadasSubs),
+      );
+      expect(r).toBeNull();
+      expect(llamadasSubs).not.toContain("cus_VIC");
+    });
+
+    it.each(["canceled", "incomplete", "incomplete_expired", "unpaid", "paused"] as const)(
+      "atacante con sub %s + su propio password → null",
+      async (estado) => {
+        const r = await encontrarCustomerConSub(
+          EMAIL_VICTIMA,
+          PWD_ATACANTE,
+          escenario([makeSub("sub_ATK", "cus_ATK", estado)]),
+        );
+        expect(r).toBeNull();
+      },
+    );
+
+    it("la víctima sigue entrando con su propio password aunque exista el customer atacante", async () => {
+      const r = await encontrarCustomerConSub(
+        EMAIL_VICTIMA,
+        PWD_VICTIMA,
+        escenario([]),
+      );
+      expect(r?.customer.id).toBe("cus_VIC");
+      expect(r?.subscription.id).toBe("sub_VIC");
+      expect(r?.recovery).toBe(false);
+      expect(r?.passwordOwnerCustomerId).toBe("cus_VIC");
+    });
+
+    it("con varios customers del email, la sesión devuelta es siempre la del customer cuyo password coincidió", async () => {
+      const c1 = makeCustomer("cus_1", "m@x.com");
+      const c2 = makeCustomer("cus_2", "m@x.com");
+      const c3 = makeCustomer("cus_3", "m@x.com");
+      const deps = makeDeps(
+        {
+          customersByEmail: { "m@x.com": [c1, c2, c3] },
+          subsByCustomer: {
+            cus_1: [makeSub("sub_1", "cus_1", "active")],
+            cus_2: [],
+            cus_3: [makeSub("sub_3", "cus_3", "trialing")],
+          },
+        },
+        {
+          cus_1: "dona-111111111111",
+          cus_2: "dona-222222222222",
+          cus_3: "dona-333333333333",
+        },
+      );
+      expect(
+        await encontrarCustomerConSub("m@x.com", "dona-222222222222", deps),
+      ).toBeNull();
+      const r3 = await encontrarCustomerConSub(
+        "m@x.com",
+        "dona-333333333333",
+        deps,
+      );
+      expect(r3?.customer.id).toBe("cus_3");
+      expect(r3?.subscription.id).toBe("sub_3");
+      expect(r3?.passwordOwnerCustomerId).toBe("cus_3");
+    });
   });
 
   it("ESTADOS_SUB_VALIDOS contiene exactamente active, trialing, past_due", () => {
