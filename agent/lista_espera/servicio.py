@@ -5,12 +5,15 @@ Reglas:
     un estado "invitado" a "en_espera".
   - Códigos de invitación: vienen de DONA_CODIGOS_INVITACION (lista separada
     por comas, en el entorno del backend). Lista vacía = ningún código es
-    válido (fail-closed). Se comparan con hmac.compare_digest, sin distinguir
-    mayúsculas, y deben tener al menos 8 caracteres.
+    válido (fail-closed). Cada código debe tener 80 bits (16 símbolos Crockford
+    base32, ver codigos.py); uno débil se ignora. Se comparan con
+    hmac.compare_digest tras normalizar (mayúsculas, sin guiones, O→0, I/L→1).
   - Fuerza bruta: los intentos fallidos usan el lockout persistente del
     dashboard con una clave propia ("invitacion:<correo>"). Como rotar
     correos lo esquiva, además hay límite por IP y global (limites.py) en
     el alta y en el canje.
+  - Privacidad: el alta responde siempre "en_espera" (no revela si un correo
+    ya estaba o canjeó). Retención, acceso y borrado en privacidad.py.
   - Correos: no se envía nada. El aviso de alta queda detrás de
     LISTA_ESPERA_ENVIO_CORREO_ACTIVO (constante en código: encenderla exige
     PR revisado, como DONA_EN_PAUSA en la landing).
@@ -24,9 +27,9 @@ import os
 import re
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 
-from agent.lista_espera import limites
+from agent.lista_espera import codigos, limites
 from agent.lista_espera.models import ListaEspera, insert_para
 from agent.memory import async_session
 
@@ -35,7 +38,6 @@ logger = logging.getLogger("dona")
 LISTA_ESPERA_ENVIO_CORREO_ACTIVO = False
 
 _EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,189}\.[^@\s]{2,63}$")
-_MIN_LARGO_CODIGO = 8
 _ORIGENES = ("web", "invitacion")
 
 
@@ -60,22 +62,23 @@ def normalizar_email(email: str) -> str:
     return e
 
 
-def _codigos_configurados() -> list[str]:
-    crudos = os.getenv("DONA_CODIGOS_INVITACION", "")
-    return [
-        c.strip().upper()
-        for c in crudos.split(",")
-        if len(c.strip()) >= _MIN_LARGO_CODIGO
-    ]
+def _codigos_configurados() -> tuple[str, ...]:
+    return codigos.cargar(os.getenv("DONA_CODIGOS_INVITACION", ""))
 
 
 def codigo_valido(codigo: str) -> bool:
     """True si el código coincide con alguno configurado (tiempo constante por código)."""
-    candidato = (codigo or "").strip().upper()
-    if len(candidato) < _MIN_LARGO_CODIGO:
+    # Cargar la configuración ANTES de mirar el candidato: así el error de un
+    # código configurado débil sale en el primer canje, sea cual sea. Si no,
+    # con los códigos viejos todavía configurados (y usuarios escribiendo esos
+    # mismos códigos viejos) el aviso no saldría nunca.
+    configurados = _codigos_configurados()
+    candidato = codigos.normalizar(codigo)
+    # El formato no es secreto: un candidato mal formado se descarta sin comparar.
+    if codigos.motivo_debil(candidato) is not None:
         return False
     valido = False
-    for c in _codigos_configurados():
+    for c in configurados:
         # Sin cortocircuito: se comparan todos para no filtrar cuál coincide.
         valido = hmac.compare_digest(c.encode("utf-8"), candidato.encode("utf-8")) or valido
     return valido
@@ -99,15 +102,22 @@ async def _consumir_limite(ambito: str, ip: str | None) -> None:
 
 
 async def registrar(email: str, origen: str = "web", ip: str | None = None) -> dict:
-    """Alta idempotente. Devuelve {"estado": ..., "nuevo": bool}.
+    """Alta idempotente. Devuelve SIEMPRE {"estado": "en_espera"}.
+
+    La respuesta no distingue correo nuevo, repetido o ya invitado: sería un
+    oráculo para saber si un correo ajeno está en la lista o canjeó una
+    invitación. El estado "invitado" solo se ve al canjear un código.
 
     Lanza EmailInvalido o DemasiadosIntentos (límite por IP o global). El
     límite se cuenta también para correos ya registrados: si no, repetir un
-    correo serviría para sondear estados sin coste.
+    correo serviría para sondear sin coste (p. ej. por tiempos de respuesta).
 
     INSERT ... ON CONFLICT DO NOTHING: dos altas simultáneas del mismo correo
     no chocan con el UNIQUE (antes, SELECT + INSERT daba 500 en PostgreSQL).
+    Cada alta nueva purga las filas que superan la retención (privacidad.py).
     """
+    from agent.lista_espera import privacidad
+
     e = normalizar_email(email)
     await _consumir_limite("alta", ip)
     origen = origen if origen in _ORIGENES else "web"
@@ -120,15 +130,11 @@ async def registrar(email: str, origen: str = "web", ip: str | None = None) -> d
             .returning(ListaEspera.id)
         )
         nuevo = creada.scalar_one_or_none() is not None
-        estado = "en_espera"
-        if not nuevo:
-            estado = (
-                await session.execute(select(ListaEspera.estado).where(ListaEspera.email == e))
-            ).scalar_one()
         await session.commit()
     if nuevo:
+        await privacidad.purgar_vencidos()
         await _notificar_alta(e, "en_espera")
-    return {"estado": estado, "nuevo": nuevo}
+    return {"estado": "en_espera"}
 
 
 async def canjear_invitacion(email: str, codigo: str, ip: str | None = None) -> dict:

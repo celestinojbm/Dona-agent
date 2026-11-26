@@ -37,10 +37,18 @@ import {
   MessageSquare,
   Mic,
   Paperclip,
+  Sparkles,
   Square,
   X,
 } from "lucide-react";
 import type { ChatResponse, MensajeChat } from "@/lib/chat-types";
+import { SelectorModelo } from "@/components/selector-modelo";
+import {
+  HAY_SELECCION_DE_MODELO,
+  MODELO_AUTO,
+  MODELOS_CHAT,
+  nombreModelo,
+} from "@/lib/modelos-chat";
 
 // Mapea el `error` del route a un mensaje humano (sin exponer internals).
 function mensajeErrorChat(code: string): string {
@@ -96,10 +104,12 @@ type TurnoUI =
 
 // Sugerencias de arranque (estado vacío): precargan el input. Todas mapean a
 // capacidades REALES de Dona por el mismo canal que WhatsApp.
+// Sugerencias concretas: cada una dice qué entrega (borrador, registro,
+// imagen) en vez de prometer algo ambiguo ("Lleva mis números").
 const SUGERENCIAS = [
-  "Genera una imagen",
-  "Lleva mis números de la semana",
-  "Redacta y envía un correo",
+  "Prepara un correo para un cliente",
+  "Registra una venta de hoy",
+  "Crea una imagen para Instagram",
   "Resume mis pendientes",
 ];
 
@@ -218,6 +228,12 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
   // Bloquea el envío/adjuntar en esa ventana (si no, se enviaría un turno que
   // descarta el audio a medio finalizar).
   const [procesandoVoz, setProcesandoVoz] = useState(false);
+  // Modo de modelo (F23). "Automático" por defecto: Dona elige en el backend.
+  // El selector solo se monta si hay modelos que funcionan de verdad
+  // (lib/modelos-chat.ts); hoy no hay ninguno, así que no se ofrece una
+  // elección que el backend ignoraría.
+  const [modelo, setModelo] = useState<string>(MODELO_AUTO);
+  const [selectorAbierto, setSelectorAbierto] = useState(false);
 
   const finRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -529,28 +545,36 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
       data-tour="chat"
       className={fullHeight ? "flex h-full min-h-0 flex-col" : undefined}
     >
-      <h2 className="eyebrow mb-6 flex items-center gap-2">
+      {/* En móvil a pantalla completa el título sobra (la cabecera ya dice
+          dónde estás) y roba altura al chat. */}
+      <h2
+        className={`eyebrow mb-6 items-center gap-2 ${
+          fullHeight ? "hidden md:flex" : "flex"
+        }`}
+      >
         <MessageSquare className="w-4 h-4" />
         Chat con Dona
       </h2>
 
       <div
         className={`surface-static overflow-hidden flex flex-col ${
-          fullHeight ? "min-h-0 flex-1" : ""
+          fullHeight
+            ? "min-h-0 flex-1 rounded-none border-0 shadow-none md:rounded-[1.25rem] md:border md:shadow-[0_1px_2px_rgba(11,11,18,0.03),0_12px_32px_-26px_rgba(11,11,18,0.16)]"
+            : ""
         }`}
       >
         {/* Lista de mensajes */}
         <div
-          className={`overflow-y-auto px-5 py-6 space-y-4 ${
+          className={`overflow-y-auto overscroll-contain px-5 py-6 space-y-4 ${
             fullHeight ? "flex-1 min-h-0" : "min-h-[280px] max-h-[520px]"
           }`}
         >
           {turnos.length === 0 && !enviando && (
-            <div className="flex h-full flex-col items-center justify-center gap-5 py-10 text-center">
+            <div className="flex min-h-full flex-col items-center justify-center gap-5 py-6 text-center">
               <p className="max-w-sm text-[color:var(--muted)]">
-                Escríbele a Dona como lo harías por WhatsApp. Puede generar
-                imágenes, llevar tus números, redactar y enviar correos, y más —
-                con los mismos permisos y costos.
+                Pídele a Dona lo que necesitas: crear una imagen, registrar tus
+                ventas y gastos o preparar un correo. Antes de enviar algo o
+                gastar créditos, te muestra una vista previa.
               </p>
               <div className="flex flex-wrap justify-center gap-2">
                 {SUGERENCIAS.map((s) => (
@@ -561,7 +585,7 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
                       setInput(s);
                       inputRef.current?.focus();
                     }}
-                    className="chip-pill cursor-pointer transition-colors hover:border-[color:var(--brand)] hover:text-[color:var(--ink)]"
+                    className="chip-pill min-h-11 cursor-pointer transition-colors hover:border-[color:var(--brand)] hover:text-[color:var(--ink)]"
                   >
                     {s}
                   </button>
@@ -585,7 +609,19 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
         </div>
 
         {/* Composer */}
-        <div className="border-t border-[color:var(--line)] p-4">
+        <div className="border-t border-[color:var(--line)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:p-4">
+          {HAY_SELECCION_DE_MODELO && selectorAbierto && (
+            <div id="selector-modelo-panel" className="mb-3">
+              <SelectorModelo
+                modelos={MODELOS_CHAT}
+                seleccionado={modelo}
+                onSeleccionar={(id) => {
+                  setModelo(id);
+                  setSelectorAbierto(false);
+                }}
+              />
+            </div>
+          )}
           <div className="rounded-2xl border border-[color:var(--line)] bg-[color:var(--surface)] shadow-[0_1px_2px_rgba(11,11,18,0.04),0_10px_28px_-22px_rgba(11,11,18,0.25)] transition-colors focus-within:border-[color:var(--brand)]">
             {adjunto && (
               <ChipAdjunto adjunto={adjunto} onQuitar={quitarAdjunto} />
@@ -608,7 +644,7 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
                   disabled={enviando || grabando || preparando || procesandoVoz}
                   aria-label="Adjuntar imagen"
                   title="Adjuntar imagen"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[color:var(--muted)] transition-colors hover:bg-[color:var(--fill)] hover:text-[color:var(--ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[color:var(--muted)] md:h-8 md:w-8 transition-colors hover:bg-[color:var(--fill)] hover:text-[color:var(--ink)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {preparando ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -622,7 +658,7 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
                   disabled={enviando || preparando || procesandoVoz}
                   aria-label={grabando ? "Detener grabación" : "Grabar nota de voz"}
                   title={grabando ? "Detener grabación" : "Grabar nota de voz"}
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors md:h-8 md:w-8 disabled:cursor-not-allowed disabled:opacity-40 ${
                     grabando
                       ? "bg-[#e64263]/15 text-[color:var(--dato-neg)]"
                       : "text-[color:var(--muted)] hover:bg-[color:var(--fill)] hover:text-[color:var(--ink)]"
@@ -630,6 +666,29 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
                 >
                   {grabando ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                 </button>
+                {HAY_SELECCION_DE_MODELO ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectorAbierto((v) => !v)}
+                    disabled={enviando || grabando}
+                    aria-expanded={selectorAbierto}
+                    aria-controls="selector-modelo-panel"
+                    aria-label={`Modelo: ${nombreModelo(modelo)}`}
+                    className="flex h-11 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] md:h-8 text-[color:var(--muted)] transition-colors hover:bg-[color:var(--fill)] hover:text-[color:var(--ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    <span className="max-w-[110px] truncate">{nombreModelo(modelo)}</span>
+                  </button>
+                ) : (
+                  <span
+                    title="Dona elige el modelo según la tarea"
+                    className="flex h-8 shrink-0 items-center gap-1 px-2 text-[11px] text-[color:var(--muted)]"
+                  >
+                    <Sparkles className="h-3 w-3" aria-hidden="true" />
+                    Automático
+                    <span className="sr-only">: Dona elige el modelo según la tarea</span>
+                  </span>
+                )}
                 {grabando ? (
                   <span className="flex items-center gap-1.5 pl-1 text-[11px] text-[color:var(--dato-neg)]">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[color:var(--dato-neg)]" />
@@ -645,7 +704,7 @@ export default function SeccionChat({ fullHeight = false }: SeccionChatProps = {
                 onClick={() => void enviar()}
                 disabled={enviando || grabando || !puedeEnviar}
                 aria-label="Enviar mensaje"
-                className="btn-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40"
+                className="btn-primary flex h-11 w-11 shrink-0 items-center justify-center rounded-full md:h-9 md:w-9 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {enviando ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

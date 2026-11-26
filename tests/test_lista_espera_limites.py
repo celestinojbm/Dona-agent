@@ -6,8 +6,10 @@ Cubre agent/lista_espera/limites.py a través de /internal/lista-espera[/invitac
   - Alta y canje: tope por IP → 429 con Retry-After; otra IP sigue pasando.
   - Rotar correos NO esquiva el límite de canje (el lockout por correo sí se
     esquivaba así: era el agujero).
-  - Cupo global: con muchas IPs distintas también se corta.
-  - Quien ya superó su tope por IP no gasta el cupo global.
+  - Volumen global (anti-DoS): pasar el umbral NO deja fuera a nadie; activa
+    el modo degradado, donde el tope por IP baja. Una IP nueva sigue
+    entrando; las IPs que ya gastaron el tope reducido, no.
+  - Quien ya superó su tope por IP no empuja el contador global.
   - IPv6 se agrupa por /64; IPv4 mapeada en IPv6 cuenta como la IPv4.
   - Sin IP o IP inválida → cubo compartido "sin-ip" (fail-closed).
   - Un código válido también consume intento (no se revela si vale).
@@ -35,7 +37,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 SECRET_TEST = "test-secret-not-real-lista-espera"
-CODIGO = "DONA-PILOTO-2026"
+CODIGO = "7KQ2-M9XW-4HTB-RZ8D"
 ALTA = "/internal/lista-espera"
 CANJE = "/internal/lista-espera/invitacion"
 
@@ -136,27 +138,57 @@ async def test_alta_email_invalido_no_consume(setup):
     assert _post(client, ALTA, email="ok@negocio.com", ip="203.0.113.7").status_code == 200
 
 
-async def test_alta_cupo_global(setup, monkeypatch):
+async def test_alta_umbral_global_no_bloquea_a_una_ip_nueva(setup, monkeypatch):
+    """Antes: 50 IPs agotaban el cupo de 500/h y nadie más podía apuntarse."""
     client, limites, _, _ = setup
-    monkeypatch.setitem(limites._LIMITES, "alta", (limites.ALTA_POR_IP, 3))
-    for i in range(3):
-        r = _post(client, ALTA, email=f"g{i}@negocio.com", ip=f"198.51.100.{i + 1}")
-        assert r.status_code == 200, i
-    r = _post(client, ALTA, email="g9@negocio.com", ip="198.51.100.200")
+    monkeypatch.setitem(limites._LIMITES, "alta", (limites.ALTA_POR_IP, 2, 3))
+    # El "atacante": 4 IPs → umbral global (3) superado.
+    for n in range(4):
+        r = _post(client, ALTA, email=f"bot{n}@x.com", ip=f"198.51.100.{n + 1}")
+        assert r.status_code == 200, n
+    # Un visitante legítimo desde otra IP sigue entrando (1 alta, y una repetición).
+    assert _post(client, ALTA, email="real@negocio.com", ip="203.0.113.50").status_code == 200
+    assert _post(client, ALTA, email="real@negocio.com", ip="203.0.113.50").status_code == 200
+    # Su tercer intento ya cae en el tope degradado (2).
+    r = _post(client, ALTA, email="real2@negocio.com", ip="203.0.113.50")
     assert r.status_code == 429
     assert int(r.headers["Retry-After"]) > 0
 
 
-async def test_ip_excedida_no_gasta_cupo_global(setup, monkeypatch):
+async def test_alta_modo_degradado_frena_a_las_ips_que_ya_gastaron(setup, monkeypatch):
     client, limites, _, _ = setup
-    monkeypatch.setitem(limites._LIMITES, "alta", (2, 3))
+    monkeypatch.setitem(limites._LIMITES, "alta", (limites.ALTA_POR_IP, 2, 3))
+    for i in range(3):
+        assert _post(client, ALTA, email=f"b{i}@x.com", ip="198.51.100.1").status_code == 200
+    # Umbral superado: 198.51.100.1 ya pasó del tope degradado (2), aunque
+    # siga por debajo del normal (10).
+    assert _post(client, ALTA, email="otra@x.com", ip="198.51.100.2").status_code == 200
+    assert _post(client, ALTA, email="b9@x.com", ip="198.51.100.1").status_code == 429
+
+
+async def test_modo_degradado_avisa_una_vez_por_ventana(setup, monkeypatch, caplog):
+    client, limites, _, _ = setup
+    monkeypatch.setitem(limites._LIMITES, "alta", (limites.ALTA_POR_IP, 2, 2))
+    with caplog.at_level("WARNING", logger="dona"):
+        for i in range(6):
+            _post(client, ALTA, email=f"l{i}@x.com", ip=f"198.51.100.{i + 1}")
+    avisos = [r for r in caplog.records if "modo degradado en alta" in r.getMessage()]
+    assert len(avisos) == 1
+
+
+async def test_ip_excedida_no_empuja_el_contador_global(setup, monkeypatch):
+    """Una sola IP no puede activar el modo degradado para los demás."""
+    client, limites, _, _ = setup
+    # Tope degradado 0: en modo degradado no entraría nadie.
+    monkeypatch.setitem(limites._LIMITES, "alta", (2, 0, 3))
     codigos = [
         _post(client, ALTA, email=f"a{i}@negocio.com", ip="203.0.113.7").status_code
         for i in range(6)
     ]
     assert codigos == [200, 200, 429, 429, 429, 429]
-    # Quedó 1 del cupo global (3 - 2): otra IP todavía entra.
+    # Global = 2 (los rechazados no cuentan) → sin modo degradado, otra IP entra.
     assert _post(client, ALTA, email="b@negocio.com", ip="198.51.100.1").status_code == 200
+    # Con esa, global = 3; la siguiente lo supera y el modo degradado sí actúa.
     assert _post(client, ALTA, email="c@negocio.com", ip="198.51.100.2").status_code == 429
 
 
@@ -209,15 +241,29 @@ async def test_codigo_valido_tambien_consume_y_luego_429(setup):
     assert "k-extra@negocio.com" not in correos
 
 
-async def test_canje_cupo_global(setup, monkeypatch):
+async def test_canje_umbral_global_no_bloquea_el_codigo_bueno(setup, monkeypatch):
+    """Antes: 25 IPs fallando agotaban los 200 canjes/h y ni el código bueno entraba."""
     client, limites, _, _ = setup
-    monkeypatch.setitem(limites._LIMITES, "canje", (limites.CANJE_POR_IP, 4))
-    for i in range(4):
+    monkeypatch.setitem(limites._LIMITES, "canje", (limites.CANJE_POR_IP, 3, 4))
+    for i in range(6):
         r = _post(client, CANJE, email=f"x{i}@negocio.com", codigo="MALO-MALO-1", ip=f"198.51.100.{i + 1}")
         assert r.status_code == 403, i
-    # Ni con el código bueno, ni desde una IP nueva.
     r = _post(client, CANJE, email="x9@negocio.com", codigo=CODIGO, ip="198.51.100.99")
-    assert r.status_code == 429
+    assert r.status_code == 200
+    assert r.json()["estado"] == "invitado"
+
+
+async def test_canje_modo_degradado_tope_por_ip(setup, monkeypatch):
+    client, limites, _, _ = setup
+    monkeypatch.setitem(limites._LIMITES, "canje", (limites.CANJE_POR_IP, 3, 4))
+    for i in range(5):
+        _post(client, CANJE, email=f"y{i}@negocio.com", codigo="MALO-MALO-1", ip=f"198.51.100.{i + 1}")
+    # Umbral superado. Una IP nueva tiene 3 intentos; el cuarto es 429.
+    estados = [
+        _post(client, CANJE, email=f"z{i}@negocio.com", codigo="MALO-MALO-1", ip="203.0.113.9").status_code
+        for i in range(4)
+    ]
+    assert estados == [403, 403, 403, 429]
 
 
 async def test_limites_de_alta_y_canje_son_independientes(setup):

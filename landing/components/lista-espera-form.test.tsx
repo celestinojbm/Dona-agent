@@ -37,7 +37,7 @@ describe("ListaEsperaForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Tengo un código de invitación" }));
     fireEvent.change(screen.getByLabelText("Correo"), { target: { value: "ana@negocio.com" } });
     fireEvent.change(screen.getByLabelText("Código de invitación"), {
-      target: { value: "DONA-PILOTO-2026" },
+      target: { value: "7KQ2-M9XW-4HTB-RZ8D" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Usar invitación" }));
     await waitFor(() => expect(screen.getByText("Invitación aceptada")).toBeInTheDocument());

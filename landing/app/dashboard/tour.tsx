@@ -10,9 +10,9 @@
 //   - Sin DB writes para mantener PR chico y reversible. localStorage
 //     basta para una experiencia de primer login. Si el usuario cambia
 //     de dispositivo / limpia caché, vuelve a verlo (aceptable).
-//   - El CTA "Empezar diagnóstico" abre wa.me con mensaje pre-llenado
-//     pero el usuario debe enviarlo manualmente. NO hay envío
-//     automático server-side.
+//   - El último paso lleva al chat de Dona dentro de la web (sin canales
+//     externos). WhatsApp quedó como integración opcional apagada
+//     (lib/whatsapp-opcional.ts).
 //   - Solo se renderiza si la suscripción está activa (estado='active'
 //     o 'past_due'); usuarios cancelados no necesitan tour, ven el
 //     CTA "Reactivar plan" del dashboard.
@@ -49,7 +49,7 @@ interface Step {
 const STEPS: readonly Step[] = [
   {
     icon: Wallet,
-    titulo: "Bienvenido a tu dashboard",
+    titulo: "Te damos la bienvenida a Dona",
     descripcion:
       "Aquí encuentras todo lo que pasa con tu cuenta de Dona en un solo lugar. La barra lateral te lleva a cada sección — veamos las principales en 30 segundos.",
     seccion: "inicio",
@@ -58,14 +58,14 @@ const STEPS: readonly Step[] = [
     icon: MessageSquare,
     titulo: "Chat con Dona",
     descripcion:
-      "Habla con Dona desde la web igual que por WhatsApp: mismas herramientas, mismos permisos y costos. Genera piezas, lleva tus números o pídele que prepare acciones.",
+      "Pídele lo que necesitas: preparar un correo, crear una imagen o registrar tus ventas y gastos. Antes de enviar algo o gastar créditos, te muestra una vista previa para que lo apruebes.",
     seccion: "chat",
   },
   {
     icon: Zap,
     titulo: "Acciones",
     descripcion:
-      "Todo lo que Dona prepara aparece aquí antes de ejecutarse: con preview, costo en créditos y nivel de riesgo. Tú apruebas o rechazas — nada irreversible sale sin tu OK.",
+      "Todo lo que Dona prepara aparece aquí antes de ejecutarse: con vista previa, costo en créditos y nivel de riesgo. Tú apruebas o rechazas — nada irreversible sale sin tu OK.",
     seccion: "acciones",
   },
   {
@@ -98,30 +98,12 @@ const STEPS: readonly Step[] = [
   },
   {
     icon: MessageSquare,
-    titulo: "Próximo paso · diagnóstico por WhatsApp",
+    titulo: "Cuéntale a Dona sobre tu negocio",
     descripcion:
-      "Para que Dona te ayude de verdad, cuéntale sobre tu negocio. Abre WhatsApp y escribe 'hola' para empezar el diagnóstico inicial. Solo te tomará unos minutos a lo largo de los próximos días.",
+      "Dona trabaja mejor si sabe a qué te dedicas. Escríbele en el chat qué vendes, a quién y qué te quita más tiempo. Puedes hacerlo ahora o cuando quieras.",
     seccion: "chat",
   },
 ];
-
-const DEFAULT_DIAGNOSTICO_TEXT =
-  "hola Dona, quiero empezar el diagnóstico de mi negocio.";
-
-function dashboardWhatsAppUrl(): string {
-  // NEXT_PUBLIC_DONA_WHATSAPP_NUMBER es opcional. Si está presente, abre
-  // un chat directo con Dona con un texto pre-llenado. Si no, usa
-  // wa.me sin número, que abre WhatsApp y deja al usuario elegir el
-  // contacto de Dona ya guardado. Sin envío automático.
-  const num =
-    process.env.NEXT_PUBLIC_DONA_WHATSAPP_NUMBER?.trim().replace(/^\+/, "") ||
-    "";
-  const text = encodeURIComponent(DEFAULT_DIAGNOSTICO_TEXT);
-  if (num && /^\d{10,15}$/.test(num)) {
-    return `https://wa.me/${num}?text=${text}`;
-  }
-  return `https://wa.me/?text=${text}`;
-}
 
 interface TourDashboardProps {
   /** Si false, el tour no se monta. Útil si la sub está canceled. */
@@ -220,13 +202,13 @@ export default function TourDashboard({
       />
 
       {/* Modal card */}
-      <div className="modal-panel relative z-10 max-w-md w-full p-8 text-[color:var(--ink)]">
+      <div className="modal-panel relative z-10 max-w-md w-full p-6 sm:p-8 text-[color:var(--ink)]">
         {/* Cerrar X arriba derecha */}
         <button
           type="button"
           aria-label="Saltar tour"
           onClick={cerrar}
-          className="absolute top-4 right-4 text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors cursor-pointer"
+          className="absolute top-2 right-2 grid h-11 w-11 place-items-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
@@ -248,7 +230,7 @@ export default function TourDashboard({
         >
           {current.titulo}
         </h2>
-        <p className="text-sm text-[color:var(--ink-2)] leading-relaxed mb-8">
+        <p className="text-sm text-[color:var(--ink-2)] leading-relaxed mb-6">
           {current.descripcion}
         </p>
 
@@ -268,44 +250,49 @@ export default function TourDashboard({
           ))}
         </div>
 
-        {/* Botones de navegación */}
-        <div className="flex items-center justify-between gap-3">
+        {/* Botones de navegación. En móvil se apilan a lo ancho (44 px de
+            alto mínimo): con tres botones en fila, "Empezar…" se partía en
+            dos líneas y "Listo" quedaba pegado al borde de la tarjeta. */}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"
             onClick={() => setStep((s) => Math.max(s - 1, 0))}
             disabled={esPrimero}
-            className="btn-ghost px-4 py-2.5 rounded-full text-sm flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed"
+            className={`btn-ghost min-h-11 px-4 rounded-full text-sm flex items-center justify-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed ${
+              esPrimero ? "hidden sm:flex" : ""
+            }`}
           >
             <ArrowLeft className="w-4 h-4" />
             Anterior
           </button>
 
           {esUltimo ? (
-            <div className="flex items-center gap-2">
-              <a
-                href={dashboardWhatsAppUrl()}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={cerrar}
-                className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2"
-              >
-                <MessageSquare className="w-4 h-4" />
-                Empezar diagnóstico
-              </a>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
               <button
                 type="button"
                 onClick={cerrar}
-                className="btn-ghost px-4 py-2.5 rounded-full text-sm flex items-center gap-1.5"
+                className="btn-ghost min-h-11 px-4 rounded-full text-sm flex items-center justify-center gap-1.5"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 Listo
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onIrASeccion?.("chat");
+                  cerrar();
+                }}
+                className="btn-primary min-h-11 px-5 rounded-full text-sm flex items-center justify-center gap-2 whitespace-nowrap"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Ir al chat
               </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => setStep((s) => Math.min(s + 1, STEPS.length - 1))}
-              className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-1.5"
+              className="btn-primary min-h-11 px-5 rounded-full text-sm flex items-center justify-center gap-1.5"
             >
               Siguiente
               <ArrowRight className="w-4 h-4" />
@@ -313,12 +300,12 @@ export default function TourDashboard({
           )}
         </div>
 
-        {/* Saltar (texto pequeño) */}
+        {/* Saltar (texto pequeño, zona táctil completa) */}
         {!esUltimo && (
           <button
             type="button"
             onClick={cerrar}
-            className="block mx-auto mt-4 text-xs text-[color:var(--muted)] hover:text-[color:var(--ink-2)] transition-colors"
+            className="mx-auto mt-2 flex min-h-11 items-center px-4 text-sm text-[color:var(--ink-2)] underline-offset-4 hover:underline"
           >
             Saltar tour
           </button>
@@ -329,4 +316,4 @@ export default function TourDashboard({
 }
 
 // Export del helper para tests / reuso futuro.
-export { dashboardWhatsAppUrl, STEPS, TOUR_STORAGE_KEY };
+export { STEPS, TOUR_STORAGE_KEY };

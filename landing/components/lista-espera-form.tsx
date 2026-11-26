@@ -127,7 +127,7 @@ export default function ListaEsperaForm() {
             maxLength={64}
             value={codigo}
             onChange={(e) => setCodigo(e.target.value)}
-            placeholder="DONA-XXXX-XXXX"
+            placeholder="XXXX-XXXX-XXXX-XXXX"
             className={`${campo} uppercase tracking-wide`}
           />
         </div>

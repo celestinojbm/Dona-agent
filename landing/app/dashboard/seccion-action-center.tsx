@@ -35,6 +35,7 @@ import {
   Play,
   RefreshCw,
 } from "lucide-react";
+import { siguientePasoSinWhatsApp, urlWhatsApp, WHATSAPP_HABILITADO } from "@/lib/whatsapp-opcional";
 import type {
   AccionAutomatizacion,
   EstadoAccion,
@@ -242,8 +243,8 @@ export default function SeccionActionCenter() {
           campos_totales: 6,
           razon: "Aún no encontramos tu perfil de negocio.",
           siguiente_paso: (
-            "Escribe 'empezar diagnóstico' a Dona por WhatsApp para " +
-            "configurar tu negocio. Vuelve aquí cuando termines."
+            "Cuéntale a Dona en el chat a qué se dedica tu negocio. " +
+            "Vuelve aquí cuando termines."
           ),
         });
       } else if (!res.ok) {
@@ -397,17 +398,19 @@ export default function SeccionActionCenter() {
                 </p>
               )}
               <p className="text-sm text-[color:var(--ink-2)] mb-4">
-                {perfilDiag.siguiente_paso}
+                {siguientePasoSinWhatsApp(perfilDiag.siguiente_paso)}
               </p>
               <div className="flex items-center gap-2">
-                <a
-                  href="https://wa.me/?text=empezar%20diagn%C3%B3stico"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-primary px-5 py-2.5 rounded-full text-sm"
-                >
-                  Abrir WhatsApp
-                </a>
+                {WHATSAPP_HABILITADO && (
+                  <a
+                    href={urlWhatsApp("empezar diagnóstico")}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary px-5 py-2.5 rounded-full text-sm"
+                  >
+                    Abrir WhatsApp
+                  </a>
+                )}
                 <button
                   onClick={handleGenerar}
                   disabled={generando}
@@ -531,14 +534,14 @@ function CardAccion({
         method: "POST",
       });
       if (!res.ok) {
-        toast.error("No pudimos cargar el preview HIGH. Intenta de nuevo.");
+        toast.error("No pudimos cargar la vista previa. Intenta de nuevo.");
         return;
       }
       const data = (await res.json()) as HighPreviewResponse;
       setHighPreview(data);
       setHighConfirmacion("");
     } catch {
-      toast.error("Error de conexión al cargar preview HIGH.");
+      toast.error("Error de conexión al cargar la vista previa.");
     } finally {
       setHighBusy(false);
     }
@@ -554,14 +557,14 @@ function CardAccion({
         body: JSON.stringify({ confirmacion: highConfirmacion }),
       });
       if (!res.ok) {
-        toast.error("No pudimos confirmar esta acción HIGH. Revisa su estado e intenta de nuevo.");
+        toast.error("No pudimos confirmar esta acción de riesgo alto. Revisa su estado e intenta de nuevo.");
         return;
       }
       setHighPreview(null);
       setHighConfirmacion("");
       await onConfirmada?.();
     } catch {
-      toast.error("Error de conexión al confirmar acción HIGH.");
+      toast.error("Error de conexión al confirmar la acción de riesgo alto.");
     } finally {
       setHighBusy(false);
     }
@@ -658,7 +661,7 @@ function CardAccion({
       {highPreview && highAprobadaPendienteConfirmacion && (
         <div className="mt-3 p-4 rounded-xl bg-orange-500/10 border border-orange-500/40">
           <p className="text-xs uppercase tracking-widest text-orange-700 font-semibold mb-3">
-            Preview de envío HIGH
+            Vista previa del envío · riesgo alto
           </p>
           <div className="grid gap-2 text-xs text-[color:var(--ink-2)]">
             <p>
@@ -669,7 +672,7 @@ function CardAccion({
               {highPreview.costo_creditos_estimado} créditos
             </p>
             <p>
-              <span className="text-[color:var(--muted)]">Riesgo:</span> HIGH
+              <span className="text-[color:var(--muted)]">Riesgo:</span> alto
             </p>
             <p className="whitespace-pre-wrap break-words">
               <span className="text-[color:var(--muted)]">Mensaje:</span>{" "}
@@ -761,7 +764,7 @@ function CardAccion({
               ) : (
                 <Lock className="w-3.5 h-3.5" />
               )}
-              Confirmar envío HIGH
+              Confirmar envío de riesgo alto
             </button>
           )}
         </div>

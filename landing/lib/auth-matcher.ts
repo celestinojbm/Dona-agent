@@ -13,28 +13,36 @@
 //   derivación usa customer_id), el matcher rechaza el login. Caso real
 //   reportado en producción.
 //
-// v3 (este archivo): dos pasadas.
-//   Pass 1 — match exacto: password coincide con un customer que TIENE
-//   sub válida. Igual a v2.
-//   Pass 2 — recovery cross-customer: si Pass 1 no encontró match pero
-//   el password coincidió con AL MENOS un customer del mismo email
-//   (ownership demostrado), buscar otro customer del mismo email que
-//   tenga sub válida y autorizar contra ése. El return incluye el flag
-//   `recovery: true` por si el caller quisiera loguearlo o flaggearlo
-//   en métricas; no afecta la sesión.
+// v3: dos pasadas. Pass 1 = match exacto (password ↔ customer con sub
+//   válida). Pass 2 = "recovery cross-customer": si el password coincidía
+//   con un customer SIN sub válida, autorizaba contra OTRO customer del
+//   mismo email que sí la tuviera.
 //
-// Por qué Pass 2 es seguro:
-//   - El password derivado de un customer_id solo lo conoce quien recibió
-//     el welcome de ese customer. Si match, el usuario probó posesión
-//     legítima del email.
-//   - Stripe tratá los customers con mismo email como "el mismo cliente
-//     desde el punto de vista del usuario humano". Que el ownership de
-//     uno habilite acceso al dashboard de la sub activa del mismo email
-//     es coherente con cómo el usuario percibe su cuenta.
-//   - Riesgo residual: si dos humanos distintos por accidente comparten
-//     un email, uno con password de su customer puede ver dashboard del
-//     otro. Riesgo de baja probabilidad y aceptable; el modelo de Dona
-//     asume 1 email = 1 cliente.
+// v4 (este archivo): se elimina el Pass 2 (issue #345). Queda solo el
+//   match exacto: el password tiene que ser el derivado del MISMO customer
+//   cuya sub autoriza la sesión.
+//
+// Por qué el Pass 2 era inseguro:
+//   - El supuesto de v3 era "si el password derivado de un customer_id
+//     coincide, el usuario demostró posesión del email". Falso: Stripe
+//     permite varios customers con el mismo email y no verifica que quien
+//     crea un customer controle ese buzón.
+//   - Ataque: alguien crea (o ya tiene) un customer propio sin sub válida
+//     con el email de la víctima y conoce el password derivado de ESE
+//     customer. Pass 1 falla; Pass 2 le entregaba la sesión del customer
+//     de la víctima (id, stripeCustomerId, subscriptionId, plan).
+//   - Conocer el password de un customer prueba, como mucho, que alguien
+//     te lo entregó para ESE customer_id. No prueba titularidad del correo
+//     ni autoriza la sesión de otro customer.
+//
+// Caso legítimo que v3 cubría (password viejo de cus_OLD, sub en cus_NEW):
+//   ahora el login falla cerrado. La recuperación se hace fuera de este
+//   path: el operador verifica al usuario por su canal (WhatsApp) y le
+//   entrega el password de cus_NEW regenerándolo con
+//   scripts/derive-dashboard-password.ts. Si algún día se reintroduce un
+//   recovery automático, tiene que exigir prueba de control del buzón
+//   (correo verificado / magic link), nunca solo "sé el password de un
+//   customer de este email".
 
 import type Stripe from "stripe";
 
@@ -47,20 +55,20 @@ export const ESTADOS_SUB_VALIDOS = [
 export type EstadoSubValido = (typeof ESTADOS_SUB_VALIDOS)[number];
 
 export interface AuthMatch {
-  /** Customer cuyo dashboard se autoriza · siempre el de la sub válida. */
+  /**
+   * Customer cuyo dashboard se autoriza. Siempre es el mismo customer cuyo
+   * password derivado coincidió y el que tiene la sub válida.
+   */
   customer: Stripe.Customer;
-  /** Subscription en estado válido (active/trialing/past_due). */
+  /** Subscription en estado válido (active/trialing/past_due) de `customer`. */
   subscription: Stripe.Subscription;
   /**
-   * true si el password coincidió con OTRO customer del mismo email y la
-   * sub está en éste. Implica que el usuario tiene un password "viejo"
-   * de un customer duplicado.
+   * Siempre false desde v4 (sin recovery cross-customer). Tipado como
+   * literal para que reintroducir un recovery obligue a cambiar el contrato
+   * a propósito. auth.ts no lo lee; los tests lo usan como invariante.
    */
-  recovery: boolean;
-  /**
-   * Customer cuyo password validó (puede ser igual a `customer` o no).
-   * Útil para que el caller logue el incidente sin filtrar PII.
-   */
+  recovery: false;
+  /** Customer cuyo password validó · desde v4 siempre igual a `customer.id`. */
   passwordOwnerCustomerId: string;
 }
 
@@ -113,13 +121,17 @@ async function buscarSubValida(
 /**
  * Encuentra el (customer, subscription) que autoriza el login.
  *
- * Estrategia en dos pasadas — ver header del archivo para razonamiento.
+ * Solo match exacto: el password tiene que coincidir con el derivado de un
+ * customer del email que TENGA sub válida, y la sesión es la de ese mismo
+ * customer. Nunca se autoriza contra un customer distinto del que validó
+ * el password (ver header).
  *
  * Retorna null si:
  *   - email o password vacíos
  *   - ningún customer con ese email
- *   - password no coincide con ningún customer del email (no hay ownership)
- *   - ownership demostrado pero NINGÚN customer del email tiene sub válida
+ *   - password no coincide con ningún customer del email
+ *   - el customer cuyo password coincide no tiene sub válida (aunque otro
+ *     customer del mismo email sí la tenga)
  */
 export async function encontrarCustomerConSub(
   email: string,
@@ -130,52 +142,25 @@ export async function encontrarCustomerConSub(
 
   const customers = await deps.customers.list({ email, limit: 100 });
 
-  // Filtrar a customers activos y con email exacto. Hacemos esto una
-  // vez para no recorrer dos veces.
-  const candidatos: Stripe.Customer[] = [];
   for (const raw of customers.data) {
     if (!esCustomerActivo(raw)) continue;
     if (raw.email !== email) continue;
-    candidatos.push(raw);
-  }
 
-  if (candidatos.length === 0) return null;
-
-  // Pass 1 — match exacto: password ↔ customer con sub válida.
-  let passwordOwner: Stripe.Customer | null = null;
-  for (const c of candidatos) {
-    const expected = deps.derivePassword(c.id);
+    const expected = deps.derivePassword(raw.id);
     if (!expected) continue;
     if (!deps.passwordMatch(password, expected)) continue;
 
-    // Password coincide con este customer · marcamos ownership.
-    passwordOwner = c;
-
-    const sub = await buscarSubValida(c.id, deps);
+    // Solo se consulta la sub del customer cuyo password coincidió. Si no
+    // tiene sub válida, se sigue buscando otro customer cuyo password
+    // coincida (en la práctica no hay: la derivación es por customer_id),
+    // pero NUNCA se mira la sub de un customer cuyo password no coincidió.
+    const sub = await buscarSubValida(raw.id, deps);
     if (sub) {
       return {
-        customer: c,
+        customer: raw,
         subscription: sub,
         recovery: false,
-        passwordOwnerCustomerId: c.id,
-      };
-    }
-  }
-
-  // Pass 2 — recovery: ownership demostrado pero el customer dueño del
-  // password no tiene sub válida. Buscar entre los OTROS customers del
-  // mismo email uno que sí tenga.
-  if (!passwordOwner) return null;
-
-  for (const c of candidatos) {
-    if (c.id === passwordOwner.id) continue;
-    const sub = await buscarSubValida(c.id, deps);
-    if (sub) {
-      return {
-        customer: c,
-        subscription: sub,
-        recovery: true,
-        passwordOwnerCustomerId: passwordOwner.id,
+        passwordOwnerCustomerId: raw.id,
       };
     }
   }

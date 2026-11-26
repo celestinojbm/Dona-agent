@@ -20,7 +20,7 @@
   DONA — Design System v7 (landing clara editorial)
   Base editorial tipo case-study premium: fondo gris cálido, tarjetas blancas
   de radio generoso, titulares gigantes a dos líneas, párrafos con énfasis a
-  dos tonos y UN solo acento de marca (violeta-índigo). La vitalidad Luma
+  dos tonos y acento grafito (sin violeta en la app desde la Fase 1 móvil). La vitalidad Luma
   vive contenida en el escenario del hero (panel de gradiente) y en la
   palabra-sello del titular.
 */
@@ -36,13 +36,13 @@
   /* Superficie de página: gris cálido editorial (no blanco puro) */
   --bg: #f2f2f0;
   --bg-soft: #fafaf9;    /* hover fills y superficies internas sutiles */
-  --fill: #e9eaf4;       /* relleno gris-violeta para chips/celdas dentro de tarjetas */
+  --fill: #ebebe8;       /* relleno gris neutro para chips/celdas dentro de tarjetas */
   --ink: #0b0b12;        /* texto principal — contraste ~17:1 sobre --bg */
   --ink-2: #3f3f4b;      /* texto secundario — ~8:1 */
   --muted: #66666f;      /* muted — ~5:1, pasa AA sobre --bg */
   --line: #e2e2dd;       /* hairlines sobre gris cálido y dentro de tarjetas */
-  --brand: #5b5bf0;      /* acento de marca (un solo acento) */
-  --brand-ink: #4a3fd6;  /* brand para texto sobre claro (más contraste) */
+  --brand: #111315;      /* acento grafito (sin violeta: auditoría 22 nov) */
+  --brand-ink: #111315;  /* acento para texto sobre claro */
   --brand-soft: #8f8ff7; /* extremo claro del gradiente de marca */
   --dato-neg: #e64263;   /* semántica de datos en mockups: negativo (rojo Merxo) */
   --surface: #fff;       /* superficie de tarjetas/controles (blanco en claro) */
@@ -50,18 +50,18 @@
 
 /* ── Tema OSCURO (opt-in vía next-themes; clase .dark en <html>) ─────────
    Negro editorial SOBRIO — no el look LTX oscuro-dramático rechazado. El
-   claro sigue de default. Se conservan el acento violeta y el gradiente
-   violeta→naranja (funcionan sobre oscuro). Contrastes apuntados a AA. */
+   claro sigue de default. Acento claro neutro (sin violeta); el gradiente
+   violeta→naranja solo vive en la landing comercial. Contrastes apuntados a AA. */
 .dark {
   --bg: #0d0d11;         /* fondo de página: negro cálido, no puro */
   --bg-soft: #17171d;    /* superficie interna sutil */
-  --fill: #20202b;       /* relleno gris-violeta oscuro */
+  --fill: #202024;       /* relleno gris neutro oscuro */
   --ink: #f3f3f1;        /* texto principal — ~16:1 sobre --bg */
   --ink-2: #c3c3cc;      /* texto secundario */
   --muted: #8b8b96;      /* muted — AA sobre --bg */
   --line: #29292f;       /* hairlines sobre oscuro */
-  --brand: #6d6df3;      /* acento (un poco más brillante en oscuro) */
-  --brand-ink: #a6a6fb;  /* brand para texto sobre oscuro (más claro) */
+  --brand: #e8e8e6;      /* acento claro neutro sobre oscuro */
+  --brand-ink: #e8e8e6;  /* acento para texto sobre oscuro */
   --brand-soft: #a9a9f9;
   --dato-neg: #f4708c;   /* negativo, aclarado para oscuro */
   --surface: #16161c;    /* superficie de tarjetas/controles en oscuro */
@@ -90,7 +90,7 @@ body {
 }
 
 ::selection {
-  background: rgba(91, 91, 240, 0.16);
+  background: rgba(11, 11, 18, 0.12);
   color: var(--ink);
 }
 
@@ -111,13 +111,21 @@ body {
   background: var(--ink);
   color: var(--bg);
   border: 1px solid transparent;
-  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.1), 0 10px 26px -14px rgba(11, 11, 18, 0.5);
+  /* Sombra mínima: la jerarquía la da el color, no una sombra pesada. */
+  box-shadow: 0 1px 2px rgba(11, 11, 18, 0.12);
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
+@media (hover: hover) {
 .btn-primary:hover {
   background: #26262e;
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(11, 11, 18, 0.1), 0 16px 32px -14px rgba(11, 11, 18, 0.55);
+}
+}
+/* Feedback táctil: en móvil no hay hover; el toque se nota al presionar. */
+.btn-primary:active,
+.btn-ghost:active {
+  transform: scale(0.98);
 }
 .btn-primary:disabled {
   opacity: 0.55;
@@ -130,10 +138,12 @@ body {
   border: 1px solid var(--line);
   transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
 }
+@media (hover: hover) {
 .btn-ghost:hover {
   border-color: #cfcfc9;
   background: var(--bg-soft);
   transform: translateY(-1px);
+}
 }
 /* Botón sobre superficies de gradiente (tarjetas destacadas) */
 .btn-inverse {
@@ -143,9 +153,11 @@ body {
   box-shadow: 0 1px 2px rgba(11, 11, 18, 0.12);
   transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
+@media (hover: hover) {
 .btn-inverse:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 18px -8px rgba(11, 11, 18, 0.35);
+}
 }
 .btn-inverse:disabled {
   opacity: 0.6;
@@ -171,10 +183,12 @@ body {
   box-shadow: 0 1px 2px rgba(11, 11, 18, 0.03), 0 12px 32px -26px rgba(11, 11, 18, 0.16);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
+@media (hover: hover) {
 .surface-card:hover {
   transform: translateY(-2px);
   border-color: #d4d4ce;
   box-shadow: 0 2px 4px rgba(11, 11, 18, 0.04), 0 22px 46px -28px rgba(11, 11, 18, 0.2);
+}
 }
 /* Un botón-tarjeta deshabilitado no debe "saltar" al hover */
 button.surface-card:disabled:hover {
@@ -217,12 +231,14 @@ button.surface-card:disabled:hover {
 
 /* Etiqueta de sección (eyebrow) — en la sans de la página, no mono
    (pedido del dueño: fuera la letra mono en labels) */
+/* Sin mayúsculas espaciadas (auditoría 22 nov): en móvil gastaban ancho
+   y sonaban a landing. Etiqueta en caja normal, peso medio. */
 .eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--ink-2);
 }
 
 /* ── Párrafo editorial a dos tonos (patrón case-study) ──────────────────

@@ -6,10 +6,21 @@ Por qué hace falta además del lockout por correo:
   alta no tenía ningún límite: un bot podía llenar la tabla con correos falsos.
 
 Política (ventanas fijas de 1 hora, constantes en código):
-  - Alta:  ALTA_POR_IP por IP · ALTA_GLOBAL en total.
-  - Canje: CANJE_POR_IP por IP · CANJE_GLOBAL en total (con éxito o sin él).
-  - Se comprueba la IP ANTES que el cupo global: quien ya superó su tope
-    personal no gasta el cupo compartido (mismo criterio que rate_limiter.py).
+  - Alta:  ALTA_POR_IP por IP.  Canje: CANJE_POR_IP por IP (con éxito o sin él).
+  - El volumen global NO es un muro, es un interruptor: si en la ventana pasan
+    más de ALTA_UMBRAL_GLOBAL altas (o CANJE_UMBRAL_GLOBAL canjes), se entra en
+    modo degradado y el tope por IP baja a ALTA_POR_IP_DEGRADADO /
+    CANJE_POR_IP_DEGRADADO hasta que acaba la ventana.
+
+    Por qué no un cupo global duro: con 500/h, quien tuviera 50 IPs lo
+    agotaba y dejaba fuera a TODOS los usuarios durante una hora (palanca de
+    DoS barata). En modo degradado el atacante sigue limitado por IP y un
+    visitante legítimo (que necesita 1 alta o 1-3 canjes) sigue entrando.
+    Lo que protegía el cupo de canje (fuerza bruta de códigos) ya no depende
+    del volumen: los códigos tienen 80 bits (codigos.py).
+  - Se comprueba la IP ANTES de contar en el global: quien ya superó su tope
+    personal no empuja el contador global (una sola IP no puede activar el
+    modo degradado; mismo criterio que rate_limiter.py).
 
 Dónde vive el contador: en la base (tabla ``lista_espera_limite``), no en
 memoria ni en Redis. El backend puede correr con varios workers y sin Redis;
@@ -32,6 +43,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import ipaddress
+import logging
 import os
 import time
 from datetime import datetime, timedelta
@@ -42,15 +54,20 @@ from sqlalchemy.orm import Mapped, mapped_column
 from agent.lista_espera.models import insert_para
 from agent.memory import Base, async_session
 
+logger = logging.getLogger("dona")
+
 VENTANA_SEGUNDOS = 60 * 60
 ALTA_POR_IP = 10
-ALTA_GLOBAL = 500
+ALTA_POR_IP_DEGRADADO = 2
+ALTA_UMBRAL_GLOBAL = 500
 CANJE_POR_IP = 20
-CANJE_GLOBAL = 200
+CANJE_POR_IP_DEGRADADO = 3
+CANJE_UMBRAL_GLOBAL = 200
 
+# ámbito → (tope por IP, tope por IP en modo degradado, umbral global)
 _LIMITES = {
-    "alta": (ALTA_POR_IP, ALTA_GLOBAL),
-    "canje": (CANJE_POR_IP, CANJE_GLOBAL),
+    "alta": (ALTA_POR_IP, ALTA_POR_IP_DEGRADADO, ALTA_UMBRAL_GLOBAL),
+    "canje": (CANJE_POR_IP, CANJE_POR_IP_DEGRADADO, CANJE_UMBRAL_GLOBAL),
 }
 _SIN_IP = "sin-ip"
 _EPOCH = datetime(1970, 1, 1)  # datetimes naive en UTC, como el resto del repo
@@ -74,7 +91,7 @@ class ListaEsperaLimite(Base):
 class LimiteExcedido(RuntimeError):
     def __init__(self, motivo: str, retry_after_segundos: int) -> None:
         super().__init__(motivo)
-        self.motivo = motivo  # "ip" | "global"
+        self.motivo = motivo  # "ip" | "degradado"
         self.retry_after_segundos = retry_after_segundos
 
 
@@ -127,9 +144,10 @@ async def _incrementar(session, clave: str, expira_en: datetime) -> int:
 async def consumir(ambito: str, ip: str | None) -> None:
     """Cuenta un intento de ``ambito`` ("alta" | "canje") para esta IP.
 
-    Lanza LimiteExcedido si se supera el tope por IP o el global.
+    Lanza LimiteExcedido si se supera el tope por IP (el normal, o el
+    reducido cuando el volumen global de la ventana pasa del umbral).
     """
-    por_ip, global_ = _LIMITES[ambito]
+    por_ip, por_ip_degradado, umbral_global = _LIMITES[ambito]
     epoch = _ahora_epoch()
     ahora = _EPOCH + timedelta(seconds=epoch)
     indice = epoch // VENTANA_SEGUNDOS
@@ -159,5 +177,12 @@ async def consumir(ambito: str, ip: str | None) -> None:
             raise LimiteExcedido("ip", retry)
         conteo_global = await _incrementar(session, clave_global, expira_en)
         await session.commit()
-    if conteo_global > global_:
-        raise LimiteExcedido("global", retry)
+    if conteo_global == umbral_global + 1:
+        # Exactamente una petición por ventana ve este valor (UPSERT atómico).
+        logger.warning(
+            f"[LISTA-ESPERA] modo degradado en {ambito}: más de {umbral_global} "
+            f"intentos esta hora · tope por IP {por_ip} → {por_ip_degradado} "
+            f"durante {retry}s"
+        )
+    if conteo_global > umbral_global and conteo_ip > por_ip_degradado:
+        raise LimiteExcedido("degradado", retry)

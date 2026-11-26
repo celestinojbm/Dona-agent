@@ -4,7 +4,8 @@
 Cubre agent/lista_espera y las rutas POST /internal/lista-espera[/invitacion]:
 
   - Firma HMAC ausente o inválida → 401 (no se toca la base).
-  - Alta: correo válido → en_espera; repetido → idempotente (nuevo=False).
+  - Alta: correo válido → en_espera; repetido → idempotente y con la misma
+    respuesta (no revela si el correo ya estaba).
   - Correo inválido → 400 email_invalido.
   - Invitación: sin códigos configurados → 403 (fail-closed); código válido
     (sin distinguir mayúsculas) → invitado; un invitado que vuelve a
@@ -34,7 +35,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 SECRET_TEST = "test-secret-not-real-lista-espera"
-CODIGO = "DONA-PILOTO-2026"
+CODIGO = "7KQ2-M9XW-4HTB-RZ8D"
 
 
 def _firmar(body: bytes, secret: str = SECRET_TEST) -> str:
@@ -96,9 +97,9 @@ async def test_alta_idempotente(setup):
     client, servicio, memory = setup
     r = _post(client, "/internal/lista-espera", email="  Dueña@Negocio.com ")
     assert r.status_code == 200
-    assert r.json() == {"estado": "en_espera", "nuevo": True}
+    assert r.json() == {"estado": "en_espera"}
     r = _post(client, "/internal/lista-espera", email="dueña@negocio.com")
-    assert r.json() == {"estado": "en_espera", "nuevo": False}
+    assert r.json() == {"estado": "en_espera"}
     filas = await _filas(memory, servicio)
     assert [f.email for f in filas] == ["dueña@negocio.com"]
 
@@ -117,9 +118,9 @@ async def test_invitacion_valida_marca_invitado(setup):
     r = _post(client, "/internal/lista-espera/invitacion", email="ana@negocio.com", codigo=CODIGO.lower())
     assert r.status_code == 200
     assert r.json() == {"estado": "invitado"}
-    # Volver a apuntarse no degrada el estado.
+    # Volver a apuntarse no degrada el estado ni lo revela.
     r = _post(client, "/internal/lista-espera", email="ana@negocio.com")
-    assert r.json() == {"estado": "invitado", "nuevo": False}
+    assert r.json() == {"estado": "en_espera"}
     (fila,) = await _filas(memory, servicio)
     assert fila.estado == "invitado" and fila.invitado_en is not None
 
@@ -188,7 +189,6 @@ async def _altas_y_canjes_concurrentes(servicio, memory):
     )
     errores = [repr(x) for x in altas + canjes if isinstance(x, BaseException)]
     assert not errores, errores
-    assert sum(1 for a in altas if a["nuevo"]) == 1
     assert {a["estado"] for a in altas} == {"en_espera"}
     assert {c["estado"] for c in canjes} == {"invitado"}
     filas = {f.email: f for f in await _filas(memory, servicio)}
