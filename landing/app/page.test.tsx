@@ -1,9 +1,10 @@
 /** @vitest-environment jsdom */
 // landing/app/page.test.tsx — Páginas públicas en pausa.
 //
-// Inicio, checkout, success, cancel, login, dashboard y soporte muestran el
-// estado real; ninguna afirma pagos, ofrece planes, pide credenciales ni
-// publica un contacto aún no verificado. Rutas internas retiradas → 404.
+// Inicio, checkout, success, cancel, login, dashboard y soporte muestran la
+// lista de espera con invitaciones (#334): dicen que no hay compras, no
+// afirman pagos, no ofrecen planes, no piden contraseña ni publican un
+// contacto aún no verificado. Rutas internas retiradas → 404.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
@@ -46,10 +47,15 @@ const paginas: [string, () => ReactElement][] = [
 ];
 
 describe.each(paginas)("página %s en pausa", (_ruta, Pagina) => {
-  it("muestra el aviso de pausa y enlaces a términos y privacidad", () => {
+  it("muestra la lista de espera, que no hay compras y los enlaces legales", () => {
     render(Pagina());
-    expect(screen.getByRole("heading", { name: "Dona está en pausa" })).toBeInTheDocument();
-    expect(screen.getByText(AVISO)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dona abre por invitación" })).toBeInTheDocument();
+    expect(screen.getByText(/no aceptamos suscripciones ni compras/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Correo")).toHaveAttribute("type", "email");
+    expect(screen.getByRole("button", { name: "Unirme a la lista" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Tengo un código de invitación" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Términos y condiciones" })).toHaveAttribute(
       "href",
       "/terminos-y-condiciones",
@@ -65,7 +71,8 @@ describe.each(paginas)("página %s en pausa", (_ruta, Pagina) => {
     const texto = container.textContent ?? "";
     expect(texto).not.toMatch(/Pago exitoso|está activa|Empezar|Ver planes|\$20|\$40/);
     expect(texto).not.toContain("WhatsApp");
-    expect(container.querySelector("form")).toBeNull();
+    // Único formulario: la lista de espera (correo). Nunca contraseña.
+    expect(container.querySelectorAll("form")).toHaveLength(1);
     expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(container.querySelector('a[href^="mailto:"]')).toBeNull();
     expect(container.querySelector('a[href*="/dashboard"]')).toBeNull();
@@ -84,7 +91,7 @@ describe("páginas con lógica específica", () => {
     authSpy.mockResolvedValue({ user: { email: "usuario@example.com" } });
     render(DashboardPage());
     expect(authSpy).not.toHaveBeenCalled();
-    expect(screen.getByText(AVISO)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dona abre por invitación" })).toBeInTheDocument();
   });
 
   it("engineering y prototipo responden 404", () => {
