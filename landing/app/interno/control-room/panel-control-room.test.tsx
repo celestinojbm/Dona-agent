@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-// landing/app/dashboard/seccion-control-room.test.tsx
+// landing/app/interno/control-room/panel-control-room.test.tsx
 //
 // MVP interno del Dona Control Room. Render estático: progreso del
 // proyecto, agentes, agent-runs versionados y guardrails.
@@ -12,7 +12,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import SeccionControlRoom from "./seccion-control-room";
+import SeccionControlRoom from "./panel-control-room";
 
 afterEach(() => {
   cleanup();

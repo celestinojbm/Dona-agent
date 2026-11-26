@@ -143,7 +143,7 @@ export default function SeccionReportes() {
         </div>
       )}
 
-      {/* Empty state · los datos dependen de captura por WhatsApp */}
+      {/* Empty state · los datos se capturan conversando con Dona en el chat */}
       {load.status === "ready" && reporte && !reporte.hay_datos && (
         <div className="surface-card p-8 text-center">
           <p className="text-[color:var(--ink-2)]">
@@ -151,7 +151,7 @@ export default function SeccionReportes() {
             {reporte.etiqueta ? ` en ${reporte.etiqueta}` : ""}.
           </p>
           <p className="text-xs text-[color:var(--muted)] mt-2">
-            Cuéntale a Dona por WhatsApp tus ventas y gastos —
+            Cuéntale a Dona en el chat tus ventas y gastos —
             &quot;vendí 3 pizzas en 450&quot;— y tus números aparecerán aquí.
           </p>
         </div>

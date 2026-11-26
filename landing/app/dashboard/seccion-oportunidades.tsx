@@ -26,6 +26,7 @@ import {
   TrendingUp,
   ClipboardList,
 } from "lucide-react";
+import { siguientePasoSinWhatsApp } from "@/lib/whatsapp-opcional";
 import type {
   OportunidadDetectada,
   OportunidadesConEstadoResponse,
@@ -174,7 +175,7 @@ export default function SeccionOportunidades() {
             )}
           {data?.perfil_siguiente_paso && (
             <p className="text-xs text-amber-700 mt-2">
-              {data.perfil_siguiente_paso}
+              {siguientePasoSinWhatsApp(data.perfil_siguiente_paso)}
             </p>
           )}
         </div>

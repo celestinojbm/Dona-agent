@@ -19,8 +19,8 @@ const MODELOS = [
 describe("SelectorModelo", () => {
   it("expone un radiogroup con Auto + modelos", () => {
     render(<SelectorModelo modelos={MODELOS} seleccionado="auto" onSeleccionar={() => {}} />);
-    expect(screen.getByRole("radiogroup", { name: "Modelo" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Auto/ })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Modelo de este chat" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Automático/ })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /Claude Sonnet/ })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /GPT-4o/ })).toBeInTheDocument();
   });
@@ -28,7 +28,7 @@ describe("SelectorModelo", () => {
   it("marca el seleccionado con aria-checked", () => {
     render(<SelectorModelo modelos={MODELOS} seleccionado="gpt-4o" onSeleccionar={() => {}} />);
     expect(screen.getByRole("radio", { name: /GPT-4o/ })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("radio", { name: /Auto/ })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("radio", { name: /Automático/ })).toHaveAttribute("aria-checked", "false");
   });
 
   it("muestra 'recomendado' como texto en el modelo recomendado", () => {
@@ -48,5 +48,14 @@ describe("SelectorModelo", () => {
     render(<SelectorModelo modelos={MODELOS} seleccionado="auto" onSeleccionar={onSel} />);
     fireEvent.click(screen.getByRole("radio", { name: /Claude Sonnet/ }));
     expect(onSel).toHaveBeenCalledWith("claude-sonnet-4-5");
+  });
+
+  it("el título es un encabezado dentro del panel, no un <legend> sobre el borde", () => {
+    const { container } = render(
+      <SelectorModelo modelos={MODELOS} seleccionado="auto" onSeleccionar={() => {}} />,
+    );
+    expect(container.querySelector("legend")).toBeNull();
+    expect(container.querySelector("fieldset")).toBeNull();
+    expect(screen.getByText("Modelo de este chat")).toBeInTheDocument();
   });
 });

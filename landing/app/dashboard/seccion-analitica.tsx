@@ -8,7 +8,7 @@
 //   - KPIs del período (ventas, gastos, utilidad, pedidos) con delta
 //     semanal cuando el backend lo provee (/api/reportes mes + semana).
 //   - Actividad de créditos: barras verticales de los últimos movimientos
-//     (recargas en violeta, consumos en tinta suave) — datos de
+//     (recargas en grafito, consumos en tinta suave) — datos de
 //     dashboard-data que el shell ya tiene.
 //   - Distribución de gastos por categoría (barras de gradiente).
 //   - Resumen de acciones (activas vs históricas) con acceso directo.
@@ -248,7 +248,7 @@ export default function SeccionAnalitica({
             ) : (
               <>
                 <div className="mb-3 flex flex-wrap gap-2">
-                  <span className="rounded-full bg-[color:var(--brand)] px-2.5 py-1 text-[11px] font-medium text-white">
+                  <span className="rounded-full bg-[color:var(--brand)] px-2.5 py-1 text-[11px] font-medium text-[color:var(--bg)]">
                     Recargas +{recargado}
                   </span>
                   <span className="rounded-full bg-[color:var(--fill)] px-2.5 py-1 text-[11px] font-medium text-[color:var(--ink)]">
@@ -273,7 +273,7 @@ export default function SeccionAnalitica({
                 </div>
                 <div className="mt-3 border-t border-dashed border-[color:var(--line)] pt-2">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                    Recargas en violeta · consumos en gris
+                    Recargas en grafito · consumos en gris
                   </p>
                 </div>
               </>

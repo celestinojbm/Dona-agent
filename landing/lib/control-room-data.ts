@@ -1,3 +1,4 @@
+import "server-only";
 import agentRunsIndex from "../data/agent-runs-index.json";
 
 export type RiesgoRun = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";

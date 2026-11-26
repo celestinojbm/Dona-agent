@@ -44,8 +44,9 @@ describe("SeccionChat", () => {
   it("muestra el empty state antes del primer mensaje", () => {
     render(<SeccionChat />);
     expect(
-      screen.getByText(/Escríbele a Dona como lo harías por WhatsApp/i),
+      screen.getByText(/Pídele a Dona lo que necesitas/i),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/WhatsApp/i)).not.toBeInTheDocument();
   });
 
   it("pinta el turno del usuario y la respuesta de Dona", async () => {
@@ -281,5 +282,18 @@ describe("SeccionChat · media (Fase 3)", () => {
         });
       }
     }
+  });
+});
+
+describe("SeccionChat · modo de modelo", () => {
+  it("va en Automático y no ofrece modelos que el backend no aplica", () => {
+    render(<SeccionChat />);
+    expect(screen.getByText("Automático")).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Modelo:/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/no se aplica en el backend/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/GPT-4o|Sonnet|Haiku/)).not.toBeInTheDocument();
   });
 });

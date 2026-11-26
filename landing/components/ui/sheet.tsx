@@ -64,7 +64,7 @@ const SheetContent = React.forwardRef<
       {children}
       {showClose && (
         <SheetPrimitive.Close
-          className="absolute right-4 top-4 grid h-9 w-9 cursor-pointer place-items-center rounded-full border border-[color:var(--line)] bg-white text-[color:var(--ink-2)] transition-colors hover:text-[color:var(--ink)]"
+          className="absolute right-3 top-3 grid h-11 w-11 cursor-pointer place-items-center rounded-full border border-[color:var(--line)] bg-white text-[color:var(--ink-2)] transition-colors hover:text-[color:var(--ink)]"
           aria-label="Cerrar"
         >
           <X className="h-5 w-5" />

@@ -7,7 +7,7 @@
 //   - navegación: sidebar con secciones, pill activa, cambio de sección
 //   - deep-link: ?s=chat monta la sección Chat
 //   - badge de acciones pendientes (estados no terminales)
-//   - gates: Control Room solo allowlist; acciones/oportunidades fuera
+//   - gates: el Control Room ya no vive en el shell; acciones/oportunidades fuera
 //     con sub cancelada
 // Los fetch se mockean por URL; el tour se marca "visto" en localStorage
 // para que su modal no interfiera con las queries.
@@ -93,14 +93,14 @@ describe("DashboardShell · sidebar y navegación", () => {
   it("muestra las secciones principales en la sidebar tras cargar", async () => {
     render(<DashboardClient session={SESSION} />);
     const nav = await screen.findAllByRole("navigation", {
-      name: /secciones del dashboard/i,
+      name: /secciones de dona/i,
     });
     expect(nav.length).toBeGreaterThan(0);
     for (const label of [
       "Inicio",
       "Chat",
       "Analítica",
-      "Outputs",
+      "Galería",
       "Reportes",
       "Créditos y plan",
       "Integraciones",
@@ -156,20 +156,37 @@ describe("DashboardShell · sidebar y navegación", () => {
 });
 
 describe("DashboardShell · gates", () => {
-  it("oculta Control Room para emails fuera de la allowlist", async () => {
-    render(<DashboardClient session={SESSION} />);
-    await screen.findAllByRole("button", { name: /Inicio/i });
-    expect(
-      screen.queryByRole("button", { name: /Control Room/i }),
-    ).not.toBeInTheDocument();
+  it("no ofrece el Control Room a nadie, ni a la allowlist interna", async () => {
+    for (const sesion of [SESSION, SESSION_INTERNA]) {
+      render(<DashboardClient session={sesion} />);
+      await screen.findAllByRole("button", { name: /Inicio/i });
+      expect(
+        screen.queryByRole("button", { name: /Control Room/i }),
+      ).not.toBeInTheDocument();
+      cleanup();
+    }
   });
 
-  it("muestra Control Room (marcado interno) para la allowlist", async () => {
+  it("?s=control-room no monta el panel interno", async () => {
+    window.history.replaceState(null, "", "/dashboard?s=control-room");
     render(<DashboardClient session={SESSION_INTERNA} />);
-    expect(
-      (await screen.findAllByRole("button", { name: /Control Room/i })).length,
-    ).toBeGreaterThan(0);
-    expect(screen.getAllByText(/interno/i).length).toBeGreaterThan(0);
+    await screen.findAllByRole("button", { name: /Inicio/i });
+    expect(screen.queryByText(/Dona Control Room/i)).not.toBeInTheDocument();
+    window.history.replaceState(null, "", "/dashboard");
+  });
+
+  it("Integraciones no ofrece WhatsApp (integración opcional apagada)", async () => {
+    window.history.replaceState(null, "", "/dashboard?s=integraciones");
+    render(<DashboardClient session={SESSION} />);
+    expect((await screen.findAllByText(/Gmail/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/WhatsApp/i)).not.toBeInTheDocument();
+    // "Conectar" no finge: está deshabilitado y explica por qué.
+    for (const boton of screen.getAllByRole("button", { name: "Conectar" })) {
+      expect(boton).toBeDisabled();
+      expect(boton).toHaveAttribute("aria-describedby", "conexiones-web-nota");
+    }
+    expect(screen.getByText(/desde la web todavía no está disponible/i)).toBeInTheDocument();
+    window.history.replaceState(null, "", "/dashboard");
   });
 
   it("apaga Acciones y Oportunidades con suscripción cancelada", async () => {
