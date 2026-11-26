@@ -3933,7 +3933,7 @@ async def internal_lista_espera(request: Request):
 
     Body: {"email": "...", "ip": "..."} (ip del visitante, la pone la landing)
     Códigos: 401 firma · 400 email_invalido · 429 demasiados_intentos ·
-    200 {"estado", "nuevo"}.
+    200 {"estado": "en_espera"} siempre (no revela si el correo ya estaba).
     """
     payload = await _verificar_y_parsear_internal(request)
     from agent.lista_espera import servicio as lista_espera

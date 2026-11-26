@@ -12,6 +12,8 @@ Reglas:
     dashboard con una clave propia ("invitacion:<correo>"). Como rotar
     correos lo esquiva, además hay límite por IP y global (limites.py) en
     el alta y en el canje.
+  - Privacidad: el alta responde siempre "en_espera" (no revela si un correo
+    ya estaba o canjeó). Retención, acceso y borrado en privacidad.py.
   - Correos: no se envía nada. El aviso de alta queda detrás de
     LISTA_ESPERA_ENVIO_CORREO_ACTIVO (constante en código: encenderla exige
     PR revisado, como DONA_EN_PAUSA en la landing).
@@ -25,7 +27,7 @@ import os
 import re
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 
 from agent.lista_espera import codigos, limites
 from agent.lista_espera.models import ListaEspera, insert_para
@@ -100,15 +102,22 @@ async def _consumir_limite(ambito: str, ip: str | None) -> None:
 
 
 async def registrar(email: str, origen: str = "web", ip: str | None = None) -> dict:
-    """Alta idempotente. Devuelve {"estado": ..., "nuevo": bool}.
+    """Alta idempotente. Devuelve SIEMPRE {"estado": "en_espera"}.
+
+    La respuesta no distingue correo nuevo, repetido o ya invitado: sería un
+    oráculo para saber si un correo ajeno está en la lista o canjeó una
+    invitación. El estado "invitado" solo se ve al canjear un código.
 
     Lanza EmailInvalido o DemasiadosIntentos (límite por IP o global). El
     límite se cuenta también para correos ya registrados: si no, repetir un
-    correo serviría para sondear estados sin coste.
+    correo serviría para sondear sin coste (p. ej. por tiempos de respuesta).
 
     INSERT ... ON CONFLICT DO NOTHING: dos altas simultáneas del mismo correo
     no chocan con el UNIQUE (antes, SELECT + INSERT daba 500 en PostgreSQL).
+    Cada alta nueva purga las filas que superan la retención (privacidad.py).
     """
+    from agent.lista_espera import privacidad
+
     e = normalizar_email(email)
     await _consumir_limite("alta", ip)
     origen = origen if origen in _ORIGENES else "web"
@@ -121,15 +130,11 @@ async def registrar(email: str, origen: str = "web", ip: str | None = None) -> d
             .returning(ListaEspera.id)
         )
         nuevo = creada.scalar_one_or_none() is not None
-        estado = "en_espera"
-        if not nuevo:
-            estado = (
-                await session.execute(select(ListaEspera.estado).where(ListaEspera.email == e))
-            ).scalar_one()
         await session.commit()
     if nuevo:
+        await privacidad.purgar_vencidos()
         await _notificar_alta(e, "en_espera")
-    return {"estado": estado, "nuevo": nuevo}
+    return {"estado": "en_espera"}
 
 
 async def canjear_invitacion(email: str, codigo: str, ip: str | None = None) -> dict:
