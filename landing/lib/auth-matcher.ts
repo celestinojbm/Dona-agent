@@ -65,7 +65,7 @@ export interface AuthMatch {
   /**
    * Siempre false desde v4 (sin recovery cross-customer). Tipado como
    * literal para que reintroducir un recovery obligue a cambiar el contrato
-   * a propósito. Se conserva para no tocar el caller (landing/auth.ts).
+   * a propósito. auth.ts no lo lee; los tests lo usan como invariante.
    */
   recovery: false;
   /** Customer cuyo password validó · desde v4 siempre igual a `customer.id`. */

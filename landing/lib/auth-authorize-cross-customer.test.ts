@@ -13,6 +13,8 @@
 //   - ningún camino de auth.ts consulta la sub del customer de la víctima.
 
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 
@@ -139,6 +141,24 @@ describe("auth.ts · authorize sin recovery cross-customer (issue #345)", () => 
       plan: "price_sub_VIC",
     });
     expect(recordLoginAttempt).toHaveBeenCalledWith(EMAIL, true);
+  });
+
+  it("un login correcto no emite avisos y auth.ts no ramifica sobre `recovery`", async () => {
+    customersByEmail[EMAIL] = [customer("cus_VIC", EMAIL)];
+    subsByCustomer.cus_VIC = [sub("sub_VIC", "cus_VIC", "active")];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(await authorize!({ email: EMAIL, password: derivar("cus_VIC") })).toMatchObject({
+      stripeCustomerId: "cus_VIC",
+    });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+
+    // El matcher ya no tiene recovery (siempre `recovery: false`): una rama o
+    // un comentario en auth.ts que hable de él sería código muerto o falso.
+    const fuente = fs.readFileSync(path.join(__dirname, "..", "auth.ts"), "utf8");
+    expect(fuente).not.toMatch(/match\.recovery|passwordOwnerCustomerId/);
+    expect(fuente).not.toMatch(/también autoriza/);
   });
 
   it("caso legítimo del incidente original (password viejo de cus_OLD, sub en cus_NEW) falla cerrado", async () => {

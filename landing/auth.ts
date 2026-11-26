@@ -49,11 +49,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null;
         }
 
-        // Itera TODOS los customers con ese email · admite subs en
-        // active/trialing/past_due · si el password coincide con un
-        // customer del email pero la sub está en otro (caso recovery
-        // cross-customer), también autoriza. Lógica completa y
-        // testeable en lib/auth-matcher.ts.
+        // Itera TODOS los customers con ese email y admite subs en
+        // active/trialing/past_due, pero solo con match exacto: la sesión es
+        // la del MISMO customer cuyo password derivado coincidió y que tiene
+        // la sub válida. No hay recovery cross-customer (issue #345): si el
+        // password es de un customer sin sub válida, el login falla aunque
+        // otro customer del mismo email tenga sub. Lógica y tests en
+        // lib/auth-matcher.ts.
         const stripe = getStripe();
         const match = await encontrarCustomerConSub(email, password, {
           customers: stripe.customers,
@@ -70,18 +72,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         // Éxito → resetea el contador de lockout del email.
         await recordLoginAttempt(email, true);
-
-        // Log estructurado sin PII para correlacionar el patrón de
-        // recovery en producción. NO logueamos email ni password.
-        if (match.recovery) {
-          const shortSub = match.subscription.id.slice(0, 8) + "...";
-          const shortCus = match.customer.id.slice(0, 8) + "...";
-          const shortPwd = match.passwordOwnerCustomerId.slice(0, 8) + "...";
-          console.warn(
-            `[AUTH] recovery cross-customer · sub=${shortSub} ` +
-              `dashboard_customer=${shortCus} password_customer=${shortPwd}`,
-          );
-        }
 
         return {
           id: match.customer.id,
