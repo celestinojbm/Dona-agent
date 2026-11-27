@@ -34,7 +34,8 @@ _PG_URL = os.getenv("DONA_TEST_POSTGRES_URL")
 _HOSTS_LOCALES = {"localhost", "127.0.0.1", "::1"}
 _RAIZ = Path(__file__).resolve().parents[1]
 _ROLES_NAVEGADOR = ("anon", "authenticated")
-_PRIVILEGIOS = ("SELECT", "INSERT", "UPDATE", "DELETE")
+# Todos los privilegios de tabla: REVOKE ALL debe quitarlos todos (TRUNCATE incluido).
+_PRIVILEGIOS = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
 
 try:
     import psycopg2  # type: ignore  # noqa: F401
