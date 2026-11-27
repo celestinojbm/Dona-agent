@@ -60,3 +60,11 @@ jobs:
 
       - name: Verificar cadena Alembic (head único + upgrade/downgrade efímero)
         run: python scripts/ci_alembic_check.py
+
+      # 010/011 (lista de espera): upgrade/downgrade paso a paso, RLS y REVOKE con
+      # los roles anon/authenticated creados, e idempotencia frente a create_all.
+      # Cada test crea y borra su propia BD dentro de este Postgres efímero.
+      - name: Migraciones 010/011 de lista de espera (Postgres real)
+        env:
+          DONA_TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/dona_ci
+        run: python -m pytest tests/test_migraciones_lista_espera_pg.py -v -rs -p no:cacheprovider
