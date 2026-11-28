@@ -1,7 +1,7 @@
 """Lista de espera e invitaciones (Fase 1 · issue #334).
 
-Backend-only: RLS + revoke de anon/authenticated (sólo PostgreSQL). Un
-correo por fila (UNIQUE).
+Backend-only: RLS + revoke de anon/authenticated sobre la tabla y sobre la
+secuencia de su id (sólo PostgreSQL). Un correo por fila (UNIQUE).
 
 IDEMPOTENTE: el backend crea la tabla con create_all al arrancar, así que este
 upgrade comprueba la existencia antes de crearla. El habilitado de RLS es
@@ -52,6 +52,24 @@ def upgrade() -> None:
             "  END IF;\n"
             "  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN\n"
             f"    EXECUTE 'REVOKE ALL ON TABLE \"{_TABLA}\" FROM authenticated';\n"
+            "  END IF;\n"
+            "END\n$$;"
+        )
+        # REVOKE ALL ON TABLE no toca la secuencia del id (SERIAL). Con los
+        # grants por defecto de Supabase, anon/authenticated conservarían
+        # USAGE/SELECT/UPDATE: leer last_value (cuántas altas hay) o hacer
+        # setval al máximo y romper toda alta nueva. pg_get_serial_sequence
+        # devuelve el nombre ya cualificado y entrecomillado (o NULL).
+        op.execute(
+            "DO $$\nDECLARE\n"
+            f"  seq text := pg_get_serial_sequence('\"{_TABLA}\"', 'id');\n"
+            "BEGIN\n"
+            "  IF seq IS NULL THEN RETURN; END IF;\n"
+            "  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN\n"
+            "    EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM anon', seq);\n"
+            "  END IF;\n"
+            "  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN\n"
+            "    EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM authenticated', seq);\n"
             "  END IF;\n"
             "END\n$$;"
         )
