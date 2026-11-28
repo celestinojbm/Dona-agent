@@ -72,6 +72,17 @@ describe.each(paginas)("página %s en pausa", (_ruta, Pagina) => {
   });
 });
 
+describe("inicio público", () => {
+  it("mantiene el h1, el aviso y la atribución de React Bits", () => {
+    render(Home());
+    expect(screen.getByRole("heading", { level: 1, name: "Dona está en pausa" })).toBeInTheDocument();
+    expect(screen.getByText(AVISO)).toBeInTheDocument();
+    expect(
+      screen.getByText("Animación con React Bits de David Haz, licencia MIT con Commons Clause."),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("páginas con lógica específica", () => {
   it("success no afirma que se haya realizado un pago", () => {
     render(SuccessPage());

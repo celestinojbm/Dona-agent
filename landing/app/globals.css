@@ -470,6 +470,11 @@ button.surface-card:disabled:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .inicio-publico [data-piece] {
+    opacity: 1 !important;
+    filter: none !important;
+    transform: none !important;
+  }
   .btn-primary:hover,
   .btn-ghost:hover,
   .btn-inverse:hover,
