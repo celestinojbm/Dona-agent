@@ -853,8 +853,13 @@ export default function PanelClient({ roadmap }: { roadmap: Roadmap }) {
   }, [router]);
 
   useEffect(() => {
-    cargar();
-    const id = setInterval(cargar, POLL_MS);
+    const id = setInterval(() => {
+      void cargar();
+    }, POLL_MS);
+    // set-state-in-effect: el setState de la carga no va en el cuerpo síncrono.
+    queueMicrotask(() => {
+      void cargar();
+    });
     return () => clearInterval(id);
   }, [cargar]);
 
