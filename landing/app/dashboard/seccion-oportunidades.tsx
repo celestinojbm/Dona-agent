@@ -84,10 +84,11 @@ export default function SeccionOportunidades() {
   }, []);
 
   useEffect(() => {
-    setLoad({ status: "loading" });
-    void fetchOportunidades();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // set-state-in-effect: el setState del fetch no va en el cuerpo síncrono.
+    queueMicrotask(() => {
+      void fetchOportunidades();
+    });
+  }, [fetchOportunidades]);
 
   const data = load.status === "ready" ? load.data : null;
   const oportunidades = data?.oportunidades ?? [];

@@ -1,19 +1,22 @@
 "use client";
 
 // Toggle claro/oscuro (next-themes). Ícono sol/luna, estilo del sistema v7.
-// El guard `mounted` evita el desajuste de hidratación (el tema real solo se
-// conoce en cliente).
+// El tema real solo se conoce en cliente; el snapshot de useSyncExternalStore
+// evita el desajuste de hidratación.
 
-import * as React from "react";
+import { useSyncExternalStore } from "react";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { cn } from "@/lib/utils";
 
+const suscribirNada = () => () => {};
+
 export function ThemeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = React.useState(false);
-  React.useEffect(() => setMounted(true), []);
+  // En el servidor el tema aún no existe; en el cliente sí. Evita el
+  // desajuste de hidratación sin un setState dentro de un efecto.
+  const mounted = useSyncExternalStore(suscribirNada, () => true, () => false);
   const isDark = resolvedTheme === "dark";
 
   return (

@@ -59,8 +59,7 @@ export default function SeccionAnalitica({
     historicas: number;
   } | null>(null);
 
-  const fetchTodo = useCallback(async () => {
-    setReportes({ status: "loading" });
+  const pedirReportes = useCallback(async () => {
     try {
       const [resMes, resSemana] = await Promise.all([
         fetch("/api/reportes?periodo=mes", { cache: "no-store" }),
@@ -81,8 +80,16 @@ export default function SeccionAnalitica({
     }
   }, []);
 
+  const fetchTodo = useCallback(async () => {
+    setReportes({ status: "loading" });
+    await pedirReportes();
+  }, [pedirReportes]);
+
   useEffect(() => {
-    void fetchTodo();
+    // set-state-in-effect: el setState del fetch no va en el cuerpo síncrono.
+    queueMicrotask(() => {
+      void pedirReportes();
+    });
     // Conteo de acciones (best-effort; el bloque se oculta si falla).
     let cancelado = false;
     (async () => {
@@ -108,8 +115,7 @@ export default function SeccionAnalitica({
     return () => {
       cancelado = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pedirReportes]);
 
   const mes = reportes.status === "ready" ? reportes.mes : null;
   const semana = reportes.status === "ready" ? reportes.semana : null;

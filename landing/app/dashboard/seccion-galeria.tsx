@@ -85,10 +85,11 @@ export default function SeccionGaleria() {
   }, []);
 
   useEffect(() => {
-    setLoad({ status: "loading" });
-    void fetchAssets();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // set-state-in-effect: el setState del fetch no va en el cuerpo síncrono.
+    queueMicrotask(() => {
+      void fetchAssets();
+    });
+  }, [fetchAssets]);
 
   const data = load.status === "ready" ? load.data : null;
   const assets = data?.assets ?? [];

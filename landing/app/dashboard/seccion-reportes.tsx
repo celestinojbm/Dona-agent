@@ -46,8 +46,7 @@ export default function SeccionReportes() {
   const [periodo, setPeriodo] = useState<PeriodoReporte>("mes");
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
 
-  const fetchReporte = useCallback(async (p: PeriodoReporte) => {
-    setLoad({ status: "loading" });
+  const pedirReporte = useCallback(async (p: PeriodoReporte) => {
     try {
       const res = await fetch(`/api/reportes?periodo=${p}`, {
         cache: "no-store",
@@ -63,10 +62,20 @@ export default function SeccionReportes() {
     }
   }, []);
 
+  const fetchReporte = useCallback(
+    async (p: PeriodoReporte) => {
+      setLoad({ status: "loading" });
+      await pedirReporte(p);
+    },
+    [pedirReporte],
+  );
+
   useEffect(() => {
-    void fetchReporte(periodo);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periodo]);
+    // set-state-in-effect: el setState del fetch no va en el cuerpo síncrono.
+    queueMicrotask(() => {
+      void pedirReporte(periodo);
+    });
+  }, [periodo, pedirReporte]);
 
   const reporte = load.status === "ready" ? load.reporte : null;
   const comparacion = reporte?.comparacion_semana_previa ?? null;
@@ -92,7 +101,11 @@ export default function SeccionReportes() {
           {(["mes", "semana"] as const).map((p) => (
             <button
               key={p}
-              onClick={() => setPeriodo(p)}
+              onClick={() => {
+                if (p === periodo) return;
+                setLoad({ status: "loading" });
+                setPeriodo(p);
+              }}
               disabled={load.status === "loading"}
               className={`px-5 py-1.5 rounded-full text-sm transition-colors disabled:cursor-not-allowed ${
                 periodo === p

@@ -59,7 +59,6 @@ interface PerfilDiagInfo {
 }
 
 type LoadState =
-  | { status: "idle" }
   | { status: "loading" }
   | { status: "ready"; data: AccionesData }
   | { status: "error"; code: string };
@@ -193,7 +192,7 @@ function safeParseJson(s: string): Record<string, unknown> | null {
 }
 
 export default function SeccionActionCenter() {
-  const [load, setLoad] = useState<LoadState>({ status: "idle" });
+  const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [generando, setGenerando] = useState(false);
   const [accionEnCurso, setAccionEnCurso] = useState<number | null>(null);
   // Hotfix: cuando 'Generar acciones' devuelve 0 acciones, el backend
@@ -224,10 +223,11 @@ export default function SeccionActionCenter() {
   }, []);
 
   useEffect(() => {
-    setLoad({ status: "loading" });
-    void fetchAcciones();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // set-state-in-effect: el setState del fetch no va en el cuerpo síncrono.
+    queueMicrotask(() => {
+      void fetchAcciones();
+    });
+  }, [fetchAcciones]);
 
   async function handleGenerar() {
     setGenerando(true);
