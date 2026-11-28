@@ -20,8 +20,10 @@ class ListaEspera(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
-    estado: Mapped[str] = mapped_column(String(20), default="en_espera")
-    origen: Mapped[str] = mapped_column(String(30), default="web")
+    # server_default igual que en la migración 010: en prod las tablas las crea
+    # create_all, no Alembic, y ambos caminos deben dejar el mismo esquema.
+    estado: Mapped[str] = mapped_column(String(20), default="en_espera", server_default="en_espera")
+    origen: Mapped[str] = mapped_column(String(30), default="web", server_default="web")
     creado: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     invitado_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

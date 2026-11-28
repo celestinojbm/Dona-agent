@@ -26,6 +26,7 @@ import os
 import subprocess
 import sys
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -65,8 +66,8 @@ def _url_async(url) -> str:
     return url.set(drivername="postgresql+asyncpg").render_as_string(hide_password=False)
 
 
-@pytest.fixture
-def bd():
+@contextmanager
+def _bd_temporal():
     """Base de datos temporal en el servidor local; se borra al terminar."""
     base = make_url(_PG_URL)
     if base.host not in _HOSTS_LOCALES:
@@ -105,6 +106,12 @@ def bd():
         with admin.connect() as c:
             c.execute(sa.text(f'DROP DATABASE IF EXISTS "{nombre}" WITH (FORCE)'))
         admin.dispose()
+
+
+@pytest.fixture
+def bd():
+    with _bd_temporal() as par:
+        yield par
 
 
 def _alembic(url, *args: str) -> None:
@@ -219,13 +226,16 @@ def test_upgrade_paso_a_paso_009_010_011(bd):
     with motor.begin() as c:
         estado, origen = c.execute(
             sa.text(
-                "INSERT INTO lista_espera (email) VALUES ('uno@example.com') RETURNING estado, origen"
+                "INSERT INTO lista_espera (email, creado) VALUES ('uno@example.com', now()) "
+                "RETURNING estado, origen"
             )
         ).one()
     assert (estado, origen) == ("en_espera", "web")
     with pytest.raises(sa.exc.IntegrityError):
         with motor.begin() as c:
-            c.execute(sa.text("INSERT INTO lista_espera (email) VALUES ('uno@example.com')"))
+            c.execute(
+                sa.text("INSERT INTO lista_espera (email, creado) VALUES ('uno@example.com', now())")
+            )
 
     _alembic(url, "upgrade", "011_lista_espera_limite")
     assert _version(motor) == "011_lista_espera_limite"
@@ -247,7 +257,9 @@ def test_downgrade_011_010_y_reupgrade(bd):
     url, motor = bd
     _alembic(url, "upgrade", "011_lista_espera_limite")
     with motor.begin() as c:
-        c.execute(sa.text("INSERT INTO lista_espera (email) VALUES ('dos@example.com')"))
+        c.execute(
+            sa.text("INSERT INTO lista_espera (email, creado) VALUES ('dos@example.com', now())")
+        )
         c.execute(
             sa.text(
                 "INSERT INTO lista_espera_limite (clave, expira_en) VALUES ('canje:ip:y:1', now())"
@@ -294,3 +306,36 @@ def test_upgrade_idempotente_si_create_all_ya_creo_las_tablas(bd):
     assert _version(motor) == "011_lista_espera_limite"
     _assert_esquema_lista_espera(motor)
     _assert_esquema_limite(motor)
+
+
+def _columnas(motor, tabla: str) -> list[tuple]:
+    with motor.connect() as c:
+        return c.execute(
+            sa.text(
+                "SELECT column_name, data_type, character_maximum_length, is_nullable, "
+                "column_default FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = :t ORDER BY column_name"
+            ),
+            {"t": tabla},
+        ).all()
+
+
+def test_alembic_y_create_all_dejan_el_mismo_esquema(bd):
+    """En prod las tablas las crea create_all (el backend no corre Alembic).
+    Modelo y migración deben producir las mismas columnas: tipos, nulabilidad
+    y defaults en la BD. Antes divergían: create_all no ponía los defaults de
+    estado/origen/conteo y la migración dejaba ``creado`` nullable."""
+    from agent.lista_espera.limites import ListaEsperaLimite
+    from agent.lista_espera.models import ListaEspera
+
+    url, motor = bd
+    _alembic(url, "upgrade", "011_lista_espera_limite")
+    with _bd_temporal() as (_, motor_create_all):
+        ListaEspera.__table__.create(motor_create_all)
+        ListaEsperaLimite.__table__.create(motor_create_all)
+        for tabla in ("lista_espera", "lista_espera_limite"):
+            assert _columnas(motor, tabla) == _columnas(motor_create_all, tabla), tabla
+
+    with pytest.raises(sa.exc.IntegrityError):  # creado NOT NULL: si no, escapa a la retención
+        with motor.begin() as c:
+            c.execute(sa.text("INSERT INTO lista_espera (email) VALUES ('tres@example.com')"))

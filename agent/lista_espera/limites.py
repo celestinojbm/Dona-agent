@@ -84,7 +84,7 @@ class ListaEsperaLimite(Base):
 
     # "<ámbito>:<ip|global>:<sujeto>:<índice de ventana>" · sin PII.
     clave: Mapped[str] = mapped_column(String(120), primary_key=True)
-    conteo: Mapped[int] = mapped_column(Integer, default=0)
+    conteo: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # = migración 011
     expira_en: Mapped[datetime] = mapped_column(DateTime, index=True)
 
 

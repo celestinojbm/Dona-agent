@@ -36,7 +36,9 @@ def upgrade() -> None:
             sa.Column("email", sa.String(length=254), nullable=False),
             sa.Column("estado", sa.String(length=20), nullable=False, server_default="en_espera"),
             sa.Column("origen", sa.String(length=30), nullable=False, server_default="web"),
-            sa.Column("creado", sa.DateTime(), nullable=True),
+            # NOT NULL como el modelo: una fila sin ``creado`` escaparía a la
+            # retención de 365 días (privacidad.purgar_vencidos compara creado < límite).
+            sa.Column("creado", sa.DateTime(), nullable=False),
             sa.Column("invitado_en", sa.DateTime(), nullable=True),
         )
         op.create_index(f"ix_{_TABLA}_email", _TABLA, ["email"], unique=True)
