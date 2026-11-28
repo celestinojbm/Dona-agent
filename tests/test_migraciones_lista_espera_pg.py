@@ -9,7 +9,8 @@ check no ve:
 - upgrade paso a paso 009 → 010 → 011 y el esquema resultante (índices,
   defaults, UNIQUE del correo);
 - RLS habilitado y privilegios revocados a los roles del navegador, con los
-  roles creados y con grants por defecto al estilo Supabase;
+  roles creados y con grants por defecto al estilo Supabase, también sobre las
+  secuencias de la tabla (``REVOKE ALL ON TABLE`` no las toca);
 - downgrade 011 → 010 → 009 (010 conserva sus filas al bajar 011) y re-upgrade;
 - idempotencia: el backend crea las tablas con ``create_all`` al arrancar, así
   que el upgrade debe pasar si las tablas ya existen y aun así aplicar RLS.
@@ -37,6 +38,9 @@ _RAIZ = Path(__file__).resolve().parents[1]
 _ROLES_NAVEGADOR = ("anon", "authenticated")
 # Todos los privilegios de tabla: REVOKE ALL debe quitarlos todos (TRUNCATE incluido).
 _PRIVILEGIOS = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
+# Todos los privilegios de secuencia: con UPDATE un rol puede hacer setval y
+# agotar el id (los INSERT del backend fallan); con SELECT lee cuántas altas hay.
+_PRIVILEGIOS_SECUENCIA = ("USAGE", "SELECT", "UPDATE")
 
 try:
     import psycopg2  # type: ignore  # noqa: F401
@@ -90,15 +94,17 @@ def _bd_temporal():
     url = base.set(database=nombre)
     motor = sa.create_engine(_url_sync(url))
     # Como en Supabase: los roles del navegador reciben grants sobre toda tabla
-    # nueva del esquema public. Sin el REVOKE de la migración conservarían acceso.
+    # y secuencia nueva del esquema public. Sin el REVOKE de la migración
+    # conservarían acceso.
     with motor.begin() as c:
         c.execute(sa.text("GRANT USAGE ON SCHEMA public TO anon, authenticated"))
-        c.execute(
-            sa.text(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
-                "GRANT ALL ON TABLES TO anon, authenticated"
+        for objetos in ("TABLES", "SEQUENCES"):
+            c.execute(
+                sa.text(
+                    "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+                    f"GRANT ALL ON {objetos} TO anon, authenticated"
+                )
             )
-        )
     try:
         yield url, motor
     finally:
@@ -171,6 +177,43 @@ def _privilegios_navegador(motor, tabla: str) -> dict[str, list[str]]:
     return resultado
 
 
+def _secuencias(motor, tabla: str) -> list[str]:
+    """Secuencias que dependen de la tabla (SERIAL o IDENTITY), cualificadas."""
+    with motor.connect() as c:
+        return (
+            c.execute(
+                sa.text(
+                    "SELECT s.oid::regclass::text FROM pg_class s "
+                    "JOIN pg_depend d ON d.objid = s.oid AND d.classid = 'pg_class'::regclass "
+                    "WHERE s.relkind = 'S' AND d.refobjid = to_regclass(:t) "
+                    "AND d.deptype IN ('a', 'i') ORDER BY 1"
+                ),
+                {"t": f"public.{tabla}"},
+            )
+            .scalars()
+            .all()
+        )
+
+
+def _privilegios_secuencias_navegador(motor, tabla: str) -> dict[str, dict[str, list[str]]]:
+    """Privilegios que conserva cada rol del navegador sobre cada secuencia de la tabla."""
+    resultado: dict[str, dict[str, list[str]]] = {}
+    with motor.connect() as c:
+        for secuencia in _secuencias(motor, tabla):
+            resultado[secuencia] = {
+                rol: [
+                    p
+                    for p in _PRIVILEGIOS_SECUENCIA
+                    if c.execute(
+                        sa.text("SELECT has_sequence_privilege(:r, :s, :p)"),
+                        {"r": rol, "s": secuencia, "p": p},
+                    ).scalar_one()
+                ]
+                for rol in _ROLES_NAVEGADOR
+            }
+    return resultado
+
+
 def _indices(motor, tabla: str) -> dict[str, str]:
     with motor.connect() as c:
         filas = c.execute(
@@ -187,6 +230,11 @@ def _assert_backend_only(motor, tabla: str) -> None:
     restantes = _privilegios_navegador(motor, tabla)
     assert restantes == {rol: [] for rol in _ROLES_NAVEGADOR}, (
         f"Los roles del navegador conservan privilegios sobre {tabla}: {restantes}"
+    )
+    en_secuencias = _privilegios_secuencias_navegador(motor, tabla)
+    assert all(roles == {rol: [] for rol in _ROLES_NAVEGADOR} for roles in en_secuencias.values()), (
+        f"Los roles del navegador conservan privilegios sobre las secuencias de {tabla}: "
+        f"{en_secuencias}"
     )
 
 
@@ -222,6 +270,8 @@ def test_upgrade_paso_a_paso_009_010_011(bd):
     assert _existe(motor, "lista_espera")
     assert not _existe(motor, "lista_espera_limite")
     _assert_esquema_lista_espera(motor)
+    # El id es SERIAL: la secuencia existe y _assert_backend_only la cubrió.
+    assert _secuencias(motor, "lista_espera") == ["lista_espera_id_seq"]
 
     with motor.begin() as c:
         estado, origen = c.execute(
@@ -241,6 +291,8 @@ def test_upgrade_paso_a_paso_009_010_011(bd):
     assert _version(motor) == "011_lista_espera_limite"
     assert _existe(motor, "lista_espera_limite")
     _assert_esquema_limite(motor)
+    # PK de texto: sin secuencia. Si algún día gana una, _assert_backend_only la vigila.
+    assert _secuencias(motor, "lista_espera_limite") == []
     with motor.begin() as c:
         conteo = c.execute(
             sa.text(
@@ -300,6 +352,9 @@ def test_upgrade_idempotente_si_create_all_ya_creo_las_tablas(bd):
     ListaEsperaLimite.__table__.create(motor)
     # Con los grants por defecto, create_all deja las tablas abiertas al navegador.
     assert _privilegios_navegador(motor, "lista_espera")["anon"] == list(_PRIVILEGIOS)
+    assert _privilegios_secuencias_navegador(motor, "lista_espera") == {
+        "lista_espera_id_seq": {rol: list(_PRIVILEGIOS_SECUENCIA) for rol in _ROLES_NAVEGADOR}
+    }
     assert not _rls_activo(motor, "lista_espera")
 
     _alembic(url, "upgrade", "011_lista_espera_limite")
@@ -318,6 +373,27 @@ def _columnas(motor, tabla: str) -> list[tuple]:
             ),
             {"t": tabla},
         ).all()
+
+
+def test_rol_navegador_no_puede_leer_ni_mover_la_secuencia(bd):
+    """Comprobación de comportamiento, no sólo de catálogo: como ``anon`` no se
+    puede leer cuántas altas hay (``last_value``) ni mover el contador con
+    ``setval`` (llevarlo al máximo rompe toda alta nueva del backend)."""
+    url, motor = bd
+    _alembic(url, "upgrade", "011_lista_espera_limite")
+    for sentencia in (
+        "SELECT last_value FROM lista_espera_id_seq",
+        "SELECT nextval('lista_espera_id_seq')",
+        "SELECT setval('lista_espera_id_seq', 2147483647)",
+    ):
+        with pytest.raises(sa.exc.ProgrammingError, match="permission denied"):
+            with motor.begin() as c:
+                c.execute(sa.text("SET LOCAL ROLE anon"))
+                c.execute(sa.text(sentencia))
+    with motor.begin() as c:  # el backend (dueño) sigue insertando
+        c.execute(
+            sa.text("INSERT INTO lista_espera (email, creado) VALUES ('cuatro@example.com', now())")
+        )
 
 
 def test_alembic_y_create_all_dejan_el_mismo_esquema(bd):
